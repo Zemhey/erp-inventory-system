@@ -1,0 +1,77 @@
+# ════════════════════════════════════════════════════════════════════════════
+# 本地开发环境依赖（PostgreSQL 16 + Redis + RabbitMQ）
+#
+# 用法：
+#   docker compose -f infra/compose/docker-compose.yml up -d
+#   或直接跑 scripts/dev-up.ps1（Windows）/ scripts/dev-up.sh（Linux/macOS）
+#
+# 注意：本文件只起**依赖服务**；应用本身（Spring Boot）在本地 IDE 或
+#       `./gradlew bootRun` 运行，便于热调试。
+# ════════════════════════════════════════════════════════════════════════════
+name: erp-local
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: erp-postgres
+    environment:
+      POSTGRES_DB: erp
+      POSTGRES_USER: erp
+      POSTGRES_PASSWORD: erp
+      # 中文排序与大小写：显式指定 locale，保证本地与 CI 行为一致
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    ports:
+      - "5432:5432"
+    volumes:
+      - erp-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # ★ 健康检查是"一键起环境"的关键：脚本据此判断真正可用，而不是 sleep 猜
+      test: ["CMD-SHELL", "pg_isready -U erp -d erp"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: erp-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      # ★ 宿主端口用 16379 而非默认 6379。
+      # 原因：本机 Windows 保留了 6281–6380 端口段（netsh 显示为排除范围，由 WSL/Hyper-V 占用），
+      # 6379 落在其中，绑定会报 "access permissions forbidden"。
+      # 容器内仍是 6379，应用连接串需相应改为 16379（见 application.yml 默认值）。
+      - "16379:6379"
+    volumes:
+      - erp-redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: erp-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: erp
+      RABBITMQ_DEFAULT_PASS: erp
+    ports:
+      - "5672:5672"     # AMQP
+      - "15672:15672"   # 管理台
+    volumes:
+      - erp-rabbitdata:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+
+volumes:
+  erp-pgdata:
+  erp-redisdata:
+  erp-rabbitdata:
