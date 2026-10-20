@@ -1,0 +1,208 @@
+name: CI
+
+# ════════════════════════════════════════════════════════════════════════════
+# 持续集成（docs/06-测试策略.md §6）
+#
+# 门禁理念：**主干永远绿**。任何 PR 在这条流水线上红了就不许合并。
+#
+# 触发：
+#   - push（含 main 与任意分支）
+#   - pull_request
+#
+# 当前阶段（M0）已实现：
+#   ✓ 契约校验（OpenAPI 语法 + 关键约束）
+#   ✓ 编译 + 单元/集成测试（Testcontainers 起真 PostgreSQL）
+#   ✓ 覆盖率门禁（JaCoCo）
+#   ✓ 代码索引漂移校验（gen-index --check）
+#
+# 后续里程碑接入（见 docs/00 进度看板）：
+#   ⬜ 契约 diff（实现导出的 OpenAPI 与契约源比对）
+#   ⬜ Playwright Web E2E
+#   ⬜ Android E2E（reactivecircus/android-emulator-runner）
+#   ⬜ 小程序 E2E（需 Windows self-hosted runner，因微信开发者工具依赖 GUI）
+#   ⬜ SonarQube / Trivy
+# ════════════════════════════════════════════════════════════════════════════
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+  workflow_dispatch:
+
+# 同一分支的新推送取消旧运行，节省额度
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ─────────────────────────── 构建与测试 ───────────────────────────
+  build-and-test:
+    name: 构建 · 测试 · 覆盖率
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: 缓存 Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('apps/server/**/*.gradle.kts', 'apps/server/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: 赋予 gradlew 执行权限
+        working-directory: apps/server
+        run: chmod +x ./gradlew
+
+      # Linux 上 Docker 已预装，Testcontainers 可直接用默认发现机制
+      # （Windows 才需要 DOCKER_HOST / IPv4 override，见 build.gradle.kts）
+      - name: 编译
+        working-directory: apps/server
+        run: ./gradlew compileJava compileTestJava --no-daemon
+
+      - name: 单元与集成测试
+        working-directory: apps/server
+        run: ./gradlew test --no-daemon
+
+      - name: 覆盖率报告
+        if: always()
+        working-directory: apps/server
+        run: ./gradlew jacocoTestReport jacocoTestCoverageVerification --no-daemon
+
+      - name: 上传测试报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            apps/server/build/reports/tests/
+            apps/server/build/reports/jacoco/
+          retention-days: 14
+
+      - name: 上传测试结果（供失败诊断）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: apps/server/build/test-results/
+          retention-days: 14
+
+  # ─────────────────────────── 契约校验 ───────────────────────────
+  contract-check:
+    name: 契约校验
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 安装校验工具
+        run: pip install pyyaml
+
+      - name: OpenAPI 语法与结构校验
+        run: |
+          python - <<'PY'
+          import sys, yaml
+
+          path = 'packages/api-contract/openapi.yaml'
+          with open(path, encoding='utf-8') as f:
+              spec = yaml.safe_load(f)
+
+          errors = []
+          if not str(spec.get('openapi', '')).startswith('3.'):
+              errors.append('openapi 版本必须是 3.x')
+          if 'info' not in spec or 'title' not in spec.get('info', {}):
+              errors.append('缺少 info.title')
+          if 'paths' not in spec or not spec['paths']:
+              errors.append('paths 为空')
+
+          ops = 0
+          for p, item in (spec.get('paths') or {}).items():
+              for method, op in item.items():
+                  if method.lower() not in ('get','post','put','patch','delete'):
+                      continue
+                  ops += 1
+                  if 'operationId' not in op:
+                      errors.append(f'{method.upper()} {p} 缺少 operationId')
+                  if not op.get('responses'):
+                      errors.append(f'{method.upper()} {p} 缺少 responses')
+
+          # ★ 契约硬规则：所有写操作必须声明 X-Request-Id 幂等键
+          #   （不变量 INV-9 的契约侧保证，见 docs/05-接口契约规范.md）
+          ref = '#/components/parameters/RequestId'
+          for p, item in (spec.get('paths') or {}).items():
+              post = (item or {}).get('post')
+              if not post:
+                  continue
+              params = post.get('parameters') or []
+              if not any(pr.get('$ref') == ref for pr in params):
+                  errors.append(f'POST {p} 未声明 X-Request-Id 幂等键')
+
+          if errors:
+              print('契约校验失败：')
+              for e in errors:
+                  print('  ✗', e)
+              sys.exit(1)
+
+          print(f'✓ 契约校验通过：{ops} 个操作，{len(spec["paths"])} 个路径')
+          PY
+
+  # ─────────────────────────── 文档/索引漂移 ───────────────────────────
+  index-check:
+    name: 代码索引漂移校验
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+        with:
+          # gen-index --check 用 git diff 判断漂移，需要完整历史
+          fetch-depth: 0
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 赋予脚本执行权限
+        run: chmod +x ./scripts/gen-index.sh
+
+      - name: 重新生成索引并校验是否与提交内容一致
+        run: ./scripts/gen-index.sh --check
+
+  # ─────────────────────────── 汇总门禁 ───────────────────────────
+  gate:
+    name: 门禁汇总
+    needs: [build-and-test, contract-check, index-check]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: 判定
+        run: |
+          echo "build-and-test : ${{ needs.build-and-test.result }}"
+          echo "contract-check : ${{ needs.contract-check.result }}"
+          echo "index-check    : ${{ needs.index-check.result }}"
+          if [ "${{ needs.build-and-test.result }}" != "success" ] \
+             || [ "${{ needs.contract-check.result }}" != "success" ] \
+             || [ "${{ needs.index-check.result }}" != "success" ]; then
+            echo "✗ 门禁未通过，禁止合并"
+            exit 1
+          fi
+          echo "✓ 全部门禁通过"
