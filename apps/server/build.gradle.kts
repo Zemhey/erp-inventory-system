@@ -142,8 +142,23 @@ tasks.jacocoTestReport {
 }
 
 /**
- * 覆盖率门禁。M0 阶段只覆盖一条纵向切片，阈值先设低，
- * 随 M1 功能落地逐步提高（见 docs/06-测试策略.md）。
+ * 覆盖率门禁（计划书 §4.3、S8）。
+ *
+ * <p>M0 阶段只覆盖一条纵向切片，阈值设为行 30% / 分支未设。
+ * M1 完成主数据 + 进货 + 出货 + IAM 后，据实提升到：
+ * <ul>
+ *   <li>行覆盖 ≥ 60%（实测 73.4%）</li>
+ *   <li>分支覆盖 ≥ 50%（实测 52.0%）</li>
+ * </ul>
+ *
+ * <p><b>为什么阈值要留在实测值下方而不是贴着实测值</b>：
+ * 贴着实测值（比如行 73）会让任何一次无关的代码增删都触发构建失败，
+ * 逼人为了"凑覆盖率"去写无意义的断言 —— 那是拿测试数据蒙混门禁。
+ * 门禁的作用是<b>防止大幅倒退</b>，不是精确锁定当前数字。
+ *
+ * <p>为什么必须同时设分支：只有行覆盖时，一个 {@code if} 只测了 true 分支，
+ * 行覆盖依然很高（那一行确实执行了），但 false 分支的 bug 完全测不到。
+ * M1 开发中多次出现"数字对、记录错"的缺陷，正是分支没走到。
  */
 tasks.jacocoTestCoverageVerification {
     dependsOn(tasks.jacocoTestReport)
@@ -152,7 +167,12 @@ tasks.jacocoTestCoverageVerification {
             limit {
                 counter = "LINE"
                 value = "COVEREDRATIO"
-                minimum = "0.30".toBigDecimal()
+                minimum = "0.60".toBigDecimal()
+            }
+            limit {
+                counter = "BRANCH"
+                value = "COVEREDRATIO"
+                minimum = "0.50".toBigDecimal()
             }
         }
     }

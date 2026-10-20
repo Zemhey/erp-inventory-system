@@ -10,9 +10,13 @@ import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestHeaderException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 /**
  * 全局异常 → 契约化错误响应（docs/05-接口契约规范.md §3、§4）。
@@ -51,6 +55,57 @@ public class GlobalExceptionHandler {
                 .orElse("参数校验失败");
         return ResponseEntity.badRequest().body(body(
                 ErrorCode.SYS_VALIDATION_ERROR.name(), detail, null, traceId));
+    }
+
+    /**
+     * 缺少必需的请求头（最典型的是缺少幂等键 {@code X-Request-Id}）。
+     *
+     * <p><b>为什么必须单独处理</b>（M1 契约测试捕获的真实缺陷）：
+     * 契约规定所有写操作必须携带 {@code X-Request-Id}。若客户端漏传，
+     * Spring 抛 {@link MissingRequestHeaderException}，而它不继承
+     * {@code MethodArgumentNotValidException}，于是落到兜底的 {@code Exception} 分支，
+     * 返回 <b>500 服务器内部错误</b>。
+     *
+     * <p>这是明显的归因错误：客户端漏传参数被报成"服务器坏了"，
+     * 既误导前端排查方向，也污染服务端告警与错误率监控。
+     * 正确语义是 400 + 可编程判断的 {@code SYS_VALIDATION_ERROR}。
+     */
+    @ExceptionHandler(MissingRequestHeaderException.class)
+    public ResponseEntity<Map<String, Object>> handleMissingHeader(MissingRequestHeaderException ex,
+                                                                   HttpServletRequest request) {
+        String traceId = traceId(request);
+        return ResponseEntity.badRequest().body(body(ErrorCode.SYS_VALIDATION_ERROR.name(),
+                "缺少必需的请求头：%s（写操作必须携带幂等键）".formatted(ex.getHeaderName()),
+                null, traceId));
+    }
+
+    /**
+     * 请求体缺失或 JSON 无法解析。
+     *
+     * <p>同样是"客户端问题"被兜底成 500 的典型场景：body 写错一个括号，
+     * 前端看到"服务器内部错误"会去找后端的麻烦。
+     */
+    @ExceptionHandler({HttpMessageNotReadableException.class, MissingServletRequestParameterException.class})
+    public ResponseEntity<Map<String, Object>> handleBadRequest(Exception ex,
+                                                                HttpServletRequest request) {
+        String traceId = traceId(request);
+        log.debug("请求无法解析 {} {} traceId={}", request.getMethod(), request.getRequestURI(),
+                traceId, ex);
+        return ResponseEntity.badRequest().body(body(ErrorCode.SYS_VALIDATION_ERROR.name(),
+                "请求格式错误：无法解析请求体或缺少必需参数", null, traceId));
+    }
+
+    /**
+     * 路径/查询参数类型不匹配（例如 {@code /products/abc} 期望 long）。
+     */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<Map<String, Object>> handleTypeMismatch(MethodArgumentTypeMismatchException ex,
+                                                                  HttpServletRequest request) {
+        String traceId = traceId(request);
+        return ResponseEntity.badRequest().body(body(ErrorCode.SYS_VALIDATION_ERROR.name(),
+                "参数类型错误：%s 期望 %s".formatted(ex.getName(),
+                        ex.getRequiredType() == null ? "未知" : ex.getRequiredType().getSimpleName()),
+                null, traceId));
     }
 
     @ExceptionHandler(Exception.class)
