@@ -184,35 +184,40 @@ gen_test_map() {
 gen_coverage() {
   local out="$INDEX_DIR/coverage-map.md"
   local jacoco="$SERVER_DIR/build/reports/jacoco/test/jacocoTestReport.xml"
+
+  # ★ 与 deps.json 同理：覆盖率报告是"测试运行的副产品"，
+  #   没有它就不应生成产物 —— 否则"有报告的机器"与"没报告的机器"
+  #   会产出不同内容，让 index-check 产生假警报（CI 上真实踩过）。
+  if [ ! -f "$jacoco" ]; then
+    echo "  ⊘ coverage-map.md（跳过：无 JaCoCo 报告；先跑 ./gradlew jacocoTestReport）"
+    return 0
+  fi
+
   {
     echo "# 覆盖率索引（自动生成，请勿手写）"
     echo ""
     echo "> 来源：JaCoCo 报告（由 CI 或本地 \`./gradlew jacocoTestReport\` 产出）"
     echo ""
+    echo "| 指标 | 覆盖 / 总数 | 比例 |"
+    echo "|---|---|---|"
   } > "$out"
 
-  if [ -f "$jacoco" ]; then
-    echo "| 指标 | 覆盖 / 总数 | 比例 |" >> "$out"
-    echo "|---|---|---|" >> "$out"
-    # ★ 关键：JaCoCo 导出的 XML **整个文件是一行**（无换行）。
-    #   因此不能用 awk 按行匹配（那样只会命中第一个 counter，误报成某个类的覆盖率）。
-    #   正确做法：grep -o 抽出全部该类型的 counter，取**最后一个** ——
-    #   报告级总计在 <report> 收尾处，是文件中该类型的最后一次出现。
-    for t in LINE BRANCH; do
-      last=$(grep -o "<counter type=\"$t\"[^>]*/>" "$jacoco" | tail -1)
-      [ -n "$last" ] || continue
-      missed=$(printf '%s' "$last" | sed -n 's/.*missed="\([0-9]*\)".*/\1/p')
-      covered=$(printf '%s' "$last" | sed -n 's/.*covered="\([0-9]*\)".*/\1/p')
-      total=$((missed + covered))
-      if [ "$t" = "LINE" ]; then label="行覆盖"; else label="分支覆盖"; fi
-      pct=$(awk -v c="$covered" -v t="$total" 'BEGIN{printf "%.1f", (t>0? c*100/t : 0)}')
-      echo "| $label | $covered / $total | ${pct}% |" >> "$out"
-    done
-    echo "" >> "$out"
-    echo "原始报告：\`apps/server/build/reports/jacoco/test/html/index.html\`" >> "$out"
-  else
-    echo "（尚无覆盖率报告。运行 \`cd apps/server && ./gradlew jacocoTestReport\` 后重新生成）" >> "$out"
-  fi
+  # ★ 关键：JaCoCo 导出的 XML **整个文件是一行**（无换行）。
+  #   因此不能用 awk 按行匹配（那样只会命中第一个 counter，误报成某个类的覆盖率）。
+  #   正确做法：grep -o 抽出全部该类型的 counter，取**最后一个** ——
+  #   报告级总计在 <report> 收尾处，是文件中该类型的最后一次出现。
+  for t in LINE BRANCH; do
+    last=$(grep -o "<counter type=\"$t\"[^>]*/>" "$jacoco" | tail -1)
+    [ -n "$last" ] || continue
+    missed=$(printf '%s' "$last" | sed -n 's/.*missed="\([0-9]*\)".*/\1/p')
+    covered=$(printf '%s' "$last" | sed -n 's/.*covered="\([0-9]*\)".*/\1/p')
+    total=$((missed + covered))
+    if [ "$t" = "LINE" ]; then label="行覆盖"; else label="分支覆盖"; fi
+    pct=$(awk -v c="$covered" -v t="$total" 'BEGIN{printf "%.1f", (t>0? c*100/t : 0)}')
+    echo "| $label | $covered / $total | ${pct}% |" >> "$out"
+  done
+  echo "" >> "$out"
+  echo "原始报告：\`apps/server/build/reports/jacoco/test/html/index.html\`" >> "$out"
 
   echo "" >> "$out"
   append_stamp "$out"
@@ -220,27 +225,52 @@ gen_coverage() {
 }
 
 # ─────────────────────────── 5. deps.json ───────────────────────────
+#
+# ★ 设计要点：**缺少前置条件时"跳过"，而不是写占位内容**。
+#
+# 原因（CI 上真实踩过）：本产物需要 JDK + gradlew，而 index-check 的
+# ubuntu runner 默认不装 JDK。早期实现会在缺 JDK 时写入一个占位 JSON，
+# 结果"CI 生成的占位版"与"开发者本地生成的真实版"永远不同，
+# 于是 index-check 必然报漂移 —— 一个假警报。
+#
+# 正确做法：生成不了就不写，并明确打印"已跳过"。这样：
+#   - 产物只由源码决定，任何环境结果一致；
+#   - 需要 deps.json 的场景（本地或装了 JDK 的 CI）仍能正常生成。
 gen_deps() {
   local out="$INDEX_DIR/deps.json"
-  if [ -x "$SERVER_DIR/gradlew" ] && command -v java >/dev/null 2>&1; then
-    # 用 Gradle 导出运行时依赖树，转成 JSON（机器可读，供后续分析）
-    local tree
-    tree="$(cd "$SERVER_DIR" && ./gradlew dependencies --configuration runtimeClasspath -q 2>/dev/null || true)"
-    if [ -n "$tree" ]; then
-      {
-        echo "{"
-        echo "  \"generatedAt\": \"${STAMP}\","
-        echo "  \"configuration\": \"runtimeClasspath\","
-        echo "  \"source\": \"gradle dependencies\","
-        echo "  \"raw\": $(printf '%s' "$tree" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))' 2>/dev/null || echo '""')"
-        echo "}"
-      } > "$out"
-      echo "  ✓ deps.json"
-      return
-    fi
+  if [ "${SKIP_DEPS_INDEX:-0}" = "1" ]; then
+    echo "  ⊘ deps.json（跳过：SKIP_DEPS_INDEX=1）"
+    return 0
   fi
-  printf '{"generatedAt":"%s","note":"需要 JDK 与 gradlew 才能导出依赖树"}\n' "$STAMP" > "$out"
-  echo "  ✓ deps.json（占位，缺 JDK/gradlew）"
+  if [ ! -x "$SERVER_DIR/gradlew" ]; then
+    echo "  ⊘ deps.json（跳过：无 gradlew）"
+    return 0
+  fi
+  if ! command -v java >/dev/null 2>&1; then
+    echo "  ⊘ deps.json（跳过：缺少 JDK，本产物需要 java）"
+    return 0
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "  ⊘ deps.json（跳过：缺少 python3）"
+    return 0
+  fi
+
+  local tree
+  tree="$(cd "$SERVER_DIR" && ./gradlew dependencies --configuration runtimeClasspath -q 2>/dev/null || true)"
+  if [ -z "$tree" ]; then
+    echo "  ⊘ deps.json（跳过：gradle 未返回依赖树）"
+    return 0
+  fi
+
+  {
+    echo "{"
+    echo "  \"generatedAt\": \"${STAMP}\","
+    echo "  \"configuration\": \"runtimeClasspath\","
+    echo "  \"source\": \"gradle dependencies\","
+    echo "  \"raw\": $(printf '%s' "$tree" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))' 2>/dev/null || echo '""')"
+    echo "}"
+  } > "$out"
+  echo "  ✓ deps.json"
 }
 
 # ─────────────────────────── 执行 ───────────────────────────
@@ -251,17 +281,39 @@ gen_coverage
 gen_deps
 
 # ─────────────────────────── --check 模式 ───────────────────────────
+#
+# ★ 只校验"纯由源码决定"的产物。
+#
+# 反面教材（CI 上真实发生）：最初这里对**整个 index/ 目录**做 git diff，
+# 而 deps.json / coverage-map.md 依赖 JDK 与测试报告 ——
+# 没有 JDK 的 runner 生成不出同样内容，于是每次都被判定"索引过期"。
+# 结果是门禁必红 → 门禁失去信任 → 真漂移也拦不住。
+#
+# 现在：只比对由源码/契约唯一确定的三份产物；其余产物由本地开发者
+# 按需生成与提交，不参与 CI 漂移判定。
 if [[ "$CHECK_MODE" == true ]]; then
   echo ""
   echo "--- 校验索引与已提交内容是否一致 ---"
   if command -v git >/dev/null 2>&1 && git -C "$ROOT_DIR" rev-parse --git-dir >/dev/null 2>&1; then
-    if ! git -C "$ROOT_DIR" diff --quiet -- "$INDEX_DIR"; then
-      echo "✗ index/ 与源码不一致（索引已过期）。" >&2
-      echo "  请运行 ./scripts/gen-index.sh 并提交结果。" >&2
-      git -C "$ROOT_DIR" --no-pager diff --stat -- "$INDEX_DIR" >&2
+    CHECKED_FILES=(
+      "index/modules.md"
+      "index/api-map.md"
+      "index/test-map.md"
+    )
+    DRIFT=0
+    for rel in "${CHECKED_FILES[@]}"; do
+      if ! git -C "$ROOT_DIR" diff --quiet -- "$rel"; then
+        echo "✗ 已过期: $rel" >&2
+        DRIFT=1
+      fi
+    done
+    if [ "$DRIFT" -ne 0 ]; then
+      echo "" >&2
+      echo "请运行 ./scripts/gen-index.sh 并提交结果。" >&2
+      git -C "$ROOT_DIR" --no-pager diff --stat -- "${CHECKED_FILES[@]}" >&2
       exit 1
     fi
-    echo "✓ 索引与已提交内容一致"
+    echo "✓ 索引与已提交内容一致（校验 ${#CHECKED_FILES[@]} 份确定性产物）"
   else
     echo "（非 git 仓库，跳过校验）"
   fi

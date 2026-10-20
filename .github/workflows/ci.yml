@@ -164,6 +164,18 @@ jobs:
           PY
 
   # ─────────────────────────── 文档/索引漂移 ───────────────────────────
+  #
+  # ★ 设计说明（CI 上真实踩过一次坑）：
+  #   本 job 的职责是"验证索引与源码一致"，而不是"验证测试通过"
+  #   （后者是 build-and-test 的事）。因此它**只校验那部分可由源码唯一确定的产物**：
+  #     - modules.md  (扫源码目录)
+  #     - api-map.md  (解析 openapi.yaml)
+  #     - test-map.md (扫 @CaseId 注解)
+  #   这三者不依赖 JDK、不依赖测试运行，任何机器结果都一样。
+  #
+  #   coverage-map.md 与 deps.json 依赖 JaCoCo 报告 / JDK 依赖树，
+  #   属于"运行环境副产品"。gen-index.sh 在缺少前置条件时会**跳过**它们
+  #   （而不是写占位内容），从而保证跨环境一致性、不产生假警报。
   index-check:
     name: 代码索引漂移校验
     runs-on: ubuntu-latest
@@ -186,6 +198,9 @@ jobs:
 
       - name: 重新生成索引并校验是否与提交内容一致
         run: ./scripts/gen-index.sh --check
+        env:
+          # 明确不依赖 JDK：若脚本想调用 gradle 会自行跳过并打印 ⊘
+          SKIP_DEPS_INDEX: '1'
 
   # ─────────────────────────── 汇总门禁 ───────────────────────────
   gate:
