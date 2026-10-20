@@ -1,6 +1,7 @@
 package com.erp.support;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -80,32 +81,79 @@ public class TestDataFactory {
     public void truncateAll() {
         jdbc.execute("""
                 TRUNCATE inventory_ledger, inventory_reservations, inventory_balances,
-                         idempotency_keys, skus, products, warehouses
+                         purchase_order_lines, sales_order_lines,
+                         purchase_orders, sales_orders,
+                         document_sequences, idempotency_keys,
+                         skus, products, warehouses, suppliers, customers
                 RESTART IDENTITY CASCADE
                 """);
     }
 
-    public int onHand(long skuId, long warehouseId, String batchNo) {
-        Integer v = jdbc.queryForObject("""
-                SELECT on_hand_qty FROM inventory_balances
+    public long supplier(String code) {
+        jdbc.update("""
+                INSERT INTO suppliers (code, name) VALUES (?, ?)
+                ON CONFLICT (code) DO NOTHING
+                """, code, "测试供应商-" + code);
+        return jdbc.queryForObject("SELECT id FROM suppliers WHERE code = ?", Long.class, code);
+    }
+
+    public long customer(String code) {
+        return customer(code, 10000);
+    }
+
+    public long customer(String code, int discountRate) {
+        jdbc.update("""
+                INSERT INTO customers (code, name, discount_rate) VALUES (?, ?, ?)
+                ON CONFLICT (code) DO NOTHING
+                """, code, "测试客户-" + code, discountRate);
+        return jdbc.queryForObject("SELECT id FROM customers WHERE code = ?", Long.class, code);
+    }
+
+    /**
+     * 读库存余额的某个数量列。<b>行不存在时返回 0</b>，不抛异常。
+     *
+     * <p>为什么要单独处理"行不存在"：余额行是<b>懒创建</b>的 ——
+     * 只有真正入库才会出现 {@code (sku, warehouse, batch)} 这一行。
+     * 断言"被拒绝的入库不得产生库存变动"时，正确结果恰恰是"行根本不存在"。
+     * 若这里用 {@code queryForObject}，零行会抛
+     * {@code EmptyResultDataAccessException}，测试就会以"辅助方法崩了"的
+     * 形式失败，掩盖真正想验证的业务语义。
+     *
+     * <p>（M1 开发中真实踩到：4 条"失败必须无副作用"的用例因为这个辅助方法而红。）
+     */
+    private int balanceColumn(long skuId, long warehouseId, String batchNo, String column) {
+        List<Integer> rows = jdbc.queryForList("""
+                SELECT %s FROM inventory_balances
                  WHERE sku_id = ? AND warehouse_id = ? AND batch_no = ?
-                """, Integer.class, skuId, warehouseId, batchNo);
-        return v == null ? 0 : v;
+                """.formatted(column), Integer.class, skuId, warehouseId, batchNo);
+        return rows.isEmpty() || rows.get(0) == null ? 0 : rows.get(0);
+    }
+
+    public int onHand(long skuId, long warehouseId, String batchNo) {
+        return balanceColumn(skuId, warehouseId, batchNo, "on_hand_qty");
     }
 
     public int reserved(long skuId, long warehouseId, String batchNo) {
-        Integer v = jdbc.queryForObject("""
-                SELECT reserved_qty FROM inventory_balances
-                 WHERE sku_id = ? AND warehouse_id = ? AND batch_no = ?
-                """, Integer.class, skuId, warehouseId, batchNo);
-        return v == null ? 0 : v;
+        return balanceColumn(skuId, warehouseId, batchNo, "reserved_qty");
     }
 
     public int available(long skuId, long warehouseId, String batchNo) {
-        Integer v = jdbc.queryForObject("""
-                SELECT available_qty FROM inventory_balances
+        return balanceColumn(skuId, warehouseId, batchNo, "available_qty");
+    }
+
+    /** 余额行是否存在（用于断言"失败不得产生任何库存痕迹"）。 */
+    public boolean balanceRowExists(long skuId, long warehouseId, String batchNo) {
+        Integer n = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM inventory_balances
                  WHERE sku_id = ? AND warehouse_id = ? AND batch_no = ?
                 """, Integer.class, skuId, warehouseId, batchNo);
-        return v == null ? 0 : v;
+        return n != null && n > 0;
+    }
+
+    /** 某张业务单据的流水条数（用于验证"没有产生流水"）。 */
+    public int ledgerCount(String bizRefNo) {
+        Integer n = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM inventory_ledger WHERE biz_ref_no = ?", Integer.class, bizRefNo);
+        return n == null ? 0 : n;
     }
 }
