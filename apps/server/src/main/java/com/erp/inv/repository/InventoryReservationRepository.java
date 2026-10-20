@@ -64,4 +64,22 @@ public class InventoryReservationRepository {
                  WHERE id = ? AND status = 'ACTIVE'
                 """, id) == 1;
     }
+
+    /** 标记为已消费（预占转为实际出库）。出货确认后调用。 */
+    public boolean markConsumed(long id) {
+        return jdbc.update("""
+                UPDATE inventory_reservations
+                   SET status = 'CONSUMED', updated_at = now()
+                 WHERE id = ? AND status = 'ACTIVE'
+                """, id) == 1;
+    }
+
+    /** 某 SKU 在某仓库下仍处于 ACTIVE 的预占总量。 */
+    public int sumActiveReservedQty(long skuId, long warehouseId) {
+        Integer v = jdbc.queryForObject("""
+                SELECT COALESCE(SUM(reserved_qty), 0) FROM inventory_reservations
+                 WHERE sku_id = ? AND warehouse_id = ? AND status = 'ACTIVE'
+                """, Integer.class, skuId, warehouseId);
+        return v == null ? 0 : v;
+    }
 }

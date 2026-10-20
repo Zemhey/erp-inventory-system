@@ -95,10 +95,26 @@ public class InventoryApplicationService {
         }
 
         // ② 余额行必须存在（可用量为 0 也算存在）
+        //
+        //    注意：这里刻意保留"行必须存在"的前置检查，因为 M0 的
+        //    TC-INV-002 / TC-INV-006 依赖"库存不足 → INV_INSUFFICIENT_STOCK"
+        //    这一稳定语义。但错误消息必须能区分两种截然不同的情况，
+        //    否则排障时会误以为是"货不够"：
+        //      · 某批次行存在但可用量不足   → 真·库存不足
+        //      · 要预占的批次行压根没建      → 批次维度或建账时机问题
         InventoryBalance before = balances.find(cmd.skuId(), cmd.warehouseId(), batchNo)
-                .orElseThrow(() -> new BusinessException(ErrorCode.SYS_NOT_FOUND,
-                        "库存余额不存在：skuId=%d, warehouseId=%d, batchNo='%s'"
-                                .formatted(cmd.skuId(), cmd.warehouseId(), batchNo)));
+                .orElseThrow(() -> {
+                    int onHandAnyBatch = balances
+                            .query(cmd.skuId(), cmd.warehouseId(), null, false)
+                            .stream().mapToInt(InventoryBalance::onHandQty).sum();
+                    String hint = onHandAnyBatch > 0
+                            ? "该 SKU 在此仓库有货共 %d 件，但没有批次 '%s' 的余额行"
+                                    .formatted(onHandAnyBatch, batchNo)
+                            : "该 SKU 在此仓库无任何库存";
+                    return new BusinessException(ErrorCode.SYS_NOT_FOUND,
+                            "库存余额不存在：skuId=%d, warehouseId=%d, batchNo='%s'（%s）"
+                                    .formatted(cmd.skuId(), cmd.warehouseId(), batchNo, hint));
+                });
 
         // ③ 原子预占：条件不满足则更新 0 行 → 可用量不足
         boolean ok = balances.tryReserve(cmd.skuId(), cmd.warehouseId(), batchNo, cmd.qty());
@@ -156,6 +172,82 @@ public class InventoryApplicationService {
         InventoryBalance after = requireBalance(r.skuId(), r.warehouseId(), r.batchNo());
         return new ReserveResult(r.id(), r.skuId(), r.warehouseId(), r.batchNo(),
                 r.reservedQty(), after.onHandQty(), after.availableQty(), false);
+    }
+
+    /**
+     * <b>按批次自动选择</b>的预占 —— 出货单建单专用（FR-SAL-01）。
+     *
+     * <p><b>为什么需要这个方法</b>（M1 集成测试捕获的真实的架构缺口）：
+     * {@link #reserve} 是 M0 为"指定批次"的场景设计的，它要求
+     * {@code (sku, warehouse, batch_no)} 的余额行存在。
+     * 但<b>出货单在建单时并不知道批次</b> —— 批次是出货确认时由 FEFO 决定的
+     * （这正是 FEFO 的意义：谁的效期早谁先走）。
+     * 若建单就锁定某个批次，FEFO 就失去意义了。
+     *
+     * <p>而一旦某 SKU 有了批次（进货时指定了 batch_no），
+     * 就不存在 {@code batch_no = ''} 的余额行，导致 FEFO 场景下出货单<b>根本无法建单</b>。
+     * 这个缺口在 M0 不会暴露（M0 只有空批次的库存）。
+     *
+     * <p><b>本方法的语义</b>：
+     * <ol>
+     *   <li>按 FEFO 顺序（效期早的先分）把请求数量分配到各批次，
+     *       每分配一段就对该批次做一次原子预占；</li>
+     *   <li>所有分段预占共用调用方给出的 {@code requestIdPrefix}（附加 {@code #N} 区分），
+     *       任一段失败则抛异常，由调用方的事务整体回滚（不会留下部分预占）；</li>
+     *   <li>返回各段的预占结果，调用方记录全部 id，出货/作废时逐段处理。</li>
+     * </ol>
+     *
+     * @param skuId             SKU
+     * @param warehouseId       仓库
+     * @param qty               需要的总数量
+     * @param requestIdPrefix   幂等键前缀（调用方保证每行唯一）
+     * @return 各段的预占结果（至少一段；库存不足时抛 {@code INV_INSUFFICIENT_STOCK}）
+     */
+    @Transactional
+    public List<ReserveResult> reserveFefo(long skuId, long warehouseId, int qty,
+                                           String requestIdPrefix) {
+        if (qty <= 0) {
+            throw new BusinessException(ErrorCode.SYS_VALIDATION_ERROR,
+                    "预占数量必须为正：qty=%d".formatted(qty));
+        }
+        // 口径与出货扣减保持一致：这里看的是实存 onHand（因为还没被本单占用），
+        // 出货扣减看的是 reserved（因为届时已被本单占用）。
+        List<InventoryBalance> candidates = balances.findFefoCandidates(skuId, warehouseId);
+        int totalOnHand = candidates.stream().mapToInt(InventoryBalance::onHandQty).sum();
+        if (totalOnHand < qty) {
+            throw new BusinessException(ErrorCode.INV_INSUFFICIENT_STOCK,
+                    "库存不足：SKU %d 在仓库 %d 实存 %d，需求 %d"
+                            .formatted(skuId, warehouseId, totalOnHand, qty),
+                    java.util.Map.of("skuId", skuId, "warehouseId", warehouseId,
+                            "onHand", totalOnHand, "required", qty));
+        }
+
+        List<ReserveResult> results = new java.util.ArrayList<>();
+        int remaining = qty;
+        int segment = 1;
+        for (InventoryBalance b : candidates) {
+            if (remaining <= 0) {
+                break;
+            }
+            int take = Math.min(remaining, b.availableQty());
+            if (take <= 0) {
+                continue;
+            }
+            ReserveResult r = reserve(new ReserveCommand(skuId, warehouseId, b.batchNo(), take,
+                    requestIdPrefix + "#" + segment));
+            results.add(r);
+            remaining -= take;
+            segment++;
+        }
+        if (remaining > 0) {
+            // 走到这里说明期间有并发预占抢走了可用量；抛异常让整单回滚
+            throw new BusinessException(ErrorCode.INV_INSUFFICIENT_STOCK,
+                    "库存不足（并发争抢）：SKU %d 在仓库 %d 仍有 %d 件未能预占"
+                            .formatted(skuId, warehouseId, remaining),
+                    java.util.Map.of("skuId", skuId, "warehouseId", warehouseId,
+                            "shortage", remaining));
+        }
+        return results;
     }
 
     // ───────────────────────────── 入库 / 出库（M1 由 PUR/SAL 调用） ─────────────────────────────
@@ -227,6 +319,41 @@ public class InventoryApplicationService {
 
     public record InvariantViolation(long skuId, long warehouseId, String batchNo,
                                      int onHandQty, int ledgerNet) {
+    }
+
+    /**
+     * 消费预占记录：出货确认成功后调用，把预占状态从 ACTIVE 置为 CONSUMED。
+     *
+     * <p><b>为什么必须单独有这一步</b>（M1 集成测试捕获的真实缺陷）：
+     * {@link #shipOut} 已经同时扣减了余额行上的 {@code on_hand_qty} 与
+     * {@code reserved_qty}，但<b>预占记录本身</b>仍是 ACTIVE。
+     * 于是：
+     * <ul>
+     *   <li>{@code inventory_reservations} 里躺着永远不会被释放的 ACTIVE 记录；</li>
+     *   <li>任何按预占记录统计的报表/对账都会高估在途量；</li>
+     *   <li>无法从数据上回答"这笔预占到底是发出去了还是作废了"。</li>
+     * </ul>
+     *
+     * <p>余额行的数量是对的，错的是<b>记录的生命周期</b> —— 这类缺陷不会让
+     * 任何数量断言变红，只有"状态流转"的断言才能发现。
+     *
+     * @param reservationId 预占记录 id
+     * @return 是否由 ACTIVE 成功转为 CONSUMED（false = 已非 ACTIVE）
+     */
+    @Transactional
+    public boolean consumeReservation(long reservationId) {
+        return reservations.markConsumed(reservationId);
+    }
+
+    /**
+     * 某 SKU 在某仓库下所有仍处 ACTIVE 的预占总量。
+     *
+     * <p>用于对账与测试断言：出货后、或单据作废后，这个数应当与
+     * 余额行的 {@code reserved_qty} 合计一致。
+     */
+    @Transactional(readOnly = true)
+    public int sumActiveReservedQty(long skuId, long warehouseId) {
+        return reservations.sumActiveReservedQty(skuId, warehouseId);
     }
 
     /**

@@ -163,6 +163,28 @@ COMMENT ON COLUMN sales_order_lines.amount IS '行金额 = qty × unitPrice × d
 
 CREATE INDEX idx_so_line_order ON sales_order_lines (order_id);
 
+-- ★ 出货明细 → 预占记录的关联（一对多）
+--
+-- 为什么不是 sales_order_lines.reservation_id 单值：
+-- 出货单在建单时并不知道批次，而批次的分配由 FEFO 在出货确认时决定（BR-INV-06）。
+-- 若某 SKU 只有带批次的库存，一笔 12 件的出货会被拆到 B1(10) + B2(2) 两段预占上。
+-- 单值字段装不下这种合法的拆分段，硬塞会导致第二段预占被静默丢弃 ——
+-- 这正是"没有报错、但库存没锁住"的最危险的一类缺陷。
+--
+-- （M1 集成测试 TC-SAL-009 在开发期真实暴露了这个缺口。）
+CREATE TABLE sales_order_line_reservations (
+    line_id        BIGINT NOT NULL REFERENCES sales_order_lines (id) ON DELETE CASCADE,
+    reservation_id BIGINT NOT NULL,
+    seq            INTEGER NOT NULL CHECK (seq > 0),
+    reserved_qty   INTEGER NOT NULL CHECK (reserved_qty > 0),
+    PRIMARY KEY (line_id, reservation_id),
+    CONSTRAINT uq_so_line_res_seq UNIQUE (line_id, seq)
+);
+COMMENT ON TABLE sales_order_line_reservations IS
+    '出货明细的预占分段：一行可对应多段预占（FEFO 拆批次），出货/作废时逐段消费或释放';
+
+CREATE INDEX idx_so_line_res_res ON sales_order_line_reservations (reservation_id);
+
 -- ─────────────────────────── 幂等键补强 ───────────────────────────
 
 ALTER TABLE idempotency_keys
