@@ -1,0 +1,50 @@
+package com.erp.shared.error;
+
+/**
+ * 业务错误码表（docs/05-接口契约规范.md §4）。
+ *
+ * <p>约定：HTTP 状态码表达<b>类别</b>（4xx/5xx），业务错误码表达<b>具体原因</b>。
+ * 不使用"200 包错误"，否则契约测试与监控都会失效。
+ */
+public enum ErrorCode {
+
+    // ── 通用 ──
+    SYS_VALIDATION_ERROR(400),
+    SYS_DUPLICATE_REQUEST(409),
+    SYS_NOT_FOUND(404),
+
+    // ── 主数据 ──
+    MDM_SKU_NOT_FOUND(404),
+    MDM_SKU_DUPLICATED(409),
+    MDM_CODE_DUPLICATED(409),
+    MDM_WAREHOUSE_NOT_FOUND(404),
+
+    // ── 库存 ──
+    INV_INSUFFICIENT_STOCK(409),
+    INV_RESERVE_FAILED(409),
+    INV_BALANCE_MISMATCH(409),
+    INV_NEGATIVE_NOT_ALLOWED(409),
+    INV_RESERVATION_NOT_FOUND(404),
+
+    // ── 进货 / 出货 ──
+    PUR_ORDER_NOT_FOUND(404),
+    PUR_STATUS_ILLEGAL(409),
+    PUR_OVER_RECEIVE(409),
+    SAL_ORDER_NOT_FOUND(404),
+    SAL_STATUS_ILLEGAL(409),
+
+    // ── 结算 ──
+    SET_PERIOD_CLOSED(409),
+    SET_RECONCILE_MISMATCH(409),
+    SET_ALREADY_SETTLED(409);
+
+    private final int httpStatus;
+
+    ErrorCode(int httpStatus) {
+        this.httpStatus = httpStatus;
+    }
+
+    public int httpStatus() {
+        return httpStatus;
+    }
+}
