@@ -24,7 +24,22 @@ CONTRACT="$ROOT_DIR/packages/api-contract/openapi.yaml"
 SERVER_DIR="$ROOT_DIR/apps/server"
 CHECK_MODE=false
 
-[[ "${1:-}" == "--check" ]] && CHECK_MODE=true
+# ★ 产物确定性：默认**不写生成时间戳**。
+#   原因：索引文件是要提交进仓库、并由 CI 用 `git diff` 校验的。
+#   若每次生成都写入当前时间，那么即使源码毫无变化，CI 的 index-check 也会 100% 失败
+#   —— 这会让门禁形同虚设（团队很快学会忽略它）。
+#   需要人读的时间戳时用 --with-timestamp 显式开启（仅本地查看，不要提交）。
+STAMP=""
+case "${1:-}" in
+  --check)          CHECK_MODE=true ;;
+  --with-timestamp) STAMP="$(date -u '+%Y-%m-%dT%H:%M:%SZ')" ;;
+esac
+
+# 追加生成时间（仅当 STAMP 非空）
+append_stamp() {
+  [ -n "$STAMP" ] && echo "生成时间：${STAMP}" >> "$1"
+  return 0
+}
 
 mkdir -p "$INDEX_DIR"
 
@@ -79,7 +94,7 @@ gen_modules() {
   fi
 
   echo "" >> "$out"
-  echo "生成时间：$(date '+%Y-%m-%d %H:%M:%S')" >> "$out"
+  append_stamp "$out"
   echo "  ✓ modules.md"
 }
 
@@ -117,7 +132,7 @@ gen_api_map() {
   fi
 
   echo "" >> "$out"
-  echo "生成时间：$(date '+%Y-%m-%d %H:%M:%S')" >> "$out"
+  append_stamp "$out"
   echo "  ✓ api-map.md"
 }
 
@@ -161,7 +176,7 @@ gen_test_map() {
 
   echo "" >> "$out"
   echo "共 $found 条用例。" >> "$out"
-  echo "生成时间：$(date '+%Y-%m-%d %H:%M:%S')" >> "$out"
+  append_stamp "$out"
   echo "  ✓ test-map.md（$found 条）"
 }
 
@@ -200,7 +215,7 @@ gen_coverage() {
   fi
 
   echo "" >> "$out"
-  echo "生成时间：$(date '+%Y-%m-%d %H:%M:%S')" >> "$out"
+  append_stamp "$out"
   echo "  ✓ coverage-map.md"
 }
 
@@ -214,7 +229,7 @@ gen_deps() {
     if [ -n "$tree" ]; then
       {
         echo "{"
-        echo "  \"generatedAt\": \"$(date -u '+%Y-%m-%dT%H:%M:%SZ')\","
+        echo "  \"generatedAt\": \"${STAMP}\","
         echo "  \"configuration\": \"runtimeClasspath\","
         echo "  \"source\": \"gradle dependencies\","
         echo "  \"raw\": $(printf '%s' "$tree" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))' 2>/dev/null || echo '""')"
@@ -224,7 +239,7 @@ gen_deps() {
       return
     fi
   fi
-  echo "{\"generatedAt\":\"$(date -u '+%Y-%m-%dT%H:%M:%SZ')\",\"note\":\"需要 JDK 与 gradlew 才能导出依赖树\"}" > "$out"
+  printf '{"generatedAt":"%s","note":"需要 JDK 与 gradlew 才能导出依赖树"}\n' "$STAMP" > "$out"
   echo "  ✓ deps.json（占位，缺 JDK/gradlew）"
 }
 

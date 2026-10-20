@@ -31,4 +31,3 @@
 | GET | `/reports/sales` | `salesReport` | 出货统计（按客户/商品/期间） |
 | GET | `/reports/inventory-summary` | `inventorySummaryReport` | 进销存汇总表（期初 + 入 − 出 = 期末） |
 
-生成时间：2026-10-19 18:19:30

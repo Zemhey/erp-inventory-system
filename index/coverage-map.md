@@ -9,4 +9,3 @@
 
 原始报告：`apps/server/build/reports/jacoco/test/html/index.html`
 
-生成时间：2026-10-19 18:19:31

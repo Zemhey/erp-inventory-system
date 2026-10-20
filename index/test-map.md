@@ -17,4 +17,3 @@
 | `TC-INV-011` | 数据库 CHECK 约束兜底：预占不得超过实存 | `apps/server/src/test/java/com/erp/inv/InventoryReserveIT.java` |
 
 共 11 条用例。
-生成时间：2026-10-19 18:19:30
