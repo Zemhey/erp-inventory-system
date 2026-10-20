@@ -4,6 +4,7 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
 import com.erp.inv.repository.InventoryBalanceRepository;
+import com.erp.support.CaseId;
 import com.erp.shared.document.DocumentStatus;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.importer.ImportOption;
@@ -327,7 +328,7 @@ class ArchitectureTest {
      * 分析它。不落盘、不污染代码库。
      */
     @org.junit.jupiter.api.Test
-    @com.erp.support.CaseId("TC-ARCH-001")
+    @CaseId("TC-ARCH-001")
     @org.junit.jupiter.api.DisplayName("★ 规则自检：禁止系统时间规则必须能拦住违规代码")
     void 规则自检_系统时间规则必须生效() {
         var classes = compileProbe("com.erp.probe.BadTimeProbe", """
@@ -349,7 +350,7 @@ class ArchitectureTest {
     }
 
     @org.junit.jupiter.api.Test
-    @com.erp.support.CaseId("TC-ARCH-002")
+    @CaseId("TC-ARCH-002")
     @org.junit.jupiter.api.DisplayName("★ 规则自检：禁止裸异常规则必须能拦住违规代码")
     void 规则自检_裸异常规则必须生效() {
         var classes = compileProbe("com.erp.probe.BadThrowProbe", """
@@ -369,7 +370,7 @@ class ArchitectureTest {
     }
 
     @org.junit.jupiter.api.Test
-    @com.erp.support.CaseId("TC-ARCH-003")
+    @CaseId("TC-ARCH-003")
     @org.junit.jupiter.api.DisplayName("★ 规则自检：状态机规则必须拦住不调 requireTransition 的方法")
     void 规则自检_状态机规则必须生效() {
         var classes = compileProbe("com.erp.probe.BadTransitionProbe", """

@@ -156,7 +156,11 @@ gen_test_map() {
         /@CaseId\(/ {
           match($0, /"[^"]+"/); cid=substr($0, RSTART+1, RLENGTH-2); next
         }
-        cid != "" && /@DisplayName\(/ {
+        cid != "" && /DisplayName[ \t]*\(/ {
+          # ★ 匹配 DisplayName 而不是 @DisplayName：
+          #   注解可能写成全限定形式 @org.junit.jupiter.api.DisplayName(...)，
+          #   要求 @ 紧邻 DisplayName 会静默丢弃这类用例
+          #   （M1 真实踩到：3 条架构自检用例没进索引）。
           match($0, /"[^"]+"/); name=substr($0, RSTART+1, RLENGTH-2);
           printf "| `%s` | %s | `%s` |\n", cid, name, file;
           cid=""; found++;
