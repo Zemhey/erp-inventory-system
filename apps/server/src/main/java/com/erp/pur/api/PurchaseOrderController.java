@@ -4,6 +4,7 @@ import com.erp.pur.application.PurchaseOrderApplicationService;
 import com.erp.pur.domain.PurchaseOrder;
 import com.erp.pur.domain.PurchaseOrderLine;
 import com.erp.shared.document.DocumentStatus;
+import com.erp.iam.security.RequirePermission;
 import com.erp.shared.web.ApiResponses;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
@@ -70,6 +71,7 @@ public class PurchaseOrderController {
     }
 
     @GetMapping
+    @RequirePermission("pur:read")
     public ResponseEntity<Map<String, Object>> list(
             @RequestParam(required = false) DocumentStatus status,
             @RequestParam(required = false) Long supplierId,
@@ -79,11 +81,13 @@ public class PurchaseOrderController {
     }
 
     @GetMapping("/{id}")
+    @RequirePermission("pur:read")
     public ResponseEntity<Map<String, Object>> detail(@PathVariable long id) {
         return ResponseEntity.ok(ApiResponses.ok(toMap(purchaseOrders.require(id))));
     }
 
     @PostMapping
+    @RequirePermission("pur:create")
     public ResponseEntity<Map<String, Object>> create(
             @RequestHeader("X-Request-Id") @NotBlank String requestId,
             @Valid @RequestBody CreateRequest req) {
@@ -97,26 +101,31 @@ public class PurchaseOrderController {
     }
 
     @PostMapping("/{id}/submit")
+    @RequirePermission("pur:submit")
     public ResponseEntity<Map<String, Object>> submit(@PathVariable long id) {
         return ResponseEntity.ok(ApiResponses.ok(toMap(purchaseOrders.submit(id))));
     }
 
     @PostMapping("/{id}/approve")
+    @RequirePermission("pur:approve")
     public ResponseEntity<Map<String, Object>> approve(@PathVariable long id) {
         return ResponseEntity.ok(ApiResponses.ok(toMap(purchaseOrders.approve(id))));
     }
 
     @PostMapping("/{id}/reject")
+    @RequirePermission("pur:reject")
     public ResponseEntity<Map<String, Object>> reject(@PathVariable long id) {
         return ResponseEntity.ok(ApiResponses.ok(toMap(purchaseOrders.reject(id))));
     }
 
     @PostMapping("/{id}/void")
+    @RequirePermission("pur:void")
     public ResponseEntity<Map<String, Object>> voidOrder(@PathVariable long id) {
         return ResponseEntity.ok(ApiResponses.ok(toMap(purchaseOrders.voidOrder(id))));
     }
 
     @PostMapping("/{id}/receive")
+    @RequirePermission("pur:receive")
     public ResponseEntity<Map<String, Object>> receive(
             @PathVariable long id,
             @RequestHeader("X-Request-Id") @NotBlank String requestId,

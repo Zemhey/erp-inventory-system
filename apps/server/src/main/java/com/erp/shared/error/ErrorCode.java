@@ -19,6 +19,18 @@ public enum ErrorCode {
     MDM_CODE_DUPLICATED(409),
     MDM_WAREHOUSE_NOT_FOUND(404),
 
+    // ── 认证与权限（FR-IAM-01/02）──
+    /** 用户名或密码错误。刻意不区分"用户不存在"，防用户名枚举。 */
+    IAM_BAD_CREDENTIALS(401),
+    /** 未登录 / token 无效或过期。 */
+    IAM_UNAUTHENTICATED(401),
+    /** 已登录但无该操作权限（FR-IAM-02 要求返回 403）。 */
+    IAM_FORBIDDEN(403),
+    /** 账号已停用。 */
+    IAM_ACCOUNT_DISABLED(403),
+    /** 密码连续错误达到阈值而锁定。 */
+    IAM_ACCOUNT_LOCKED(423),
+
     // ── 库存 ──
     INV_INSUFFICIENT_STOCK(409),
     INV_RESERVE_FAILED(409),

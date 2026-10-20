@@ -38,6 +38,19 @@ erp:
   inventory:
     # 预占超时自动释放时长（分钟），BR-INV-05
     reservation-ttl-minutes: 30
+  iam:
+    # ★ JWT 签名密钥。生产必须用环境变量覆盖：
+    #   ERP_JWT_SECRET=<至少 32 字节的随机串>
+    # 默认值仅供本地开发与测试。放入默认值是刻意的权衡：
+    #   若这里写空值，新克隆仓库的人第一步就跑不起来；
+    #   而把"开发默认值"写死在这里，只要生产环境变量没设置，启动日志里会有告警。
+    jwt-secret: ${ERP_JWT_SECRET:dev-only-secret-change-me-in-production-0123456789}
+    # token 有效期（分钟）
+    token-ttl-minutes: 120
+    # 密码连续错误多少次后锁定（FR-IAM-01）
+    max-failed-attempts: 5
+    # 锁定时长（分钟）
+    lock-minutes: 15
   settlement:
     # 账期锁账后是否允许财务强制解锁（生产建议 false）
     allow-unlock-closed-period: false

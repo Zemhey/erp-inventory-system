@@ -2,6 +2,7 @@ package com.erp.mdm.api;
 
 import com.erp.mdm.application.SupplierApplicationService;
 import com.erp.mdm.domain.Supplier;
+import com.erp.iam.security.RequirePermission;
 import com.erp.shared.web.ApiResponses;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -48,6 +49,7 @@ public class SupplierController {
     }
 
     @GetMapping
+    @RequirePermission("mdm:read")
     public ResponseEntity<Map<String, Object>> list(
             @RequestParam(required = false) String keyword,
             @RequestParam(defaultValue = "1") int page,
@@ -56,11 +58,13 @@ public class SupplierController {
     }
 
     @GetMapping("/{id}")
+    @RequirePermission("mdm:read")
     public ResponseEntity<Map<String, Object>> detail(@PathVariable long id) {
         return ResponseEntity.ok(ApiResponses.ok(toMap(suppliers.require(id))));
     }
 
     @PostMapping
+    @RequirePermission("mdm:write")
     public ResponseEntity<Map<String, Object>> create(@Valid @RequestBody CreateRequest req) {
         Supplier s = suppliers.create(new SupplierApplicationService.CreateCommand(
                 req.code(), req.name(), req.contactName(), req.contactPhone(), req.address(),
@@ -69,6 +73,7 @@ public class SupplierController {
     }
 
     @PutMapping("/{id}")
+    @RequirePermission("mdm:write")
     public ResponseEntity<Map<String, Object>> update(@PathVariable long id,
                                                       @Valid @RequestBody UpdateRequest req) {
         Supplier s = suppliers.update(id, new SupplierApplicationService.UpdateCommand(
@@ -78,6 +83,7 @@ public class SupplierController {
     }
 
     @PostMapping("/{id}/disable")
+    @RequirePermission("mdm:write")
     public ResponseEntity<Map<String, Object>> disable(@PathVariable long id) {
         suppliers.disable(id);
         return ResponseEntity.ok(ApiResponses.ok(toMap(suppliers.require(id))));

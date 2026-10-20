@@ -81,12 +81,39 @@ public class TestDataFactory {
     public void truncateAll() {
         jdbc.execute("""
                 TRUNCATE inventory_ledger, inventory_reservations, inventory_balances,
-                         purchase_order_lines, sales_order_lines,
+                         sales_order_line_reservations, purchase_order_lines, sales_order_lines,
                          purchase_orders, sales_orders,
                          document_sequences, idempotency_keys,
-                         skus, products, warehouses, suppliers, customers
+                         skus, products, warehouses, suppliers, customers,
+                         app_user_roles, app_users
                 RESTART IDENTITY CASCADE
                 """);
+    }
+
+    /**
+     * 建测试账号并赋予角色。
+     *
+     * <p>用调用方传入的 {@code PasswordEncoder} 而不是这里自己 new 一个 BCrypt：
+     * 测试里的哈希必须与生产校验逻辑**同一个编码器**，
+     * 否则会出现"测试用 A 加密、生产用 B 校验"的假绿。
+     */
+    public long user(String username, String rawPassword, String roleCode,
+                     org.springframework.security.crypto.password.PasswordEncoder encoder) {
+        jdbc.update("""
+                INSERT INTO app_users (username, password_hash, display_name)
+                VALUES (?, ?, ?)
+                ON CONFLICT (username) DO NOTHING
+                """, username, encoder.encode(rawPassword), "测试用户-" + username);
+        Long id = jdbc.queryForObject("SELECT id FROM app_users WHERE username = ?",
+                Long.class, username);
+        if (roleCode != null && id != null) {
+            jdbc.update("""
+                    INSERT INTO app_user_roles (user_id, role_id)
+                    SELECT ?, id FROM app_roles WHERE code = ?
+                    ON CONFLICT DO NOTHING
+                    """, id, roleCode);
+        }
+        return id == null ? -1 : id;
     }
 
     public long supplier(String code) {

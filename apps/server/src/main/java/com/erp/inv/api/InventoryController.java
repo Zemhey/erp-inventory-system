@@ -4,6 +4,7 @@ import com.erp.inv.application.InventoryApplicationService;
 import com.erp.inv.application.InventoryApplicationService.ReserveCommand;
 import com.erp.inv.application.InventoryApplicationService.ReserveResult;
 import com.erp.inv.domain.InventoryBalance;
+import com.erp.iam.security.RequirePermission;
 import com.erp.shared.error.BusinessException;
 import com.erp.shared.error.ErrorCode;
 import jakarta.validation.Valid;
@@ -41,6 +42,7 @@ public class InventoryController {
     // ─────────────────────────── 查询 ───────────────────────────
 
     @GetMapping
+    @RequirePermission("inv:read")
     public ResponseEntity<Map<String, Object>> query(
             @RequestParam(required = false) Long skuId,
             @RequestParam(required = false) Long warehouseId,
@@ -61,6 +63,7 @@ public class InventoryController {
     }
 
     @PostMapping("/reserve")
+    @RequirePermission("inv:write")
     public ResponseEntity<Map<String, Object>> reserve(
             @RequestHeader("X-Request-Id") @NotBlank String requestId,
             @Valid @RequestBody ReserveRequest req) {
@@ -79,6 +82,7 @@ public class InventoryController {
     }
 
     @PostMapping("/reservations/{id}/release")
+    @RequirePermission("inv:write")
     public ResponseEntity<Map<String, Object>> release(
             @PathVariable long id,
             @RequestHeader("X-Request-Id") @NotBlank String requestId) {
@@ -95,6 +99,7 @@ public class InventoryController {
 
     /** 入库：M0 阶段先作为内部能力暴露，M1 由进货单 /receive 调用。 */
     @PostMapping("/receipts")
+    @RequirePermission("inv:write")
     public ResponseEntity<Map<String, Object>> receive(
             @RequestHeader("X-Request-Id") @NotBlank String requestId,
             @Valid @RequestBody ReceiveRequest req) {
@@ -120,6 +125,7 @@ public class InventoryController {
 
     /** 出库（FEFO）：M1 由出货单 /ship 调用。 */
     @PostMapping("/shipments")
+    @RequirePermission("inv:write")
     public ResponseEntity<Map<String, Object>> ship(
             @RequestHeader("X-Request-Id") @NotBlank String requestId,
             @Valid @RequestBody ShipRequest req) {
@@ -140,6 +146,7 @@ public class InventoryController {
 
     /** 不变量 INV-2 校验：实存必须等于流水净和。 */
     @GetMapping("/consistency-check")
+    @RequirePermission("inv:read")
     public ResponseEntity<Map<String, Object>> consistencyCheck() {
         var violations = inventory.checkLedgerConsistency();
         if (!violations.isEmpty()) {

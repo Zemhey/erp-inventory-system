@@ -4,6 +4,7 @@ import com.erp.sal.application.SalesOrderApplicationService;
 import com.erp.sal.domain.SalesOrder;
 import com.erp.sal.domain.SalesOrderLine;
 import com.erp.shared.document.DocumentStatus;
+import com.erp.iam.security.RequirePermission;
 import com.erp.shared.web.ApiResponses;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -57,6 +58,7 @@ public class SalesOrderController {
     }
 
     @GetMapping
+    @RequirePermission("sal:read")
     public ResponseEntity<Map<String, Object>> list(
             @RequestParam(required = false) DocumentStatus status,
             @RequestParam(required = false) Long customerId,
@@ -66,11 +68,13 @@ public class SalesOrderController {
     }
 
     @GetMapping("/{id}")
+    @RequirePermission("sal:read")
     public ResponseEntity<Map<String, Object>> detail(@PathVariable long id) {
         return ResponseEntity.ok(ApiResponses.ok(toMap(salesOrders.require(id))));
     }
 
     @PostMapping
+    @RequirePermission("sal:create")
     public ResponseEntity<Map<String, Object>> create(
             @RequestHeader("X-Request-Id") @NotBlank String requestId,
             @Valid @RequestBody CreateRequest req) {
@@ -84,26 +88,31 @@ public class SalesOrderController {
     }
 
     @PostMapping("/{id}/submit")
+    @RequirePermission("sal:submit")
     public ResponseEntity<Map<String, Object>> submit(@PathVariable long id) {
         return ResponseEntity.ok(ApiResponses.ok(toMap(salesOrders.submit(id))));
     }
 
     @PostMapping("/{id}/approve")
+    @RequirePermission("sal:approve")
     public ResponseEntity<Map<String, Object>> approve(@PathVariable long id) {
         return ResponseEntity.ok(ApiResponses.ok(toMap(salesOrders.approve(id))));
     }
 
     @PostMapping("/{id}/reject")
+    @RequirePermission("sal:reject")
     public ResponseEntity<Map<String, Object>> reject(@PathVariable long id) {
         return ResponseEntity.ok(ApiResponses.ok(toMap(salesOrders.reject(id))));
     }
 
     @PostMapping("/{id}/void")
+    @RequirePermission("sal:void")
     public ResponseEntity<Map<String, Object>> voidOrder(@PathVariable long id) {
         return ResponseEntity.ok(ApiResponses.ok(toMap(salesOrders.voidOrder(id))));
     }
 
     @PostMapping("/{id}/ship")
+    @RequirePermission("sal:ship")
     public ResponseEntity<Map<String, Object>> ship(
             @PathVariable long id,
             @RequestHeader("X-Request-Id") @NotBlank String requestId) {

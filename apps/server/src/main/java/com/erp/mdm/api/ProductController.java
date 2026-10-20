@@ -2,6 +2,7 @@ package com.erp.mdm.api;
 
 import com.erp.mdm.application.ProductApplicationService;
 import com.erp.mdm.domain.Product;
+import com.erp.iam.security.RequirePermission;
 import com.erp.shared.web.ApiResponses;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -50,6 +51,7 @@ public class ProductController {
     }
 
     @GetMapping
+    @RequirePermission("mdm:read")
     public ResponseEntity<Map<String, Object>> list(
             @RequestParam(required = false) String keyword,
             @RequestParam(defaultValue = "1") int page,
@@ -58,11 +60,13 @@ public class ProductController {
     }
 
     @GetMapping("/{id}")
+    @RequirePermission("mdm:read")
     public ResponseEntity<Map<String, Object>> detail(@PathVariable long id) {
         return ResponseEntity.ok(ApiResponses.ok(toMap(products.require(id))));
     }
 
     @PostMapping
+    @RequirePermission("mdm:write")
     public ResponseEntity<Map<String, Object>> create(@Valid @RequestBody CreateRequest req) {
         Product p = products.create(new ProductApplicationService.CreateCommand(
                 req.code(), req.name(), req.category(), req.season(),
@@ -71,6 +75,7 @@ public class ProductController {
     }
 
     @PutMapping("/{id}")
+    @RequirePermission("mdm:write")
     public ResponseEntity<Map<String, Object>> update(@PathVariable long id,
                                                       @Valid @RequestBody UpdateRequest req) {
         Product p = products.update(id, new ProductApplicationService.UpdateCommand(
@@ -81,6 +86,7 @@ public class ProductController {
 
     /** 停用（软删）。契约未定义 DELETE，用 PUT 语义化的子路径动作。 */
     @PostMapping("/{id}/disable")
+    @RequirePermission("mdm:write")
     public ResponseEntity<Map<String, Object>> disable(@PathVariable long id) {
         products.disable(id);
         return ResponseEntity.ok(ApiResponses.ok(toMap(products.require(id))));

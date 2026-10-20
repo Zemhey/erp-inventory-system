@@ -2,6 +2,7 @@ package com.erp.mdm.api;
 
 import com.erp.mdm.application.SkuApplicationService;
 import com.erp.mdm.domain.Sku;
+import com.erp.iam.security.RequirePermission;
 import com.erp.shared.web.ApiResponses;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
@@ -65,6 +66,7 @@ public class SkuController {
     }
 
     @GetMapping
+    @RequirePermission("mdm:read")
     public ResponseEntity<Map<String, Object>> list(
             @RequestParam(required = false) Long productId,
             @RequestParam(required = false) String color,
@@ -75,11 +77,13 @@ public class SkuController {
     }
 
     @GetMapping("/{id}")
+    @RequirePermission("mdm:read")
     public ResponseEntity<Map<String, Object>> detail(@PathVariable long id) {
         return ResponseEntity.ok(ApiResponses.ok(toMap(skus.require(id))));
     }
 
     @PostMapping
+    @RequirePermission("mdm:write")
     public ResponseEntity<Map<String, Object>> create(@Valid @RequestBody CreateRequest req) {
         Sku s = skus.create(new SkuApplicationService.CreateCommand(
                 req.productId(), req.color(), req.size(), req.barcode(),
@@ -95,6 +99,7 @@ public class SkuController {
      * {@code MDM_SKU_DUPLICATED}（语义见 {@link SkuApplicationService#createMatrix}）。
      */
     @PostMapping("/matrix")
+    @RequirePermission("mdm:write")
     public ResponseEntity<Map<String, Object>> createMatrix(@Valid @RequestBody MatrixRequest req) {
         var result = skus.createMatrix(req.productId(), req.colors(), req.sizes(),
                 req.retailPriceAmount() == null ? 0L : req.retailPriceAmount(),
@@ -107,6 +112,7 @@ public class SkuController {
     }
 
     @PutMapping("/{id}")
+    @RequirePermission("mdm:write")
     public ResponseEntity<Map<String, Object>> update(@PathVariable long id,
                                                       @Valid @RequestBody UpdateRequest req) {
         Sku current = skus.require(id);
@@ -117,6 +123,7 @@ public class SkuController {
     }
 
     @PostMapping("/{id}/disable")
+    @RequirePermission("mdm:write")
     public ResponseEntity<Map<String, Object>> disable(@PathVariable long id) {
         skus.disable(id);
         return ResponseEntity.ok(ApiResponses.ok(toMap(skus.require(id))));

@@ -2,6 +2,7 @@ package com.erp.mdm.api;
 
 import com.erp.mdm.application.CustomerApplicationService;
 import com.erp.mdm.domain.Customer;
+import com.erp.iam.security.RequirePermission;
 import com.erp.shared.web.ApiResponses;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -50,6 +51,7 @@ public class CustomerController {
     }
 
     @GetMapping
+    @RequirePermission("mdm:read")
     public ResponseEntity<Map<String, Object>> list(
             @RequestParam(required = false) String keyword,
             @RequestParam(defaultValue = "1") int page,
@@ -58,11 +60,13 @@ public class CustomerController {
     }
 
     @GetMapping("/{id}")
+    @RequirePermission("mdm:read")
     public ResponseEntity<Map<String, Object>> detail(@PathVariable long id) {
         return ResponseEntity.ok(ApiResponses.ok(toMap(customers.require(id))));
     }
 
     @PostMapping
+    @RequirePermission("mdm:write")
     public ResponseEntity<Map<String, Object>> create(@Valid @RequestBody CreateRequest req) {
         Customer c = customers.create(new CustomerApplicationService.CreateCommand(
                 req.code(), req.name(), req.phone(),
@@ -73,6 +77,7 @@ public class CustomerController {
     }
 
     @PutMapping("/{id}")
+    @RequirePermission("mdm:write")
     public ResponseEntity<Map<String, Object>> update(@PathVariable long id,
                                                       @Valid @RequestBody UpdateRequest req) {
         Customer current = customers.require(id);
@@ -85,6 +90,7 @@ public class CustomerController {
     }
 
     @PostMapping("/{id}/disable")
+    @RequirePermission("mdm:write")
     public ResponseEntity<Map<String, Object>> disable(@PathVariable long id) {
         customers.disable(id);
         return ResponseEntity.ok(ApiResponses.ok(toMap(customers.require(id))));

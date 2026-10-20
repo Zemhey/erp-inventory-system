@@ -2,6 +2,7 @@ package com.erp.mdm.api;
 
 import com.erp.mdm.application.WarehouseApplicationService;
 import com.erp.mdm.domain.Warehouse;
+import com.erp.iam.security.RequirePermission;
 import com.erp.shared.web.ApiResponses;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -45,6 +46,7 @@ public class WarehouseController {
     }
 
     @GetMapping
+    @RequirePermission("mdm:read")
     public ResponseEntity<Map<String, Object>> list(
             @RequestParam(defaultValue = "false") boolean onlyEnabled) {
         List<Map<String, Object>> items = warehouses.list(onlyEnabled)
@@ -53,11 +55,13 @@ public class WarehouseController {
     }
 
     @GetMapping("/{id}")
+    @RequirePermission("mdm:read")
     public ResponseEntity<Map<String, Object>> detail(@PathVariable long id) {
         return ResponseEntity.ok(ApiResponses.ok(toMap(warehouses.require(id))));
     }
 
     @PostMapping
+    @RequirePermission("mdm:write")
     public ResponseEntity<Map<String, Object>> create(@Valid @RequestBody CreateRequest req) {
         Warehouse w = warehouses.create(new WarehouseApplicationService.CreateCommand(
                 req.code(), req.name(), req.address(), req.enabled() == null || req.enabled()));
@@ -65,6 +69,7 @@ public class WarehouseController {
     }
 
     @PutMapping("/{id}")
+    @RequirePermission("mdm:write")
     public ResponseEntity<Map<String, Object>> update(@PathVariable long id,
                                                       @Valid @RequestBody UpdateRequest req) {
         Warehouse w = warehouses.update(id, new WarehouseApplicationService.UpdateCommand(
@@ -73,6 +78,7 @@ public class WarehouseController {
     }
 
     @PostMapping("/{id}/disable")
+    @RequirePermission("mdm:write")
     public ResponseEntity<Map<String, Object>> disable(@PathVariable long id) {
         warehouses.disable(id);
         return ResponseEntity.ok(ApiResponses.ok(toMap(warehouses.require(id))));
