@@ -1,0 +1,98 @@
+# ════════════════════════════════════════════════════════════════════════════
+# Git 忽略规则
+#
+# 原则：**只提交源码与文档，构建产物、依赖缓存、密钥一律不入库。**
+# ════════════════════════════════════════════════════════════════════════════
+
+# ─────────────────────────── Java / Gradle ───────────────────────────
+build/
+!gradle/wrapper/gradle-wrapper.jar
+.gradle/
+out/
+*.class
+*.jar
+*.war
+*.ear
+!**/gradle/wrapper/gradle-wrapper.jar
+hs_err_pid*
+replay_pid*
+
+# ─────────────────────────── 测试与覆盖率产物 ───────────────────────────
+# 注意：index/coverage-map.md 是**生成后要提交**的索引文件，故不在此忽略
+test-results/
+reports/
+jacoco/
+*.exec
+*.hprof
+
+# ─────────────────────────── Node / 前端（M3 起使用） ───────────────────────────
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+
+# ─────────────────────────── uni-app / 小程序 / Android（M4-M5 起使用） ───────────────────────────
+unpackage/
+.hbuilderx/
+.local/
+android/app/build/
+android/.gradle/
+android/build/
+*.apk
+*.aab
+*.keystore
+*.jks
+local.properties
+
+# ─────────────────────────── IDE ───────────────────────────
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+!.vscode/settings.json
+!.vscode/extensions.json
+*.swp
+*.swo
+*~
+
+# ─────────────────────────── 操作系统 ───────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# ─────────────────────────── 日志与临时文件 ───────────────────────────
+*.log
+logs/
+.tools/
+*.tmp
+*.bak
+*.orig
+
+# ─────────────────────────── ★ 密钥与本地配置（安全红线） ───────────────────────────
+# 绝不允许把真实凭证推到远程仓库。
+# .env 模板（.env.example，仅含占位值）应当提交，真实 .env 不提交。
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.pfx
+secrets/
+application-local.yml
+application-prod.yml
+
+# ─────────────────────────── 本地环境覆盖 ───────────────────────────
+# 开发者个人配置覆盖，因人而异，不入库
+**/application-*.local.yml
+
+# ─────────────────────────── 交付物（按需保留） ───────────────────────────
+# 课程要求提交的打包产物/截图等，如需入库请用 git add -f 强制添加
+*.zip
+!docs/assets/*.zip

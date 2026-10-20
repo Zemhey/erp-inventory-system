@@ -1,0 +1,67 @@
+# ════════════════════════════════════════════════════════════════════════════
+# 行尾符与文件类型规范
+#
+# ★ 为什么必须有这个文件：
+#   本仓库在 Windows 上开发，但 Shell 脚本（.sh）和 CI 在 Linux 上执行。
+#   若 shell 脚本被 Git 自动转成 CRLF，Linux 上会报
+#   `/usr/bin/env: 'bash\r': No such file or directory` —— 且报错极难联想到行尾符。
+#   因此：**文本文件统一 LF，只有 Windows 专属脚本允许 CRLF。**
+# ════════════════════════════════════════════════════════════════════════════
+
+# 默认：自动识别文本文件，入库统一为 LF
+* text=auto eol=lf
+
+# ── 源码与文档：强制 LF ──
+*.java      text eol=lf
+*.kt        text eol=lf
+*.kts       text eol=lf
+*.sql       text eol=lf
+*.yaml      text eol=lf
+*.yml       text eol=lf
+*.xml       text eol=lf
+*.md        text eol=lf
+*.json      text eol=lf
+*.properties text eol=lf
+*.gradle    text eol=lf
+*.ts        text eol=lf
+*.js        text eol=lf
+*.vue       text eol=lf
+*.css       text eol=lf
+*.html      text eol=lf
+
+# ── Shell 脚本：必须 LF，否则 Linux/CI 无法执行 ──
+*.sh        text eol=lf
+gradlew     text eol=lf
+
+# ── Windows 专属脚本：允许 CRLF，且必须保留 CRLF ──
+*.bat       text eol=crlf
+*.cmd       text eol=crlf
+*.ps1       text eol=crlf
+gradlew.bat text eol=crlf
+
+# ── 二进制文件：禁止任何转换 ──
+*.jar       binary
+*.zip       binary
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.gif       binary
+*.ico       binary
+*.pdf       binary
+*.xlsx      binary
+*.docx      binary
+*.pptx      binary
+
+# ── Gradle wrapper 的 jar 必须入库且保持二进制 ──
+gradle/wrapper/gradle-wrapper.jar binary
+
+# ── 语言统计修正：文档类不计入代码量 ──
+docs/**         linguist-documentation
+*.md            linguist-documentation
+# 注意：gitattributes 不支持 `!` 负向排除（会告警且不生效），
+# 因此 index/README.md 作为说明文档保留在语言统计中，不做排除。
+index/modules.md       linguist-generated
+index/api-map.md       linguist-generated
+index/test-map.md      linguist-generated
+index/coverage-map.md  linguist-generated
+index/deps.json        linguist-generated
