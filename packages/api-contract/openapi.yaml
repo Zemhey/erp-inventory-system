@@ -1,0 +1,800 @@
+openapi: 3.0.3
+info:
+  title: 进销存系统 API（服装/鞋帽网店）
+  version: 0.1.0-M0
+  description: |
+    本文件是**全项目接口的单一事实源（Single Source of Truth）**。
+
+    工作流（见 docs/ADR-0008）：
+      ① 改本文件 → ② 服务端实现 → ③ springdoc 导出后与本体 diff（CI 失败即漂移）
+      → ④ 生成三端 TS SDK → ⑤ 契约测试 / Schemathesis 属性测试 → ⑥ 生成 index/api-map.md
+
+    约定（见 docs/05-接口契约规范.md）：
+      - 金额字段一律为**整数「分」**，字段名以 Amount 结尾
+      - 时间格式 ISO-8601 带时区
+      - 状态变更走子路径动作（/{id}/receive、/{id}/ship）
+      - 写操作必须携带 X-Request-Id（幂等键）
+servers:
+  - url: http://localhost:8080/api/v1
+    description: 本地开发
+  - url: https://api.example.com/api/v1
+    description: 线上（M6 部署后替换）
+
+tags:
+  - name: mdm
+    description: 主数据（商品 / SKU / 仓库）
+  - name: inv
+    description: 库存（余额 / 流水 / 预占）
+  - name: pur
+    description: 采购进货
+  - name: sal
+    description: 销售出货
+  - name: set
+    description: 结算与对账
+  - name: rpt
+    description: 报表统计
+
+paths:
+  # ─────────────────────────── MDM ───────────────────────────
+  /warehouses:
+    get:
+      tags: [mdm]
+      summary: 查询仓库列表
+      operationId: listWarehouses
+      responses:
+        '200':
+          $ref: '#/components/responses/ListResponse'
+    post:
+      tags: [mdm]
+      summary: 新建仓库
+      operationId: createWarehouse
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WarehouseCreate' }
+      responses:
+        '201':
+          $ref: '#/components/responses/SingleResponse'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /products:
+    get:
+      tags: [mdm]
+      summary: 查询商品列表
+      operationId: listProducts
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+        - name: keyword
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          $ref: '#/components/responses/PageResponse'
+    post:
+      tags: [mdm]
+      summary: 新建商品（款式）
+      operationId: createProduct
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProductCreate' }
+      responses:
+        '201':
+          $ref: '#/components/responses/SingleResponse'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /products/{id}:
+    get:
+      tags: [mdm]
+      summary: 商品详情
+      operationId: getProduct
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /skus:
+    get:
+      tags: [mdm]
+      summary: 查询 SKU 列表
+      operationId: listSkus
+      parameters:
+        - name: productId
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: color
+          in: query
+          schema: { type: string }
+        - name: size
+          in: query
+          schema: { type: string }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          $ref: '#/components/responses/PageResponse'
+    post:
+      tags: [mdm]
+      summary: 新建 SKU（或按颜色×尺码矩阵批量生成）
+      description: |
+        同一商品下 (color, size) 组合必须唯一，重复返回 MDM_SKU_DUPLICATED。
+      operationId: createSku
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SkuCreate' }
+      responses:
+        '201':
+          $ref: '#/components/responses/SingleResponse'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  # ─────────────────────────── INV ───────────────────────────
+  /inventory:
+    get:
+      tags: [inv]
+      summary: 实时库存查询（多仓/多SKU）
+      description: |
+        返回 `onHandQty` / `reservedQty` / `availableQty`。
+        **可用量 availableQty = onHandQty − reservedQty**，下单只允许依据可用量（BR-INV-01）。
+      operationId: queryInventory
+      parameters:
+        - name: skuId
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: warehouseId
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: batchNo
+          in: query
+          schema: { type: string }
+        - name: onlyAvailable
+          in: query
+          description: 仅返回可用量 > 0 的行
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          $ref: '#/components/responses/ListResponse'
+
+  /inventory/ledger:
+    get:
+      tags: [inv]
+      summary: 库存流水（不可变，可反查来源单据）
+      operationId: queryInventoryLedger
+      parameters:
+        - name: skuId
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: warehouseId
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: bizRefNo
+          in: query
+          description: 来源单据号，用于追溯某笔出入库
+          schema: { type: string }
+        - name: from
+          in: query
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          schema: { type: string, format: date-time }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          $ref: '#/components/responses/PageResponse'
+
+  /inventory/reserve:
+    post:
+      tags: [inv]
+      summary: 库存预占（下单锁定可用量）
+      description: |
+        - 只校验**可用量**，不足返回 `INV_INSUFFICIENT_STOCK`（409），且不产生任何副作用
+        - 幂等：相同 `X-Request-Id` 重复请求只生效一次，第二次返回首次结果
+        - 预占超过配置时长未出库将自动释放（BR-INV-05）
+      operationId: reserveInventory
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReserveRequest' }
+      responses:
+        '200':
+          description: 预占成功（或幂等命中，`duplicate=true`）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/ReserveResult' }
+        '409':
+          description: 可用量不足 / 幂等键冲突
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+              examples:
+                insufficientStock:
+                  summary: 可用量不足（错误消息须含定位信息）
+                  value:
+                    code: INV_INSUFFICIENT_STOCK
+                    message: "库存不足：SKU 1001 在 上海仓 可用量 3，需求 5"
+                    details: { skuId: 1001, warehouseId: 1, available: 3, required: 5 }
+                    traceId: a1b2c3d4
+
+  /inventory/reservations/{id}/release:
+    post:
+      tags: [inv]
+      summary: 释放预占（取消订单 / 超时释放）
+      operationId: releaseReservation
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ─────────────────────────── PUR ───────────────────────────
+  /purchase-orders:
+    get:
+      tags: [pur]
+      summary: 查询进货单
+      operationId: listPurchaseOrders
+      parameters:
+        - $ref: '#/components/parameters/StatusFilter'
+        - name: supplierId
+          in: query
+          schema: { type: integer, format: int64 }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          $ref: '#/components/responses/PageResponse'
+    post:
+      tags: [pur]
+      summary: 创建进货单（草稿）
+      operationId: createPurchaseOrder
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PurchaseOrderCreate' }
+      responses:
+        '201':
+          $ref: '#/components/responses/SingleResponse'
+
+  /purchase-orders/{id}:
+    get:
+      tags: [pur]
+      summary: 进货单详情
+      operationId: getPurchaseOrder
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /purchase-orders/{id}/receive:
+    post:
+      tags: [pur]
+      summary: 入库确认（生成入库流水、增加库存）
+      description: |
+        - 支持分批入库；累计入库量不得超过单据数量（BR-DOC-04 → PUR_OVER_RECEIVE）
+        - 入库后生成 `inventory_ledger` 正向流水（biz_type=PURCHASE_IN）
+      operationId: receivePurchaseOrder
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReceiveRequest' }
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /purchase-orders/{id}/void:
+    post:
+      tags: [pur]
+      summary: 作废/红冲进货单
+      description: 已入库的作废必须先生成反向流水冲减库存（BR-DOC-03）。
+      operationId: voidPurchaseOrder
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  # ─────────────────────────── SAL ───────────────────────────
+  /sales-orders:
+    get:
+      tags: [sal]
+      summary: 查询出货单
+      operationId: listSalesOrders
+      parameters:
+        - $ref: '#/components/parameters/StatusFilter'
+        - name: customerId
+          in: query
+          schema: { type: integer, format: int64 }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          $ref: '#/components/responses/PageResponse'
+    post:
+      tags: [sal]
+      summary: 创建出货单（同时预占库存）
+      operationId: createSalesOrder
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SalesOrderCreate' }
+      responses:
+        '201':
+          $ref: '#/components/responses/SingleResponse'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /sales-orders/{id}/ship:
+    post:
+      tags: [sal]
+      summary: 出货确认（预占转出库、扣减库存）
+      description: |
+        - 将 reserved_qty 转为实际出库：on_hand_qty 与 reserved_qty 同时减少
+        - 按 FEFO 扣减批次（BR-INV-06），单笔可拆多批次 → 产生多条流水
+      operationId: shipSalesOrder
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '409':
+          description: 库存不足 / 状态非法
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+              examples:
+                insufficientStock:
+                  value:
+                    code: INV_INSUFFICIENT_STOCK
+                    message: "库存不足：SKU 1001 在 上海仓 可用量 3，需求 5"
+                    details: { skuId: 1001, warehouseId: 1, available: 3, required: 5 }
+
+  /sales-orders/{id}/void:
+    post:
+      tags: [sal]
+      summary: 作废/红冲出货单（回补库存）
+      operationId: voidSalesOrder
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  # ─────────────────────────── SET ───────────────────────────
+  /settlements/daily:
+    post:
+      tags: [set]
+      summary: 日清（每日汇总当日出入库与金额）
+      description: |
+        - **幂等**：同一账期重复执行结果完全一致（BR-SET-01）
+        - 业务日期由 `bizDate` 指定，**不依赖系统当前时间**（可测性设计，见 docs/06）
+      operationId: runDailySettlement
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DailySettlementRequest' }
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /settlements/monthly:
+    post:
+      tags: [set]
+      summary: 月结（期间结账并锁账）
+      description: 锁账后该期间单据不可新增/修改（BR-SET-02 → SET_PERIOD_CLOSED）。
+      operationId: runMonthlySettlement
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MonthlySettlementRequest' }
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /settlements/reconcile:
+    get:
+      tags: [set]
+      summary: 总账与明细对账（差额必须为 0）
+      description: 差额非 0 返回 `SET_RECONCILE_MISMATCH`，对应不变量 INV-5。
+      operationId: reconcile
+      parameters:
+        - name: period
+          in: query
+          required: true
+          schema: { type: string, pattern: '^\d{4}-\d{2}$' }
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '409':
+          description: 对账不平
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+              examples:
+                mismatch:
+                  value:
+                    code: SET_RECONCILE_MISMATCH
+                    message: "对账不平：账期 2025-06 总账 100000 分，明细合计 99990 分，差额 10 分"
+                    details: { period: '2025-06', ledgerTotal: 100000, detailTotal: 99990, diff: 10 }
+
+  # ─────────────────────────── RPT ───────────────────────────
+  /reports/purchase:
+    get:
+      tags: [rpt]
+      summary: 进货统计（按供应商/商品/期间）
+      operationId: purchaseReport
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: groupBy
+          in: query
+          schema: { type: string, enum: [supplier, product, sku, day, month], default: supplier }
+      responses:
+        '200':
+          $ref: '#/components/responses/ListResponse'
+
+  /reports/sales:
+    get:
+      tags: [rpt]
+      summary: 出货统计（按客户/商品/期间）
+      operationId: salesReport
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: groupBy
+          in: query
+          schema: { type: string, enum: [customer, product, sku, day, month], default: customer }
+      responses:
+        '200':
+          $ref: '#/components/responses/ListResponse'
+
+  /reports/inventory-summary:
+    get:
+      tags: [rpt]
+      summary: 进销存汇总表（期初 + 入 − 出 = 期末）
+      description: 恒等式必须成立，对应不变量 INV-6。
+      operationId: inventorySummaryReport
+      parameters:
+        - name: period
+          in: query
+          required: true
+          schema: { type: string, pattern: '^\d{4}-\d{2}$' }
+        - name: warehouseId
+          in: query
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          $ref: '#/components/responses/ListResponse'
+
+components:
+  parameters:
+    RequestId:
+      name: X-Request-Id
+      in: header
+      required: true
+      description: 幂等键。相同值重复提交只生效一次（不变量 INV-9）。
+      schema: { type: string, minLength: 8, maxLength: 64 }
+      example: req-20250601-0001
+    PathId:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    Size:
+      name: size
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 200, default: 20 }
+    StatusFilter:
+      name: status
+      in: query
+      schema: { $ref: '#/components/schemas/DocumentStatus' }
+
+  responses:
+    SingleResponse:
+      description: 单对象响应
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiResponse' }
+    ListResponse:
+      description: 列表响应
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiResponse' }
+    PageResponse:
+      description: 分页响应
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiPageResponse' }
+    Conflict:
+      description: 业务冲突（库存不足 / 状态非法 / 重复编码 / 期间已锁账）
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+    NotFound:
+      description: 资源不存在
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+
+  schemas:
+    ApiResponse:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string, example: OK }
+        message: { type: string, example: success }
+        data: { }
+        traceId: { type: string }
+        timestamp: { type: string, format: date-time }
+
+    ApiPageResponse:
+      type: object
+      required: [code, data]
+      properties:
+        code: { type: string, example: OK }
+        message: { type: string }
+        data:
+          type: object
+          required: [items, total, page, size]
+          properties:
+            items: { type: array, items: { } }
+            total: { type: integer, format: int64, minimum: 0 }
+            page: { type: integer, minimum: 1 }
+            size: { type: integer, minimum: 1 }
+        traceId: { type: string }
+
+    ApiError:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: 业务错误码，见 docs/05 错误码表
+          example: INV_INSUFFICIENT_STOCK
+        message:
+          type: string
+          description: 人类可读消息，**必须包含定位信息**（哪个 SKU / 哪个仓 / 差多少）
+        details:
+          type: object
+          additionalProperties: true
+        traceId:
+          type: string
+          description: 贯穿日志，测试失败时用它捞日志
+        timestamp: { type: string, format: date-time }
+
+    DocumentStatus:
+      type: string
+      description: 单据统一状态机（BR-DOC-01，非法转移必须拒绝）
+      enum: [DRAFT, SUBMITTED, APPROVED, PARTIAL, COMPLETED, VOIDED, REJECTED]
+
+    WarehouseCreate:
+      type: object
+      required: [code, name]
+      properties:
+        code: { type: string, minLength: 2, maxLength: 32, example: SH01 }
+        name: { type: string, minLength: 1, maxLength: 64, example: 上海仓 }
+        address: { type: string, maxLength: 200 }
+
+    ProductCreate:
+      type: object
+      required: [code, name]
+      properties:
+        code: { type: string, minLength: 2, maxLength: 32 }
+        name: { type: string, minLength: 1, maxLength: 128, example: 圆领T恤 }
+        category: { type: string, maxLength: 64 }
+        season: { type: string, maxLength: 32, description: 季节维度，并入时间维度便于效期/批次测试 }
+        enabled: { type: boolean, default: true }
+
+    SkuCreate:
+      type: object
+      required: [productId, color, size]
+      properties:
+        productId: { type: integer, format: int64 }
+        color: { type: string, minLength: 1, maxLength: 32, example: 白色 }
+        size: { type: string, minLength: 1, maxLength: 16, example: L }
+        barcode: { type: string, maxLength: 64 }
+        retailPriceAmount:
+          type: integer
+          format: int64
+          minimum: 0
+          description: 零售价（**整数分**，见 ADR-0005）
+
+    ReserveRequest:
+      type: object
+      required: [skuId, warehouseId, qty]
+      properties:
+        skuId: { type: integer, format: int64 }
+        warehouseId: { type: integer, format: int64 }
+        batchNo: { type: string, default: '' }
+        qty:
+          type: integer
+          minimum: 1
+          description: 预占数量，必须为正
+
+    ReserveResult:
+      type: object
+      properties:
+        reservationId: { type: integer, format: int64 }
+        skuId: { type: integer, format: int64 }
+        warehouseId: { type: integer, format: int64 }
+        batchNo: { type: string }
+        reservedQty: { type: integer, description: 本次预占数量 }
+        onHandQty: { type: integer, description: 预占后实存 }
+        availableQty: { type: integer, description: 预占后可用量 }
+        duplicate: { type: boolean, description: true 表示幂等命中，未产生新变动 }
+
+    ReceiveRequest:
+      type: object
+      required: [lines]
+      properties:
+        lines:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [lineId, qty]
+            properties:
+              lineId: { type: integer, format: int64 }
+              qty: { type: integer, minimum: 1 }
+              batchNo: { type: string, maxLength: 64 }
+              productionDate: { type: string, format: date }
+              expiryDate: { type: string, format: date, description: FEFO 依据 }
+
+    PurchaseOrderCreate:
+      type: object
+      required: [supplierId, warehouseId, bizDate, lines]
+      properties:
+        supplierId: { type: integer, format: int64 }
+        warehouseId: { type: integer, format: int64 }
+        bizDate: { type: string, format: date, description: 业务日期（可指定，不依赖系统时间） }
+        remark: { type: string, maxLength: 500 }
+        lines:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [skuId, qty, unitPriceAmount]
+            properties:
+              skuId: { type: integer, format: int64 }
+              qty: { type: integer, minimum: 1 }
+              unitPriceAmount: { type: integer, format: int64, minimum: 0, description: 单价（分） }
+
+    SalesOrderCreate:
+      type: object
+      required: [customerId, warehouseId, bizDate, lines]
+      properties:
+        customerId: { type: integer, format: int64 }
+        warehouseId: { type: integer, format: int64 }
+        bizDate: { type: string, format: date }
+        remark: { type: string, maxLength: 500 }
+        lines:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [skuId, qty, unitPriceAmount]
+            properties:
+              skuId: { type: integer, format: int64 }
+              qty: { type: integer, minimum: 1 }
+              unitPriceAmount: { type: integer, format: int64, minimum: 0 }
+              discountRate:
+                type: integer
+                minimum: 0
+                maximum: 10000
+                default: 10000
+                description: 折扣率，**整数万分比**（9000 = 9 折），禁止浮点（ADR-0005）
+
+    DailySettlementRequest:
+      type: object
+      required: [bizDate]
+      properties:
+        bizDate: { type: string, format: date }
+        warehouseId: { type: integer, format: int64, description: 省略表示全部仓库 }
+
+    MonthlySettlementRequest:
+      type: object
+      required: [period]
+      properties:
+        period: { type: string, pattern: '^\d{4}-\d{2}$', example: '2025-06' }
+
+    InventoryBalance:
+      type: object
+      properties:
+        skuId: { type: integer, format: int64 }
+        warehouseId: { type: integer, format: int64 }
+        batchNo: { type: string }
+        expiryDate: { type: string, format: date }
+        onHandQty: { type: integer, minimum: 0, description: 实存量（不变量 INV-1） }
+        reservedQty: { type: integer, minimum: 0, description: 预占量 }
+        availableQty: { type: integer, description: '= onHandQty − reservedQty（不变量 INV-3）' }
+
+    InventoryLedgerEntry:
+      type: object
+      description: 不可变流水，追溯的唯一依据（ADR-0007）
+      properties:
+        id: { type: integer, format: int64 }
+        skuId: { type: integer, format: int64 }
+        warehouseId: { type: integer, format: int64 }
+        batchNo: { type: string }
+        changeQty: { type: integer, description: 正=入库，负=出库，不允许为 0 }
+        bizType:
+          type: string
+          description: 仅记录实存（onHand）变动；预占/释放不改变实存故不产生流水（不变量 INV-2 的前提）
+          enum: [PURCHASE_IN, SALES_OUT, RETURN_IN, TRANSFER_IN, TRANSFER_OUT, ADJUST_IN, ADJUST_OUT]
+        bizRefNo: { type: string, description: 来源单据号，可反查 }
+        unitCostAmount: { type: integer, format: int64, description: 单位成本（分） }
+        occurredAt: { type: string, format: date-time, description: 业务时间（由 ClockProvider 注入） }
