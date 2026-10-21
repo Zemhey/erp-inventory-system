@@ -11,12 +11,29 @@
 > **多端 B/S 进销存 SaaS 平台 + 配套自动化测试体系**
 > Java 17 · Spring Boot 3 · PostgreSQL 16 · Vue 3 · uni-app
 
-**课程要求**：[任务要求.md](任务要求.md) ｜ **方向与路线**：[方向建议与落地路线.md](方向建议与落地路线.md)
+**课程要求**：[任务要求](docs/planning/任务要求.md) ｜ **方向与路线**：[方向建议与落地路线](docs/planning/方向建议与落地路线.md) ｜ **全局交接**：[项目总纲](docs/planning/项目总纲.md)
 
-> 🔍 **第一次打开这个仓库？先看 [README-目录导航.md](README-目录导航.md)** ——
-> 它告诉你每个文件夹是什么、前端在哪、后端在哪、哪些目录不用看。
->
-> 📐 **想知道全局（大纲/规划/索引/交接）？看 [项目总纲.md](项目总纲.md)** —— 一份文件看懂整个项目。
+> **第一次打开这个仓库？** 先看下面的「30 秒目录导航」；想知道全局（大纲/规划/索引/交接），读 [项目总纲](docs/planning/项目总纲.md)。
+
+---
+
+## 30 秒目录导航
+
+| 我想…… | 打开这个 | 说明 |
+|---|---|---|
+| **看前端界面 / 改页面** | [`frontend/`](frontend/) | 所有客户端（Web，未来小程序 / Android） |
+| **看后端业务逻辑 / 加接口** | [`backend/`](backend/) | 所有服务端代码 |
+| **想知道整个项目是什么、怎么继续** | [`docs/planning/项目总纲.md`](docs/planning/项目总纲.md) | 一份文件看懂全局 |
+| **看做到哪了、还差什么** | [`docs/00-索引与追踪矩阵.md`](docs/00-索引与追踪矩阵.md) | 进度看板 + 需求↔测试矩阵 |
+| **看某个里程碑怎么做** | [`.plan/`](.plan/) | M1 已完成 / M3 进行中 |
+| **看接口契约** | [`packages/api-contract/openapi.yaml`](packages/api-contract/openapi.yaml) | 单一事实源 |
+| **看代码结构 / 接口清单** | [`index/`](index/) | 脚本生成，禁止手写 |
+| **起环境 / 跑构建 / 生成索引** | [`scripts/`](scripts/) | 一键脚本 |
+| **看数据库与依赖环境** | [`infra/`](infra/) | Docker Compose |
+| **看架构决策** | [`docs/07-决策记录ADR/`](docs/07-决策记录ADR/) | 11 条 ADR |
+
+> `docs/` 根只放编号设计与过程文档（00~07）；项目级规划与历史输入在
+> [`docs/planning/`](docs/planning/)；`.plan/` 放各里程碑执行计划。
 
 ---
 
@@ -59,33 +76,23 @@
 | 04 | [数据模型](docs/04-数据模型.md) | 表结构、约束、迁移（草案） |
 | 05 | [接口契约规范](docs/05-接口契约规范.md) | OpenAPI 工作流、REST 约定、错误码表（草案） |
 | 06 | [测试策略](docs/06-测试策略.md) | 金字塔、时机、可测试性钩子、DoD（草案） |
-| 07 | [决策记录 ADR](docs/07-决策记录ADR/README.md) | 10 条架构决策及其理由（含 Windows 路径陷阱） |
+| 07 | [决策记录 ADR](docs/07-决策记录ADR/README.md) | 11 条架构决策及其理由（含 Windows 路径陷阱） |
 | — | [代码索引](index/README.md) | ★ 生成物，由脚本维护，禁止手写 |
+| — | [项目总纲](docs/planning/项目总纲.md) / [任务要求](docs/planning/任务要求.md) / [方向建议](docs/planning/方向建议与落地路线.md) | 全局交接、课程原始要求、早期路线（`docs/planning/`） |
 
 ## 项目状态
 
-**当前阶段：M1 已完成 ✅（后端核心域）· M3 进行中 🚧（Web 前端骨架）**
+**当前阶段：M1 已完成 ✅ · M3 进行中 🚧（S1~S3 已完成，剩余库存 / 进货 / 出货 3 页）**
 
 - ✅ 方向与路线确定（行业、技术栈、测试体系）
 - ✅ 规划文档（00~07 + 11 条 ADR）
 - ✅ **M0 交付**：OpenAPI 六资源契约 · Spring Boot 3 骨架 · Flyway schema · 库存纵向切片 · compose 一键起环境 · CI 三道门禁
 - ✅ **M1 交付**：主数据（商品/SKU 矩阵/供应商/客户/仓库）· 进货闭环 · 出货闭环（FEFO）· IAM（JWT + RBAC）· 统一状态机 · 原子取号 · **156 条测试全绿**
-- 🚧 **M3 进行中**：`frontend/web` 骨架 + 登录页 + 工作台已完成，接口封装与权限路由就绪
+- 🚧 **M3 进行中**：登录 / 布局 / 工作台 + 商品与 SKU + 供应商 / 客户 / 仓库已完成；剩余库存、进货、出货 3 页
 - ⬜ M2：退货 · 日清月结 · 报表（业务补全）
 - ⬜ M4/M5：小程序 + Android（uni-app 一套出两端）
 - ⬜ M6：云部署（服务器已有，备案中）
 - ⬜ M7：自然语言操作 + MCP ｜ M8：单机版
-
-### 目录结构（**前端后端已分离**）
-
-```
-backend/server/   服务端（Java + Spring Boot）
-frontend/web/     前端（Vue3 + Element Plus）
-docs/ index/ packages/ scripts/ infra/ .plan/
-```
-
-> 为什么这样分、每个目录干什么，见 [README-目录导航.md](README-目录导航.md)
-> 与 [ADR-0011](docs/07-决策记录ADR/ADR-0011-目录调整backend与frontend分区.md)。
 
 ### 工程实践亮点
 
@@ -169,17 +176,32 @@ cd D:\MajorCacheFolder\Company system\自选
 ```
 backend/server/  服务端（Java 17 + Spring Boot 3）—— 全部后端代码
 frontend/web/    前端（Vue3 + TypeScript + Element Plus）—— 全部客户端代码
-docs/            规划文档（00~07 + 11 条 ADR）
+docs/            设计与过程文档（00~07 + 11 条 ADR）
+  planning/      项目级规划：项目总纲、任务要求、方向建议
 index/           代码索引（生成物，由脚本维护，禁止手写）
 packages/        api-contract（OpenAPI 单一事实源）
 scripts/         dev-up / gen-index / build-env / seed-dev-user / bcrypt-hash
 infra/           compose 本地环境编排
-.plan/           各里程碑计划书
+.plan/           各里程碑执行计划（M1 / M3）
 .github/         CI 门禁流水线
+README.md        唯一根入口（目录导航 + 快速开始）
 ```
 
-> **前后端已按 `backend/` + `frontend/` 两大分区重组**（[ADR-0011](docs/07-决策记录ADR/ADR-0011-目录调整backend与frontend分区.md)）。
-> 详细导航（每个目录是什么、哪些不用看）见 [README-目录导航.md](README-目录导航.md)。
+> **约定**：给用户看的界面进 `frontend/`，跑在服务器上的进 `backend/`
+> （[ADR-0011](docs/07-决策记录ADR/ADR-0011-目录调整backend与frontend分区.md)）。
+> 根目录只保留 `README.md`；规划与历史输入统一放在 `docs/planning/`。
 >
 > `frontend/miniapp/`、`frontend/android/`、`tests/e2e-*` 为后续里程碑（M4~M5）预留，
 > 当前尚未创建 —— README 不写不存在的东西。
+
+### 哪些目录不用看（构建产物 / 缓存）
+
+| 目录 | 是什么 | 要不要看 |
+|---|---|---|
+| `backend/server/build/` | Gradle 构建产物（class、测试报告） | 不看，可随时删 |
+| `backend/server/.gradle/` | Gradle 本地状态 | 不看，可随时删 |
+| `frontend/web/node_modules/` | npm 依赖（几万个文件） | 不看，`npm install` 会重建 |
+| `frontend/web/dist/` | 前端构建产物 | 不看，`npm run build` 会重建 |
+| `frontend/web/.tmp/` | 本机构建临时目录 | 不看，可随时删 |
+
+> 这些都在 `.gitignore` 里，不会进版本库。觉得“文件夹太多”时，多半是被它们干扰了。
