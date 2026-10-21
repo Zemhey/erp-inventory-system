@@ -1,6 +1,6 @@
 # 模块索引（自动生成，请勿手写）
 
-> 生成脚本：`scripts/gen-index.sh` · 来源：`apps/server/src/main/java/com/erp/`
+> 生成脚本：`scripts/gen-index.sh` · 来源：`backend/server/src/main/java/com/erp/`
 
 | 模块 | 职责 | Java 文件 | 代码行 | 测试文件 |
 |---|---|---|---|---|

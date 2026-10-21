@@ -74,9 +74,9 @@ cat <<'EOF'
   RabbitMQ   : localhost:5672  (管理台 http://localhost:15672  erp/erp)
 
 下一步：
-  后端启动   cd apps/server && ./gradlew bootRun
+  后端启动   cd backend/server && ./gradlew bootRun
   API 文档   http://localhost:8080/swagger-ui.html
-  跑测试     cd apps/server && ./gradlew test
+  跑测试     cd backend/server && ./gradlew test
 
 停止环境：docker compose -f infra/compose/docker-compose.yml down
 EOF

@@ -25,7 +25,7 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RootDir = (Resolve-Path (Split-Path -Parent $ScriptDir)).Path
 $IndexDir = Join-Path $RootDir 'index'
 $Contract = Join-Path $RootDir 'packages/api-contract/openapi.yaml'
-$ServerDir = Join-Path $RootDir 'apps/server'
+$ServerDir = Join-Path $RootDir 'backend/server'
 
 if (-not (Test-Path $IndexDir)) { New-Item -ItemType Directory -Path $IndexDir -Force | Out-Null }
 
@@ -47,7 +47,7 @@ function Gen-Modules {
     $lines = @(
         '# 模块索引（自动生成，请勿手写）',
         '',
-        '> 生成脚本：`scripts/gen-index.sh` · 来源：`apps/server/src/main/java/com/erp/`',
+        '> 生成脚本：`scripts/gen-index.sh` · 来源：`backend/server/src/main/java/com/erp/`',
         '',
         '| 模块 | 职责 | Java 文件 | 代码行 | 测试文件 |',
         '|---|---|---|---|---|'
@@ -246,7 +246,7 @@ function Gen-Coverage {
         $lines += "| $label | $covered / $total | ${pct}% |"
     }
     $lines += ''
-    $lines += '原始报告：`apps/server/build/reports/jacoco/test/html/index.html`'
+    $lines += '原始报告：`backend/server/build/reports/jacoco/test/html/index.html`'
     $lines += ''
     Write-Text $out $lines
     Write-Host '  ✓ coverage-map.md' -ForegroundColor Green

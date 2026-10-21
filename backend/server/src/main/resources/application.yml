@@ -2,7 +2,11 @@ spring:
   application:
     name: erp-server
   datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5432/erp}
+    # ★ 默认端口 15432 而非 5432：本机 Windows 的保留端口段 5358–5457 覆盖了 5432，
+    #   Docker 无法把容器映射到该端口（详见 infra/compose/docker-compose.yml 注释）。
+    #   容器内仍是 5432，宿主侧是 15432。
+    #   部署到 Linux 服务器时用环境变量覆盖：DB_URL=jdbc:postgresql://localhost:5432/erp
+    url: ${DB_URL:jdbc:postgresql://127.0.0.1:15432/erp}
     username: ${DB_USER:erp}
     password: ${DB_PASSWORD:erp}
     hikari:

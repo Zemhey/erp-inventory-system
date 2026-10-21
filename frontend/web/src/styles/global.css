@@ -1,0 +1,84 @@
+/* ══════════════════════════════════════════════════════════════════
+   全局样式
+   原则：只做 Element Plus 没覆盖的部分（页面骨架、间距、工具类），
+   不重写组件库样式 —— 重写会导致升级 Element 时大面积失效。
+   ══════════════════════════════════════════════════════════════════ */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', sans-serif;
+  font-size: 14px;
+  color: #303133;
+  background-color: #f5f7fa;
+}
+
+/* ── 页面通用骨架 ── */
+.page {
+  padding: 16px;
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.page-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.page-hint {
+  margin: 0 0 12px;
+  color: #909399;
+  font-size: 13px;
+}
+
+/* ── 工具类 ── */
+.mb-16 {
+  margin-bottom: 16px;
+}
+
+.mr-8 {
+  margin-right: 8px;
+}
+
+.text-muted {
+  color: #909399;
+}
+
+.text-danger {
+  color: #f56c6c;
+}
+
+.text-right {
+  text-align: right;
+}
+
+/* 金额右对齐 + 等宽数字：让表格里的金额能一眼对齐比较 */
+.amount {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* ── 空状态 ── */
+.empty-block {
+  padding: 48px 0;
+  text-align: center;
+  color: #909399;
+}

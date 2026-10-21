@@ -21,7 +21,14 @@ services:
       # 中文排序与大小写：显式指定 locale，保证本地与 CI 行为一致
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
     ports:
-      - "5432:5432"
+      # ★ 宿主端口用 15432 而非默认 5432。
+      #   原因：本机 Windows 把 5358–5457 列为保留端口段
+      #   （`netsh int ipv4 show excludedportrange protocol=tcp` 可见），
+      #   5432 落在其中，Docker 绑定会报
+      #   "An attempt was made to access a socket in a way forbidden by its access permissions"。
+      #   这与本文件 redis 用 16379 的原因是同一类（端口保留），只是段不同。
+      #   容器内仍是 5432；应用连接串默认值已同步改为 15432（见 application.yml）。
+      - "15432:5432"
     volumes:
       - erp-pgdata:/var/lib/postgresql/data
     healthcheck:

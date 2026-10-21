@@ -7,7 +7,7 @@
 
 | 文件 | 内容 | 数据来源 | 生成脚本 | 状态 |
 |---|---|---|---|---|
-| `modules.md` | 模块清单：包名、职责、文件数、代码行数、依赖 | `apps/server/src/main/java/com/erp/` 目录扫描 | `scripts/gen-index.sh` | ⬜ 待 M0 骨架 |
+| `modules.md` | 模块清单：包名、职责、文件数、代码行数、依赖 | `backend/server/src/main/java/com/erp/` 目录扫描 | `scripts/gen-index.sh` | ⬜ 待 M0 骨架 |
 | `api-map.md` | 接口清单：路径、方法、请求/响应 schema、错误码 | `packages/api-contract/openapi.yaml` | `scripts/gen-openapi.sh` | ⬜ 待契约 |
 | `deps.json` | 模块与第三方依赖图（机器可读） | `gradle dependencies` / `npm ls` | `scripts/gen-index.sh` | ⬜ 待骨架 |
 | `coverage-map.md` | 按模块的测试覆盖率 | JaCoCo / c8 报告（CI 产物） | CI | ⬜ 待测试地基 |

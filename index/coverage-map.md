@@ -7,5 +7,5 @@
 | 行覆盖 | 1423 / 1940 | 73.4% |
 | 分支覆盖 | 288 / 554 | 52.0% |
 
-原始报告：`apps/server/build/reports/jacoco/test/html/index.html`
+原始报告：`backend/server/build/reports/jacoco/test/html/index.html`
 

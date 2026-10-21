@@ -4,13 +4,17 @@
 ![Java](https://img.shields.io/badge/Java-17-007396?logo=openjdk&logoColor=white)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.3-6DB33F?logo=springboot&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-11%20passing-brightgreen)
-![Coverage](https://img.shields.io/badge/line%20coverage-58%25-yellowgreen)
+![Tests](https://img.shields.io/badge/tests-152%20passing-brightgreen)
+![Coverage](https://img.shields.io/badge/line%20coverage-73.4%25-yellowgreen)
+![Branch](https://img.shields.io/badge/branch%20coverage-52.0%25-yellowgreen)
 
 > **多端 B/S 进销存 SaaS 平台 + 配套自动化测试体系**
 > Java 17 · Spring Boot 3 · PostgreSQL 16 · Vue 3 · uni-app
 
 **课程要求**：[任务要求.md](任务要求.md) ｜ **方向与路线**：[方向建议与落地路线.md](方向建议与落地路线.md)
+
+> 🔍 **第一次打开这个仓库？先看 [README-目录导航.md](README-目录导航.md)** ——
+> 它告诉你每个文件夹是什么、前端在哪、后端在哪、哪些目录不用看。
 
 ---
 
@@ -58,13 +62,28 @@
 
 ## 项目状态
 
-**当前阶段：M0 已完成 ✅（骨架 · 契约 · 测试地基 · CI 全跑通）**
+**当前阶段：M1 已完成 ✅（后端核心域）· M3 进行中 🚧（Web 前端骨架）**
 
 - ✅ 方向与路线确定（行业、技术栈、测试体系）
-- ✅ 规划文档（00~07 + 10 条 ADR）
-- ✅ **M0 交付**：OpenAPI 六资源契约 · Spring Boot 3 骨架 · Flyway schema · 库存纵向切片 · **Testcontainers 11 条集成测试全绿** · compose 一键起环境 · 代码索引生成 · CI 三道门禁
-- ⬜ M1：主数据 + 进货 + 出货（库存切片已完成）
-- ⬜ M2：结算、日清月结、报表 → **此时转 public**
+- ✅ 规划文档（00~07 + 11 条 ADR）
+- ✅ **M0 交付**：OpenAPI 六资源契约 · Spring Boot 3 骨架 · Flyway schema · 库存纵向切片 · compose 一键起环境 · CI 三道门禁
+- ✅ **M1 交付**：主数据（商品/SKU 矩阵/供应商/客户/仓库）· 进货闭环 · 出货闭环（FEFO）· IAM（JWT + RBAC）· 统一状态机 · 原子取号 · **152 条测试全绿**
+- 🚧 **M3 进行中**：`frontend/web` 骨架 + 登录页 + 工作台已完成，接口封装与权限路由就绪
+- ⬜ M2：退货 · 日清月结 · 报表（业务补全）
+- ⬜ M4/M5：小程序 + Android（uni-app 一套出两端）
+- ⬜ M6：云部署（服务器已有，备案中）
+- ⬜ M7：自然语言操作 + MCP ｜ M8：单机版
+
+### 目录结构（**前端后端已分离**）
+
+```
+backend/server/   服务端（Java + Spring Boot）
+frontend/web/     前端（Vue3 + Element Plus）
+docs/ index/ packages/ scripts/ infra/ .plan/
+```
+
+> 为什么这样分、每个目录干什么，见 [README-目录导航.md](README-目录导航.md)
+> 与 [ADR-0011](docs/07-决策记录ADR/ADR-0011-目录调整backend与frontend分区.md)。
 
 ### 工程实践亮点
 
@@ -86,8 +105,8 @@
 
 ```powershell
 .\scripts\build-env.ps1          # 创建 D:\erp-build 联接（非破坏、可回滚）
-cd D:\erp-build\apps\server
-.\gradlew.bat test               # 运行测试（11 条，全绿）
+cd D:\erp-build\backend\server
+.\gradlew.bat test               # 运行测试（152 条，全绿）
 ```
 
 删除联接：`.\scripts\build-env.ps1 -Remove`
@@ -98,21 +117,32 @@ cd D:\erp-build\apps\server
 
 ```powershell
 # 1. 起依赖环境（PostgreSQL 16 + Redis + RabbitMQ，等健康检查通过才返回）
+#    注：宿主 PostgreSQL 端口是 15432（本机 5432 落在 Windows 保留段内，见 compose 注释）
 .\scripts\dev-up.ps1
 
 # 2. 建构建联接（仅首次，或路径含中文时）
 .\scripts\build-env.ps1
 
 # 3. 跑测试 + 覆盖率门禁
-cd D:\erp-build\apps\server
+cd D:\erp-build\backend\server
 .\gradlew.bat check
 
-# 4. 启动服务（API 文档 http://localhost:8080/swagger-ui.html）
+# 4. 创建开发用登录账号（V3 迁移刻意不预置账号）
+cd D:\MajorCacheFolder\Company system\自选
+.\scripts\seed-dev-user.ps1       # 默认 admin / Admin@12345
+
+# 5. 启动后端（API 文档 http://127.0.0.1:8080/swagger-ui.html）
+cd D:\erp-build\backend\server
 .\gradlew.bat bootRun
 
-# 5. 重新生成代码索引
+# 6. 启动前端（另开一个终端 → http://127.0.0.1:3000）
+cd D:\MajorCacheFolder\Company system\自选\frontend\web
+npm install
+npm run dev
+
+# 7. 重新生成代码索引
 cd D:\MajorCacheFolder\Company system\自选
-bash scripts/gen-index.sh
+.\scripts\gen-index.ps1           # Windows；Linux/macOS 用 ./scripts/gen-index.sh
 ```
 
 ## 三条硬规则
@@ -128,21 +158,26 @@ bash scripts/gen-index.sh
 | # | 文件 | 能看出什么 |
 |---|---|---|
 | 1 | [docs/02-领域模型](docs/02-领域模型与术语表.md) §4 | **10 条核心不变量** —— 整个系统的正确性都围绕它们 |
-| 2 | [InventoryApplicationService](apps/server/src/main/java/com/erp/inv/application/InventoryApplicationService.java) | 防超卖的原子 UPDATE、幂等、FEFO 扣减，以及 2 个真实缺陷的修复注释 |
-| 3 | [InventoryReserveIT](apps/server/src/test/java/com/erp/inv/InventoryReserveIT.java) | 测试怎么断言"不变量"而非硬编码数字 |
-| 4 | [docs/07-决策记录ADR](docs/07-决策记录ADR/README.md) | 10 条决策的**放弃方案与理由** —— 工程判断力的直接证据 |
+| 2 | [InventoryApplicationService](backend/server/src/main/java/com/erp/inv/application/InventoryApplicationService.java) | 防超卖的原子 UPDATE、幂等、FEFO 扣减，以及 2 个真实缺陷的修复注释 |
+| 3 | [InventoryReserveIT](backend/server/src/test/java/com/erp/inv/InventoryReserveIT.java) | 测试怎么断言"不变量"而非硬编码数字 |
+| 4 | [docs/07-决策记录ADR](docs/07-决策记录ADR/README.md) | 11 条决策的**放弃方案与理由** —— 工程判断力的直接证据 |
 
 ## 目录结构
 
 ```
-docs/           规划文档（00~07 + 10 条 ADR）
-index/          代码索引（生成物，由脚本维护）
-scripts/        dev-up（一键起环境）/ gen-index（生成索引）/ build-env（Windows 路径）
-apps/server/    Spring Boot 3 服务端（当前唯一已实现的应用）
-packages/       api-contract（OpenAPI 单一事实源）
-infra/          compose 本地环境编排
-.github/        CI 三条门禁流水线
+backend/server/  服务端（Java 17 + Spring Boot 3）—— 全部后端代码
+frontend/web/    前端（Vue3 + TypeScript + Element Plus）—— 全部客户端代码
+docs/            规划文档（00~07 + 11 条 ADR）
+index/           代码索引（生成物，由脚本维护，禁止手写）
+packages/        api-contract（OpenAPI 单一事实源）
+scripts/         dev-up / gen-index / build-env / seed-dev-user / bcrypt-hash
+infra/           compose 本地环境编排
+.plan/           各里程碑计划书
+.github/         CI 门禁流水线
 ```
 
-> `apps/web`、`apps/miniapp`、`apps/android`、`tests/e2e-*` 为后续里程碑（M3~M5）预留，
+> **前后端已按 `backend/` + `frontend/` 两大分区重组**（[ADR-0011](docs/07-决策记录ADR/ADR-0011-目录调整backend与frontend分区.md)）。
+> 详细导航（每个目录是什么、哪些不用看）见 [README-目录导航.md](README-目录导航.md)。
+>
+> `frontend/miniapp/`、`frontend/android/`、`tests/e2e-*` 为后续里程碑（M4~M5）预留，
 > 当前尚未创建 —— README 不写不存在的东西。

@@ -21,7 +21,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 INDEX_DIR="$ROOT_DIR/index"
 CONTRACT="$ROOT_DIR/packages/api-contract/openapi.yaml"
-SERVER_DIR="$ROOT_DIR/apps/server"
+SERVER_DIR="$ROOT_DIR/backend/server"
 CHECK_MODE=false
 
 # ★ 产物确定性：默认**不写生成时间戳**。
@@ -53,7 +53,7 @@ gen_modules() {
   {
     echo "# 模块索引（自动生成，请勿手写）"
     echo ""
-    echo "> 生成脚本：\`scripts/gen-index.sh\` · 来源：\`apps/server/src/main/java/com/erp/\`"
+    echo "> 生成脚本：\`scripts/gen-index.sh\` · 来源：\`backend/server/src/main/java/com/erp/\`"
     echo ""
     echo "| 模块 | 职责 | Java 文件 | 代码行 | 测试文件 |"
     echo "|---|---|---|---|---|"
@@ -221,7 +221,7 @@ gen_coverage() {
     echo "| $label | $covered / $total | ${pct}% |" >> "$out"
   done
   echo "" >> "$out"
-  echo "原始报告：\`apps/server/build/reports/jacoco/test/html/index.html\`" >> "$out"
+  echo "原始报告：\`backend/server/build/reports/jacoco/test/html/index.html\`" >> "$out"
 
   echo "" >> "$out"
   append_stamp "$out"
