@@ -19,7 +19,7 @@
 
 .EXAMPLE
   .\scripts\build-env.ps1
-  cd D:\erp-build\apps\server; .\gradlew.bat test
+  cd D:\erp-build\backend\server; .\gradlew.bat test
 
 .EXAMPLE
   .\scripts\build-env.ps1 -Remove
@@ -59,7 +59,7 @@ $nonAscii = $RootDir.ToCharArray() | Where-Object { [int]$_ -gt 127 }
 if (-not $nonAscii) {
     Write-Host '✓ 路径为纯 ASCII，无需联接，可直接构建。' -ForegroundColor Green
     Write-Host ''
-    Write-Host "  cd `"$RootDir\apps\server`"; .\gradlew.bat test"
+    Write-Host "  cd `"$RootDir\backend\server`"; .\gradlew.bat test"
     exit 0
 }
 
@@ -101,9 +101,9 @@ if (Test-Path $LinkPath) {
 Write-Host ''
 Write-Host '--- 验证 ---' -ForegroundColor Yellow
 $checks = @(
-    @{ p = "$LinkPath\apps\server\settings.gradle.kts"; d = 'Gradle 配置' },
-    @{ p = "$LinkPath\apps\server\gradlew.bat";         d = 'Gradle wrapper' },
-    @{ p = "$LinkPath\apps\server\src\main\java\com\erp\ErpApplication.java"; d = '源码' }
+    @{ p = "$LinkPath\backend\server\settings.gradle.kts"; d = 'Gradle 配置' },
+    @{ p = "$LinkPath\backend\server\gradlew.bat";         d = 'Gradle wrapper' },
+    @{ p = "$LinkPath\backend\server\src\main\java\com\erp\ErpApplication.java"; d = '源码' }
 )
 $ok = $true
 foreach ($c in $checks) {
@@ -115,7 +115,7 @@ foreach ($c in $checks) {
 if ($ok) {
     Write-Host ''
     Write-Host '--- 端到端验证（编译） ---' -ForegroundColor Yellow
-    Push-Location "$LinkPath\apps\server"
+    Push-Location "$LinkPath\backend\server"
     try {
         & .\gradlew.bat compileJava --quiet
         if ($LASTEXITCODE -eq 0) {
@@ -132,7 +132,7 @@ if ($ok) {
     Write-Host '=== 就绪 ===' -ForegroundColor Cyan
     Write-Host ''
     Write-Host '所有构建/测试命令请在此路径执行：' -ForegroundColor White
-    Write-Host "  cd $LinkPath\apps\server"
+    Write-Host "  cd $LinkPath\backend\server"
     Write-Host '  .\gradlew.bat test              # 运行全部测试'
     Write-Host '  .\gradlew.bat bootRun           # 启动服务'
     Write-Host '  .\gradlew.bat jacocoTestReport  # 覆盖率报告'

@@ -69,6 +69,9 @@ cd D:\erp-build\apps\server
 .\gradlew.bat test
 ```
 
+> 目录重组后（见 [ADR-0011](ADR-0011-目录调整backend与frontend分区.md)），实际路径为
+> `D:\erp-build\backend\server`；上面的 `apps\server` 是当时的历史路径。
+
 `scripts/build-env.ps1` 会：
 1. 检测当前项目路径是否含非 ASCII 字符；
 2. 含则创建/复用 `D:\erp-build` 联接；
