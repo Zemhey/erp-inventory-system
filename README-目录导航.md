@@ -36,10 +36,13 @@
 ├── frontend/                  ★ 所有客户端
 │   └── web/                   Vue3 + TypeScript + Element Plus（M3）
 │       ├── src/api/           接口封装（含幂等键、token、错误处理）
+│       ├── src/components/    跨页复用组件（PageTable 列表骨架 / StatusTag 状态标签）
+│       ├── src/utils/         跨页复用逻辑（documentStatus.ts 状态机→动作映射）
 │       ├── src/views/         页面（views/mdm 主数据、views/pur 进货…）
 │       ├── src/layouts/       布局（侧边栏 + 顶栏）
 │       ├── src/router/        路由与权限守卫
-│       └── src/stores/        全局状态（登录会话）
+│       ├── src/stores/        全局状态（登录会话）
+│       └── scripts/           构建期校验（check-status-parity.mjs 状态机镜像比对）
 │
 ├── docs/                      📖 规划与设计文档
 │   ├── 00-索引与追踪矩阵.md    ★ 项目唯一入口
