@@ -4,8 +4,21 @@
 
 | 方法 | 路径 | operationId | 摘要 |
 |---|---|---|---|
-| GET | `/warehouses` | `listWarehouses` | 查询仓库列表 |
+| GET | `/warehouses` | `listWarehouses` | 查询仓库列表（返回数组，不分页） |
 | POST | `/warehouses` | `createWarehouse` | 新建仓库 |
+| GET | `/warehouses/{id}` | `getWarehouse` | 仓库详情 |
+| PUT | `/warehouses/{id}` | `updateWarehouse` | 更新仓库（编码不可修改） |
+| POST | `/warehouses/{id}/disable` | `disableWarehouse` | 停用仓库 |
+| GET | `/suppliers` | `listSuppliers` | 查询供应商列表 |
+| POST | `/suppliers` | `createSupplier` | 新建供应商 |
+| GET | `/suppliers/{id}` | `getSupplier` | 供应商详情 |
+| PUT | `/suppliers/{id}` | `updateSupplier` | 更新供应商（编码不可修改） |
+| POST | `/suppliers/{id}/disable` | `disableSupplier` | 停用供应商 |
+| GET | `/customers` | `listCustomers` | 查询客户列表 |
+| POST | `/customers` | `createCustomer` | 新建客户 |
+| GET | `/customers/{id}` | `getCustomer` | 客户详情 |
+| PUT | `/customers/{id}` | `updateCustomer` | 更新客户（编码不可修改） |
+| POST | `/customers/{id}/disable` | `disableCustomer` | 停用客户 |
 | GET | `/products` | `listProducts` | 查询商品列表 |
 | POST | `/products` | `createProduct` | 新建商品（款式） |
 | GET | `/products/{id}` | `getProduct` | 商品详情 |

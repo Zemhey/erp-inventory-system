@@ -181,16 +181,25 @@ export const mdmApi = {
   listSuppliers: (params: { keyword?: string; page?: number; size?: number }) =>
     http.get<never, PageData<Supplier>>('/suppliers', { params }),
   createSupplier: (body: SupplierCreate) => http.post<never, Supplier>('/suppliers', body),
+  updateSupplier: (id: number, body: SupplierUpdate) =>
+    http.put<never, Supplier>(`/suppliers/${id}`, body),
+  disableSupplier: (id: number) => http.post<never, Supplier>(`/suppliers/${id}/disable`),
 
   // 客户
   listCustomers: (params: { keyword?: string; page?: number; size?: number }) =>
     http.get<never, PageData<Customer>>('/customers', { params }),
   createCustomer: (body: CustomerCreate) => http.post<never, Customer>('/customers', body),
+  updateCustomer: (id: number, body: CustomerUpdate) =>
+    http.put<never, Customer>(`/customers/${id}`, body),
+  disableCustomer: (id: number) => http.post<never, Customer>(`/customers/${id}/disable`),
 
   // 仓库（不分页，返回数组）
   listWarehouses: (onlyEnabled = false) =>
     http.get<never, Warehouse[]>('/warehouses', { params: { onlyEnabled } }),
   createWarehouse: (body: WarehouseCreate) => http.post<never, Warehouse>('/warehouses', body),
+  updateWarehouse: (id: number, body: WarehouseUpdate) =>
+    http.put<never, Warehouse>(`/warehouses/${id}`, body),
+  disableWarehouse: (id: number) => http.post<never, Warehouse>(`/warehouses/${id}/disable`),
 }
 
 /** 库存（FR-INV-01/02/03）。 */
@@ -309,6 +318,16 @@ export interface SupplierCreate {
   contactName?: string
   contactPhone?: string
   address?: string
+  enabled?: boolean
+}
+
+/** 编码创建后不可改，因此更新体不含 code。 */
+export interface SupplierUpdate {
+  name: string
+  contactName?: string
+  contactPhone?: string
+  address?: string
+  enabled?: boolean
 }
 
 export interface Customer {
@@ -328,6 +347,16 @@ export interface CustomerCreate {
   phone?: string
   discountRate?: number
   level?: string
+  enabled?: boolean
+}
+
+/** 编码创建后不可改，因此更新体不含 code。 */
+export interface CustomerUpdate {
+  name: string
+  phone?: string
+  discountRate?: number
+  level?: string
+  enabled?: boolean
 }
 
 export interface Warehouse {
@@ -342,6 +371,14 @@ export interface WarehouseCreate {
   code: string
   name: string
   address?: string
+  enabled?: boolean
+}
+
+/** 编码创建后不可改，因此更新体不含 code。 */
+export interface WarehouseUpdate {
+  name: string
+  address?: string
+  enabled?: boolean
 }
 
 export interface InventoryBalance {

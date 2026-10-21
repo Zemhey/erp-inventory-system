@@ -88,19 +88,6 @@ class ApiContractMappingIT extends PostgresTestBase {
         UNDOCUMENTED_DEBT.put("POST /api/v1/skus/matrix", "SKU 矩阵生成，契约待补");
         UNDOCUMENTED_DEBT.put("PUT /api/v1/skus/{}", "SKU 更新，契约待补");
         UNDOCUMENTED_DEBT.put("POST /api/v1/skus/{}/disable", "SKU 停用，契约待补");
-        UNDOCUMENTED_DEBT.put("GET /api/v1/suppliers", "供应商模块，契约待补");
-        UNDOCUMENTED_DEBT.put("GET /api/v1/suppliers/{}", "供应商模块，契约待补");
-        UNDOCUMENTED_DEBT.put("POST /api/v1/suppliers", "供应商模块，契约待补");
-        UNDOCUMENTED_DEBT.put("PUT /api/v1/suppliers/{}", "供应商模块，契约待补");
-        UNDOCUMENTED_DEBT.put("POST /api/v1/suppliers/{}/disable", "供应商模块，契约待补");
-        UNDOCUMENTED_DEBT.put("GET /api/v1/customers", "客户模块，契约待补");
-        UNDOCUMENTED_DEBT.put("GET /api/v1/customers/{}", "客户模块，契约待补");
-        UNDOCUMENTED_DEBT.put("POST /api/v1/customers", "客户模块，契约待补");
-        UNDOCUMENTED_DEBT.put("PUT /api/v1/customers/{}", "客户模块，契约待补");
-        UNDOCUMENTED_DEBT.put("POST /api/v1/customers/{}/disable", "客户模块，契约待补");
-        UNDOCUMENTED_DEBT.put("GET /api/v1/warehouses/{}", "仓库详情，契约待补");
-        UNDOCUMENTED_DEBT.put("PUT /api/v1/warehouses/{}", "仓库更新，契约待补");
-        UNDOCUMENTED_DEBT.put("POST /api/v1/warehouses/{}/disable", "仓库停用，契约待补");
 
         // 单据工作流动作：M1 实现，契约只写了 receive/ship/void
         UNDOCUMENTED_DEBT.put("POST /api/v1/purchase-orders/{}/submit", "进货工作流，契约待补");

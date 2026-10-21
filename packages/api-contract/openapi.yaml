@@ -39,8 +39,13 @@ paths:
   /warehouses:
     get:
       tags: [mdm]
-      summary: 查询仓库列表
+      summary: 查询仓库列表（返回数组，不分页）
       operationId: listWarehouses
+      parameters:
+        - name: onlyEnabled
+          in: query
+          description: 仅返回启用的仓库
+          schema: { type: boolean, default: false }
       responses:
         '200':
           $ref: '#/components/responses/ListResponse'
@@ -60,6 +65,207 @@ paths:
           $ref: '#/components/responses/SingleResponse'
         '409':
           $ref: '#/components/responses/Conflict'
+
+  /warehouses/{id}:
+    get:
+      tags: [mdm]
+      summary: 仓库详情
+      operationId: getWarehouse
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [mdm]
+      summary: 更新仓库（编码不可修改）
+      operationId: updateWarehouse
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WarehouseUpdate' }
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /warehouses/{id}/disable:
+    post:
+      tags: [mdm]
+      summary: 停用仓库
+      description: 停用不删除；新单据不能再选择该仓库，历史单据与库存不受影响。
+      operationId: disableWarehouse
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /suppliers:
+    get:
+      tags: [mdm]
+      summary: 查询供应商列表
+      operationId: listSuppliers
+      parameters:
+        - name: keyword
+          in: query
+          description: 同时匹配编码与名称（模糊）
+          schema: { type: string }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          $ref: '#/components/responses/PageResponse'
+    post:
+      tags: [mdm]
+      summary: 新建供应商
+      operationId: createSupplier
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SupplierCreate' }
+      responses:
+        '201':
+          $ref: '#/components/responses/SingleResponse'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /suppliers/{id}:
+    get:
+      tags: [mdm]
+      summary: 供应商详情
+      operationId: getSupplier
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [mdm]
+      summary: 更新供应商（编码不可修改）
+      description: 省略 `enabled` 时后端按 `true` 处理，因此前端编辑时应始终回传当前状态。
+      operationId: updateSupplier
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SupplierUpdate' }
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /suppliers/{id}/disable:
+    post:
+      tags: [mdm]
+      summary: 停用供应商
+      description: 停用不删除；新进货单不能再选择该供应商，历史单据不受影响。
+      operationId: disableSupplier
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /customers:
+    get:
+      tags: [mdm]
+      summary: 查询客户列表
+      operationId: listCustomers
+      parameters:
+        - name: keyword
+          in: query
+          description: 同时匹配编码、名称与电话（模糊）
+          schema: { type: string }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          $ref: '#/components/responses/PageResponse'
+    post:
+      tags: [mdm]
+      summary: 新建客户
+      operationId: createCustomer
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CustomerCreate' }
+      responses:
+        '201':
+          $ref: '#/components/responses/SingleResponse'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /customers/{id}:
+    get:
+      tags: [mdm]
+      summary: 客户详情
+      operationId: getCustomer
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [mdm]
+      summary: 更新客户（编码不可修改）
+      description: 省略 `discountRate` 时保留原折扣率；省略 `enabled` 时后端按 `true` 处理。
+      operationId: updateCustomer
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CustomerUpdate' }
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /customers/{id}/disable:
+    post:
+      tags: [mdm]
+      summary: 停用客户
+      description: 停用不删除；新出货单不能再选择该客户，历史单据不受影响。
+      operationId: disableCustomer
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /products:
     get:
@@ -642,6 +848,16 @@ components:
       description: 单据统一状态机（BR-DOC-01，非法转移必须拒绝）
       enum: [DRAFT, SUBMITTED, APPROVED, PARTIAL, COMPLETED, VOIDED, REJECTED]
 
+    Warehouse:
+      type: object
+      required: [id, code, name, enabled]
+      properties:
+        id: { type: integer, format: int64 }
+        code: { type: string, example: SH01 }
+        name: { type: string, example: 上海仓 }
+        address: { type: string, nullable: true }
+        enabled: { type: boolean, example: true }
+
     WarehouseCreate:
       type: object
       required: [code, name]
@@ -649,6 +865,95 @@ components:
         code: { type: string, minLength: 2, maxLength: 32, example: SH01 }
         name: { type: string, minLength: 1, maxLength: 64, example: 上海仓 }
         address: { type: string, maxLength: 200 }
+        enabled: { type: boolean, default: true }
+
+    WarehouseUpdate:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 64 }
+        address: { type: string, maxLength: 200 }
+        enabled: { type: boolean, default: true, description: 省略时后端按 true 处理 }
+
+    Supplier:
+      type: object
+      required: [id, code, name, enabled]
+      properties:
+        id: { type: integer, format: int64 }
+        code: { type: string, example: SUP-001 }
+        name: { type: string, example: 杭州面料供应商 }
+        contactName: { type: string, nullable: true }
+        contactPhone: { type: string, nullable: true }
+        address: { type: string, nullable: true }
+        enabled: { type: boolean, example: true }
+
+    SupplierCreate:
+      type: object
+      required: [code, name]
+      properties:
+        code: { type: string, minLength: 2, maxLength: 32, example: SUP-001 }
+        name: { type: string, minLength: 1, maxLength: 128, example: 杭州面料供应商 }
+        contactName: { type: string, maxLength: 64 }
+        contactPhone: { type: string, maxLength: 32 }
+        address: { type: string, maxLength: 200 }
+        enabled: { type: boolean, default: true }
+
+    SupplierUpdate:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 128 }
+        contactName: { type: string, maxLength: 64 }
+        contactPhone: { type: string, maxLength: 32 }
+        address: { type: string, maxLength: 200 }
+        enabled: { type: boolean, default: true, description: 省略时后端按 true 处理 }
+
+    Customer:
+      type: object
+      required: [id, code, name, discountRate, level, enabled]
+      properties:
+        id: { type: integer, format: int64 }
+        code: { type: string, example: CUS-001 }
+        name: { type: string, example: 零售散客 }
+        phone: { type: string, nullable: true }
+        discountRate:
+          type: integer
+          minimum: 1
+          maximum: 10000
+          description: 整数万分比：9000 = 9 折，10000 = 不打折；0 等于白送，必须拒绝
+          example: 9000
+        level: { type: string, maxLength: 16, example: VIP }
+        enabled: { type: boolean, example: true }
+
+    CustomerCreate:
+      type: object
+      required: [code, name]
+      properties:
+        code: { type: string, minLength: 2, maxLength: 32, example: CUS-001 }
+        name: { type: string, minLength: 1, maxLength: 128, example: 零售散客 }
+        phone: { type: string, maxLength: 32 }
+        discountRate:
+          type: integer
+          minimum: 1
+          maximum: 10000
+          default: 10000
+          description: 整数万分比，禁止浮点（ADR-0005）
+        level: { type: string, maxLength: 16, default: NORMAL }
+        enabled: { type: boolean, default: true }
+
+    CustomerUpdate:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 128 }
+        phone: { type: string, maxLength: 32 }
+        discountRate:
+          type: integer
+          minimum: 1
+          maximum: 10000
+          description: 省略时保留原折扣率
+        level: { type: string, maxLength: 16 }
+        enabled: { type: boolean, default: true, description: 省略时后端按 true 处理 }
 
     ProductCreate:
       type: object
