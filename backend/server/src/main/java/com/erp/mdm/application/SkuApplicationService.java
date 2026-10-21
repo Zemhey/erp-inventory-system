@@ -112,8 +112,8 @@ public class SkuApplicationService {
     }
 
     @Transactional(readOnly = true)
-    public PageResult<Sku> page(Long productId, String color, String size, int page, int pageSize) {
-        return skus.page(productId, color, size, page, pageSize);
+    public PageResult<Sku> page(Long productId, String color, String skuSize, int page, int pageSize) {
+        return skus.page(productId, color, skuSize, page, pageSize);
     }
 
     @Transactional

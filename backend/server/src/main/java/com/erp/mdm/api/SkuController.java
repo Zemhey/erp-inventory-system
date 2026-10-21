@@ -70,10 +70,13 @@ public class SkuController {
     public ResponseEntity<Map<String, Object>> list(
             @RequestParam(required = false) Long productId,
             @RequestParam(required = false) String color,
-            @RequestParam(required = false) String size,
+            /* 尺码筛选叫 skuSize 而非 size：size 是契约统一的分页条数参数，
+               同名会让其中一个被 Spring 静默忽略（分页永远 20 条）。 */
+            @RequestParam(required = false) String skuSize,
             @RequestParam(defaultValue = "1") int page,
-            @RequestParam(defaultValue = "20") int size_) {
-        return ResponseEntity.ok(ApiResponses.page(skus.page(productId, color, size, page, size_)));
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(ApiResponses.page(
+                skus.page(productId, color, skuSize, page, size)));
     }
 
     @GetMapping("/{id}")

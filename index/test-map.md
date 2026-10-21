@@ -4,12 +4,15 @@
 
 | 用例ID | 用例名称 | 所在文件 |
 |---|---|---|
+| `TC-API-012` | ★ 库存流水：分页参数生效、按来源单据反查、响应字段符合契约 | `backend/server/src/test/java/com/erp/api/InventoryApiIT.java` |
+| `TC-API-013` | 库存流水：未登录 401（权限守卫生效，不是 500） | `backend/server/src/test/java/com/erp/api/InventoryApiIT.java` |
 | `TC-API-001` | 商品：建 → 查 → 改 → 停用 全链路，响应包络符合契约 | `backend/server/src/test/java/com/erp/api/MasterDataApiIT.java` |
 | `TC-API-002` | 商品：编码重复 → 409 MDM_CODE_DUPLICATED；不存在 → 404 SYS_NOT_FOUND | `backend/server/src/test/java/com/erp/api/MasterDataApiIT.java` |
 | `TC-API-003` | ★ 参数校验：编码过短 / 名称为空 → 400 SYS_VALIDATION_ERROR（不是 500） | `backend/server/src/test/java/com/erp/api/MasterDataApiIT.java` |
 | `TC-API-004` | 商品列表分页：items/total/page/size 齐全，size 越界被钳制到 200 | `backend/server/src/test/java/com/erp/api/MasterDataApiIT.java` |
 | `TC-API-005` | SKU：建单条 → 矩阵生成 → 重复矩阵跳过 → 自冲突 409 | `backend/server/src/test/java/com/erp/api/MasterDataApiIT.java` |
 | `TC-API-006` | SKU 列表按商品过滤；不存在的商品查 SKU → 404 | `backend/server/src/test/java/com/erp/api/MasterDataApiIT.java` |
+| `TC-API-011` | ★ SKU 分页：size 控制条数，skuSize 过滤尺码，两参数互不吞并 | `backend/server/src/test/java/com/erp/api/MasterDataApiIT.java` |
 | `TC-API-007` | 供应商：建 → 重复 409 → 改 → 停用 | `backend/server/src/test/java/com/erp/api/MasterDataApiIT.java` |
 | `TC-API-008` | ★ 客户折扣率：越界 400（契约层校验），合法 9 折成功 | `backend/server/src/test/java/com/erp/api/MasterDataApiIT.java` |
 | `TC-API-009` | 仓库：列表返回数组（非分页）；onlyEnabled 过滤生效 | `backend/server/src/test/java/com/erp/api/MasterDataApiIT.java` |
@@ -100,4 +103,4 @@
 | `TC-DOC-005` | 未结状态判定：只有终态被视为已结 | `backend/server/src/test/java/com/erp/shared/document/DocumentStatusMachineTest.java` |
 | `TC-DOC-006` | PARTIAL->PARTIAL 自环合法：分批入库/出货可以多次进入部分状态 | `backend/server/src/test/java/com/erp/shared/document/DocumentStatusMachineTest.java` |
 
-共 95 条用例。
+共 98 条用例。

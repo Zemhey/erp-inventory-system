@@ -1,14 +1,17 @@
 package com.erp.inv.application;
 
 import com.erp.inv.domain.InventoryBalance;
+import com.erp.inv.domain.InventoryLedgerEntry;
 import com.erp.inv.repository.InventoryBalanceRepository;
 import com.erp.inv.repository.InventoryLedgerRepository;
 import com.erp.inv.repository.InventoryReservationRepository;
 import com.erp.shared.error.BusinessException;
 import com.erp.shared.error.ErrorCode;
 import com.erp.shared.time.ClockProvider;
+import com.erp.shared.web.PageResult;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -50,6 +53,14 @@ public class InventoryApplicationService {
     @Transactional(readOnly = true)
     public List<InventoryBalance> query(Long skuId, Long warehouseId, String batchNo, boolean onlyAvailable) {
         return balances.query(skuId, warehouseId, batchNo, onlyAvailable);
+    }
+
+    /** 库存流水查询（FR-INV-02）：可按来源单据号反查某笔出入库。 */
+    @Transactional(readOnly = true)
+    public PageResult<InventoryLedgerEntry> queryLedger(Long skuId, Long warehouseId, String bizRefNo,
+                                                        OffsetDateTime from, OffsetDateTime to,
+                                                        int page, int size) {
+        return ledger.page(skuId, warehouseId, bizRefNo, from, to, page, size);
     }
 
     @Transactional(readOnly = true)

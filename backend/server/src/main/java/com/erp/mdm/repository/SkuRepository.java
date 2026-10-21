@@ -102,7 +102,7 @@ public class SkuRepository {
                 """, MAPPER, productId);
     }
 
-    public PageResult<Sku> page(Long productId, String color, String size, int page, int sizeRows) {
+    public PageResult<Sku> page(Long productId, String color, String skuSize, int page, int sizeRows) {
         int p = PageResult.normalizePage(page);
         int s = PageResult.normalizeSize(sizeRows);
         List<Object> args = new ArrayList<>();
@@ -115,9 +115,9 @@ public class SkuRepository {
             where.append(" AND color = ?");
             args.add(color);
         }
-        if (size != null && !size.isBlank()) {
+        if (skuSize != null && !skuSize.isBlank()) {
             where.append(" AND size = ?");
-            args.add(size);
+            args.add(skuSize);
         }
         Long total = jdbc.queryForObject("SELECT COUNT(*) FROM skus" + where,
                 Long.class, args.toArray());

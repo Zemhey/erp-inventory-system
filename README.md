@@ -4,9 +4,9 @@
 ![Java](https://img.shields.io/badge/Java-17-007396?logo=openjdk&logoColor=white)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.3-6DB33F?logo=springboot&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-152%20passing-brightgreen)
-![Coverage](https://img.shields.io/badge/line%20coverage-73.4%25-yellowgreen)
-![Branch](https://img.shields.io/badge/branch%20coverage-52.0%25-yellowgreen)
+![Tests](https://img.shields.io/badge/tests-156%20passing-brightgreen)
+![Coverage](https://img.shields.io/badge/line%20coverage-74.2%25-yellowgreen)
+![Branch](https://img.shields.io/badge/branch%20coverage-53.2%25-yellowgreen)
 
 > **多端 B/S 进销存 SaaS 平台 + 配套自动化测试体系**
 > Java 17 · Spring Boot 3 · PostgreSQL 16 · Vue 3 · uni-app
@@ -69,7 +69,7 @@
 - ✅ 方向与路线确定（行业、技术栈、测试体系）
 - ✅ 规划文档（00~07 + 11 条 ADR）
 - ✅ **M0 交付**：OpenAPI 六资源契约 · Spring Boot 3 骨架 · Flyway schema · 库存纵向切片 · compose 一键起环境 · CI 三道门禁
-- ✅ **M1 交付**：主数据（商品/SKU 矩阵/供应商/客户/仓库）· 进货闭环 · 出货闭环（FEFO）· IAM（JWT + RBAC）· 统一状态机 · 原子取号 · **152 条测试全绿**
+- ✅ **M1 交付**：主数据（商品/SKU 矩阵/供应商/客户/仓库）· 进货闭环 · 出货闭环（FEFO）· IAM（JWT + RBAC）· 统一状态机 · 原子取号 · **156 条测试全绿**
 - 🚧 **M3 进行中**：`frontend/web` 骨架 + 登录页 + 工作台已完成，接口封装与权限路由就绪
 - ⬜ M2：退货 · 日清月结 · 报表（业务补全）
 - ⬜ M4/M5：小程序 + Android（uni-app 一套出两端）
@@ -108,7 +108,7 @@ docs/ index/ packages/ scripts/ infra/ .plan/
 ```powershell
 .\scripts\build-env.ps1          # 创建 D:\erp-build 联接（非破坏、可回滚）
 cd D:\erp-build\backend\server
-.\gradlew.bat test               # 运行测试（152 条，全绿）
+.\gradlew.bat test               # 运行测试（156 条，全绿）
 ```
 
 删除联接：`.\scripts\build-env.ps1 -Remove`

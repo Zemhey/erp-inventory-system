@@ -30,7 +30,7 @@
 │   └── server/
 │       ├── src/main/java/com/erp/     业务代码（按域分模块）
 │       ├── src/main/resources/        配置与 Flyway 迁移脚本
-│       ├── src/test/java/com/erp/     152 条测试
+│       ├── src/test/java/com/erp/     156 条测试
 │       └── build.gradle.kts           构建配置与覆盖率门禁
 │
 ├── frontend/                  ★ 所有客户端

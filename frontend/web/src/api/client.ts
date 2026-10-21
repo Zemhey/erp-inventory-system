@@ -148,22 +148,22 @@ export const mdmApi = {
     http.get<never, PageData<Product>>('/products', { params }),
   getProduct: (id: number) => http.get<never, Product>(`/products/${id}`),
   createProduct: (body: ProductCreate) => http.post<never, Product>('/products', body),
-  updateProduct: (id: number, body: ProductCreate) => http.put<never, Product>(`/products/${id}`, body),
+  updateProduct: (id: number, body: ProductUpdate) => http.put<never, Product>(`/products/${id}`, body),
   disableProduct: (id: number) => http.post<never, Product>(`/products/${id}/disable`),
 
   // SKU
   /**
-   * @param params.size 尺码筛选（如 "L"）
-   * @param params.pageSize 分页条数
+   * @param params.skuSize 尺码筛选（如 "L"）
+   * @param params.pageSize 分页条数（发给后端的参数名是 size）
    *
-   * ★ 两个 size 必须区分命名：服装业务里 size 指尺码，分页里 size 指条数。
-   *   若都叫 size，TypeScript 会报 Duplicate identifier，
-   *   更要紧的是读代码的人会混淆。这类"同名不同义"是接口层的常见坑。
+   * ★ 尺码筛选必须叫 skuSize：`size` 已归分页专用。
+   *   两者若同名，后端只会绑定其中一个，另一个被静默忽略 ——
+   *   M3-S1 实测发现原实现正是如此（分页永远 20 条且不报错）。
    */
   listSkus: (params: {
     productId?: number
     color?: string
-    size?: string
+    skuSize?: string
     page?: number
     pageSize?: number
   }) => {
@@ -171,6 +171,7 @@ export const mdmApi = {
     return http.get<never, PageData<Sku>>('/skus', { params: { ...rest, size: pageSize } })
   },
   createSku: (body: SkuCreate) => http.post<never, Sku>('/skus', body),
+  updateSku: (id: number, body: SkuUpdate) => http.put<never, Sku>(`/skus/${id}`, body),
   /** 颜色 × 尺码矩阵批量生成（本项目服装行业的特色能力） */
   createSkuMatrix: (body: SkuMatrixCreate) =>
     http.post<never, { created: Sku[]; createdCount: number; skipped: number }>('/skus/matrix', body),
@@ -196,8 +197,16 @@ export const mdmApi = {
 export const invApi = {
   query: (params: { skuId?: number; warehouseId?: number; batchNo?: string; onlyAvailable?: boolean }) =>
     http.get<never, InventoryBalance[]>('/inventory', { params }),
-  ledger: (params: { skuId?: number; warehouseId?: number; bizRefNo?: string; page?: number; size?: number }) =>
-    http.get<never, PageData<LedgerEntry>>('/inventory/ledger', { params }),
+  ledger: (params: {
+    skuId?: number
+    warehouseId?: number
+    bizRefNo?: string
+    /** ISO-8601 带时区，如 2026-10-01T00:00:00+08:00 */
+    from?: string
+    to?: string
+    page?: number
+    size?: number
+  }) => http.get<never, PageData<LedgerEntry>>('/inventory/ledger', { params }),
   consistencyCheck: () => http.get<never, { consistent: boolean }>('/inventory/consistency-check'),
 }
 
@@ -245,6 +254,14 @@ export interface ProductCreate {
   enabled?: boolean
 }
 
+/** 编码创建后不可改，因此更新体不含 code。 */
+export interface ProductUpdate {
+  name: string
+  category?: string
+  season?: string
+  enabled?: boolean
+}
+
 export interface Sku {
   id: number
   productId: number
@@ -261,6 +278,12 @@ export interface SkuCreate {
   size: string
   barcode?: string
   retailPriceAmount?: number
+}
+
+export interface SkuUpdate {
+  barcode?: string
+  retailPriceAmount?: number
+  enabled?: boolean
 }
 
 export interface SkuMatrixCreate {

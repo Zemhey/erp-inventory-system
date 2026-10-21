@@ -1,19 +1,24 @@
 package com.erp.inv.api;
 
+import com.erp.iam.security.RequirePermission;
 import com.erp.inv.application.InventoryApplicationService;
 import com.erp.inv.application.InventoryApplicationService.ReserveCommand;
 import com.erp.inv.application.InventoryApplicationService.ReserveResult;
 import com.erp.inv.domain.InventoryBalance;
-import com.erp.iam.security.RequirePermission;
+import com.erp.inv.domain.InventoryLedgerEntry;
 import com.erp.shared.error.BusinessException;
 import com.erp.shared.error.ErrorCode;
+import com.erp.shared.web.ApiResponses;
+import com.erp.shared.web.PageResult;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -51,6 +56,24 @@ public class InventoryController {
         List<Map<String, Object>> items = inventory.query(skuId, warehouseId, batchNo, onlyAvailable)
                 .stream().map(InventoryController::toMap).toList();
         return ResponseEntity.ok(ok(items));
+    }
+
+    @GetMapping("/ledger")
+    @RequirePermission("inv:read")
+    public ResponseEntity<Map<String, Object>> ledger(
+            @RequestParam(required = false) Long skuId,
+            @RequestParam(required = false) Long warehouseId,
+            @RequestParam(required = false) String bizRefNo,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime from,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime to,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        var result = inventory.queryLedger(skuId, warehouseId, bizRefNo, from, to, page, size);
+        return ResponseEntity.ok(ApiResponses.page(new PageResult<>(
+                result.items().stream().map(InventoryController::ledgerToMap).toList(),
+                result.total(), result.page(), result.size())));
     }
 
     // ─────────────────────────── 预占 ───────────────────────────
@@ -164,6 +187,20 @@ public class InventoryController {
         m.put("code", "OK");
         m.put("message", "success");
         m.put("data", data);
+        return m;
+    }
+
+    private static Map<String, Object> ledgerToMap(InventoryLedgerEntry e) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", e.id());
+        m.put("skuId", e.skuId());
+        m.put("warehouseId", e.warehouseId());
+        m.put("batchNo", e.batchNo());
+        m.put("changeQty", e.changeQty());
+        m.put("bizType", e.bizType());
+        m.put("bizRefNo", e.bizRefNo());
+        m.put("unitCostAmount", e.unitCostAmount());
+        m.put("occurredAt", e.occurredAt() == null ? null : e.occurredAt().toString());
         return m;
     }
 

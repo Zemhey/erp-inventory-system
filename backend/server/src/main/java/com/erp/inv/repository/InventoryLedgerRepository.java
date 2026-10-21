@@ -1,8 +1,13 @@
 package com.erp.inv.repository;
 
+import com.erp.inv.domain.InventoryLedgerEntry;
+import com.erp.shared.web.PageResult;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -13,6 +18,18 @@ import org.springframework.stereotype.Repository;
  */
 @Repository
 public class InventoryLedgerRepository {
+
+    private static final RowMapper<InventoryLedgerEntry> MAPPER = (rs, rowNum) ->
+            new InventoryLedgerEntry(
+                    rs.getLong("id"),
+                    rs.getLong("sku_id"),
+                    rs.getLong("warehouse_id"),
+                    rs.getString("batch_no"),
+                    rs.getInt("change_qty"),
+                    rs.getString("biz_type"),
+                    rs.getString("biz_ref_no"),
+                    rs.getObject("unit_cost_amount", Long.class),
+                    rs.getObject("occurred_at", OffsetDateTime.class));
 
     private final JdbcTemplate jdbc;
 
@@ -50,6 +67,57 @@ public class InventoryLedgerRepository {
                  WHERE sku_id = ? AND warehouse_id = ? AND batch_no = ?
                 """, Integer.class, skuId, warehouseId, batchNo);
         return v == null ? 0 : v;
+    }
+
+    /**
+     * 流水分页查询（FR-INV-02）。
+     *
+     * <p>按 {@code occurred_at DESC, id DESC} 排序：业务时间相同时用自增 id 兜底，
+     * 否则同一毫秒内写入的多条流水顺序不稳定，翻页会漏行/重复行。
+     */
+    public PageResult<InventoryLedgerEntry> page(Long skuId, Long warehouseId, String bizRefNo,
+                                                 OffsetDateTime from, OffsetDateTime to,
+                                                 int page, int size) {
+        int p = PageResult.normalizePage(page);
+        int s = PageResult.normalizeSize(size);
+
+        StringBuilder where = new StringBuilder(" WHERE 1 = 1");
+        List<Object> args = new ArrayList<>();
+        if (skuId != null) {
+            where.append(" AND sku_id = ?");
+            args.add(skuId);
+        }
+        if (warehouseId != null) {
+            where.append(" AND warehouse_id = ?");
+            args.add(warehouseId);
+        }
+        if (bizRefNo != null && !bizRefNo.isBlank()) {
+            where.append(" AND biz_ref_no = ?");
+            args.add(bizRefNo);
+        }
+        if (from != null) {
+            where.append(" AND occurred_at >= ?");
+            args.add(from);
+        }
+        if (to != null) {
+            where.append(" AND occurred_at <= ?");
+            args.add(to);
+        }
+
+        Long total = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM inventory_ledger" + where, Long.class, args.toArray());
+
+        List<Object> pageArgs = new ArrayList<>(args);
+        pageArgs.add(s);
+        pageArgs.add(PageResult.offset(p, s));
+        List<InventoryLedgerEntry> items = jdbc.query("""
+                SELECT id, sku_id, warehouse_id, batch_no, change_qty, biz_type,
+                       biz_ref_no, unit_cost_amount, occurred_at
+                  FROM inventory_ledger
+                """ + where + " ORDER BY occurred_at DESC, id DESC LIMIT ? OFFSET ?",
+                MAPPER, pageArgs.toArray());
+
+        return new PageResult<>(items, total == null ? 0 : total, p, s);
     }
 
     public int countByBizRef(String bizRefNo) {

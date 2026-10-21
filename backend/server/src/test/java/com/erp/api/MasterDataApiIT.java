@@ -235,6 +235,38 @@ class MasterDataApiIT extends PostgresTestBase {
                 .andExpect(jsonPath("$.code").value("MDM_SKU_NOT_FOUND"));
     }
 
+    @Test
+    @CaseId("TC-API-011")
+    @DisplayName("★ SKU 分页：size 控制条数，skuSize 过滤尺码，两参数互不吞并")
+    void sku_pagingAndSizeFilter() throws Exception {
+        long productId = createProduct("P-SKU-PAGE");
+        mvc.perform(post("/api/v1/skus/matrix").header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of(
+                                "productId", productId,
+                                "colors", List.of("白色", "黑色"),
+                                "sizes", List.of("S", "M", "L")))))
+                .andExpect(status().isCreated());
+
+        // size=2 必须真的只返回 2 条（修复前会被静默忽略，永远返回 20 条）
+        mvc.perform(get("/api/v1/skus").param("productId", String.valueOf(productId))
+                        .param("page", "1").param("size", "2")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items.length()").value(2))
+                .andExpect(jsonPath("$.data.total").value(6))
+                .andExpect(jsonPath("$.data.size").value(2));
+
+        // skuSize 过滤尺码，不与分页参数冲突
+        mvc.perform(get("/api/v1/skus").param("productId", String.valueOf(productId))
+                        .param("skuSize", "L").param("size", "20")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(2))
+                .andExpect(jsonPath("$.data.items[0].size").value("L"))
+                .andExpect(jsonPath("$.data.items[1].size").value("L"));
+    }
+
     // ─────────────────────────── 供应商 / 客户 / 仓库 ───────────────────────────
 
     @Test

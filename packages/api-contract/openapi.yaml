@@ -117,8 +117,9 @@ paths:
         - name: color
           in: query
           schema: { type: string }
-        - name: size
+        - name: skuSize
           in: query
+          description: 尺码筛选（S/M/L）。**不能叫 size**：`size` 是全项目统一的分页条数参数。
           schema: { type: string }
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/Size'
