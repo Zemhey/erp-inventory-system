@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   build-env：为含非 ASCII 字符的项目路径建立 ASCII 构建联接。
 

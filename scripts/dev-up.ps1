@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   dev-up：一键起本地开发环境（Windows 版）。
 
