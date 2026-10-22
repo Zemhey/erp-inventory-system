@@ -101,7 +101,8 @@ class ArchitectureTest {
     static final ArchRule 业务代码禁止直接依赖系统时间类型 =
             noClasses()
                     .that().resideInAnyPackage("com.erp.inv..", "com.erp.pur..", "com.erp.sal..",
-                            "com.erp.mdm..", "com.erp.iam..", "com.erp.shared.document..")
+                            "com.erp.rma..", "com.erp.mdm..", "com.erp.iam..",
+                            "com.erp.shared.document..")
                     .and().doNotHaveSimpleName("ClockConfig")
                     .should().dependOnClassesThat().areAssignableTo(java.time.Clock.class)
                     .because("时间必须来自可注入的 ClockProvider（docs/06-测试策略 §3）");
@@ -123,7 +124,8 @@ class ArchitectureTest {
     static final ArchRule 业务代码禁止调用系统时间静态方法 =
             classes()
                     .that().resideInAnyPackage("com.erp.inv..", "com.erp.pur..", "com.erp.sal..",
-                            "com.erp.mdm..", "com.erp.iam..", "com.erp.shared.document..")
+                            "com.erp.rma..", "com.erp.mdm..", "com.erp.iam..",
+                            "com.erp.shared.document..")
                     .and().doNotHaveSimpleName("ClockConfig")
                     .should(noSystemTimeCalls())
                     .because("System.currentTimeMillis / Instant.now / LocalDateTime.now "
@@ -196,11 +198,15 @@ class ArchitectureTest {
      * {@code Record.<init>} 都算），语义过宽、误报一片。
      * 真正要禁止的行为很具体：<b>单据状态转移必须调
      * {@code DocumentStatusMachine.requireTransition}</b>，而不是自己 if 判断。
+     *
+     * <p>M2-S1 把 {@code rma} 一起纳入：退货单是第三张单据，
+     * 一旦让它自写一套 if 判断状态，"三张单子三种流转规则"就再也并不回来了。
      */
     @ArchTest
     static final ArchRule 单据模块必须复用统一状态机 =
             classes()
-                    .that().resideInAnyPackage("com.erp.pur.application..", "com.erp.sal.application..")
+                    .that().resideInAnyPackage("com.erp.pur.application..",
+                            "com.erp.sal.application..", "com.erp.rma.application..")
                     .and().haveSimpleNameEndingWith("ApplicationService")
                     .should(declareStatusTransition())
                     .because("单据状态流转必须经由 DocumentStatusMachine.requireTransition，"

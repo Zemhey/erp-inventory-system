@@ -17,6 +17,8 @@
 | `TC-API-008` | ★ 客户折扣率：越界 400（契约层校验），合法 9 折成功 | `backend/server/src/test/java/com/erp/api/MasterDataApiIT.java` |
 | `TC-API-009` | 仓库：列表返回数组（非分页）；onlyEnabled 过滤生效 | `backend/server/src/test/java/com/erp/api/MasterDataApiIT.java` |
 | `TC-API-010` | 缺少 X-Request-Id 的写接口 → 400（契约要求写操作必须带幂等键） | `backend/server/src/test/java/com/erp/api/MasterDataApiIT.java` |
+| `TC-API-014` | ★ 退货 HTTP 端到端：建单→提交→审核→入库，响应字段符合契约；出货明细露出 returnedQty | `backend/server/src/test/java/com/erp/api/ReturnOrderApiIT.java` |
+| `TC-API-015` | 退货接口守卫：缺 X-Request-Id → 400（不是 500）；VIEWER 可查不可建；未登录 401 | `backend/server/src/test/java/com/erp/api/ReturnOrderApiIT.java` |
 | `TC-ARCH-001` | ★ 规则自检：禁止系统时间规则必须能拦住违规代码 | `backend/server/src/test/java/com/erp/arch/ArchitectureTest.java` |
 | `TC-ARCH-002` | ★ 规则自检：禁止裸异常规则必须能拦住违规代码 | `backend/server/src/test/java/com/erp/arch/ArchitectureTest.java` |
 | `TC-ARCH-003` | ★ 规则自检：状态机规则必须拦住不调 requireTransition 的方法 | `backend/server/src/test/java/com/erp/arch/ArchitectureTest.java` |
@@ -75,6 +77,18 @@
 | `TC-PUR-013` | 入库时指定不存在的明细行：404 语义，不产生库存变动 | `backend/server/src/test/java/com/erp/pur/PurchaseOrderIT.java` |
 | `TC-PUR-014` | ★ 已入库的单据不能直接作废：必须提示先红冲（FR-PUR-03 属 P1） | `backend/server/src/test/java/com/erp/pur/PurchaseOrderIT.java` |
 | `TC-PUR-015` | 草稿作废成功；作废后不能再提交 | `backend/server/src/test/java/com/erp/pur/PurchaseOrderIT.java` |
+| `TC-RMA-001` | ★ 建单：金额由原出货行单价与折扣派生，客户/仓库继承原单，状态 DRAFT 且库存不变 | `backend/server/src/test/java/com/erp/rma/ReturnOrderIT.java` |
+| `TC-RMA-002` | 原出货单还没出货（DRAFT / SUBMITTED / APPROVED）→ RMA_ORIGIN_NOT_SHIPPED，且不建单 | `backend/server/src/test/java/com/erp/rma/ReturnOrderIT.java` |
+| `TC-RMA-003` | 明细行不属于原出货单 → 404，整单不建、库存不动 | `backend/server/src/test/java/com/erp/rma/ReturnOrderIT.java` |
+| `TC-RMA-004` | ★★ 超退拦截：建单预检挡一次，两张各自合规的单在入库时被原子守卫再挡一次，全程无副作用 | `backend/server/src/test/java/com/erp/rma/ReturnOrderIT.java` |
+| `TC-RMA-005` | 建单幂等：相同 requestId 重复提交返回同一张单，不新增记录 | `backend/server/src/test/java/com/erp/rma/ReturnOrderIT.java` |
+| `TC-RMA-006` | ★ 状态机：DRAFT→SUBMITTED→APPROVED→COMPLETED 全通，跳步与终态后的动作全被拒 | `backend/server/src/test/java/com/erp/rma/ReturnOrderIT.java` |
+| `TC-RMA-007` | ★ 入库：实存回补、产生 RETURN_IN 正向流水、原出货行 returned_qty 累加、状态 COMPLETED | `backend/server/src/test/java/com/erp/rma/ReturnOrderIT.java` |
+| `TC-RMA-008` | ★★ 入库幂等：同 requestId 重复调用不重复回补；已完成后换新 requestId 再入库被拒 | `backend/server/src/test/java/com/erp/rma/ReturnOrderIT.java` |
+| `TC-RMA-009` | 入库前作废：状态 VOIDED，库存 / 流水 / returned_qty 全部不变 | `backend/server/src/test/java/com/erp/rma/ReturnOrderIT.java` |
+| `TC-RMA-010` | 入库后作废必须被拒绝（红冲属 M2.5），且已回补的库存不动 | `backend/server/src/test/java/com/erp/rma/ReturnOrderIT.java` |
+| `TC-RMA-011` | ★ 指定批次与效期回补：货进到新批次，且下一次出货的 FEFO 能看见它 | `backend/server/src/test/java/com/erp/rma/ReturnOrderIT.java` |
+| `TC-RMA-012` | ★ 不变量：余额净和 == 流水净和；退货数量 == RETURN_IN 流水正变动合计 | `backend/server/src/test/java/com/erp/rma/ReturnOrderIT.java` |
 | `TC-SAL-001` | 建单即预占：单据为 DRAFT，但库存已被锁住（实存不变、预占增加） | `backend/server/src/test/java/com/erp/sal/SalesOrderIT.java` |
 | `TC-SAL-002` | 多行建单：每行独立预占（requestId 按行拆分，不会互相幂等吞掉） | `backend/server/src/test/java/com/erp/sal/SalesOrderIT.java` |
 | `TC-SAL-003` | ★★ 库存不足时整单回滚：3 行明细第 3 行不足 → 前 2 行的预占必须一起回滚 | `backend/server/src/test/java/com/erp/sal/SalesOrderIT.java` |
@@ -103,4 +117,4 @@
 | `TC-DOC-005` | 未结状态判定：只有终态被视为已结 | `backend/server/src/test/java/com/erp/shared/document/DocumentStatusMachineTest.java` |
 | `TC-DOC-006` | PARTIAL->PARTIAL 自环合法：分批入库/出货可以多次进入部分状态 | `backend/server/src/test/java/com/erp/shared/document/DocumentStatusMachineTest.java` |
 
-共 98 条用例。
+共 112 条用例。

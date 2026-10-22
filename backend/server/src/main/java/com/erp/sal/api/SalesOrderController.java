@@ -139,6 +139,7 @@ public class SalesOrderController {
             lm.put("skuId", l.skuId());
             lm.put("qty", l.qty());
             lm.put("shippedQty", l.shippedQty());
+            lm.put("returnedQty", l.returnedQty());
             lm.put("openQty", l.openQty());
             lm.put("unitPriceAmount", l.unitPriceAmount());
             lm.put("discountRate", l.discountRate());

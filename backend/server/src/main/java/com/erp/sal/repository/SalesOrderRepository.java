@@ -44,6 +44,7 @@ public class SalesOrderRepository {
             rs.getLong("sku_id"),
             rs.getInt("qty"),
             rs.getInt("shipped_qty"),
+            rs.getInt("returned_qty"),
             rs.getLong("unit_price_amount"),
             rs.getInt("discount_rate"),
             rs.getLong("amount"),
@@ -132,14 +133,24 @@ public class SalesOrderRepository {
 
     public List<SalesOrderLine> findLines(long orderId) {
         List<SalesOrderLine> rows = jdbc.query("""
-                SELECT id, line_no, sku_id, qty, shipped_qty, unit_price_amount,
-                       discount_rate, amount
+                SELECT id, line_no, sku_id, qty, shipped_qty, returned_qty,
+                       unit_price_amount, discount_rate, amount
                   FROM sales_order_lines WHERE order_id = ? ORDER BY line_no
                 """, LINE_MAPPER, orderId);
         return rows.stream()
                 .map(l -> new SalesOrderLine(l.id(), l.lineNo(), l.skuId(), l.qty(), l.shippedQty(),
-                        l.unitPriceAmount(), l.discountRate(), l.amount(), findReservations(l.id())))
+                        l.returnedQty(), l.unitPriceAmount(), l.discountRate(), l.amount(),
+                        findReservations(l.id())))
                 .toList();
+    }
+
+    /** 单条明细（不含预占分段）—— 退货入库时用于给出"差多少"的定位信息。 */
+    public Optional<SalesOrderLine> findLineById(long lineId) {
+        return jdbc.query("""
+                SELECT id, line_no, sku_id, qty, shipped_qty, returned_qty,
+                       unit_price_amount, discount_rate, amount
+                  FROM sales_order_lines WHERE id = ?
+                """, LINE_MAPPER, lineId).stream().findFirst();
     }
 
     public Optional<SalesOrder> findById(long id) {
@@ -166,6 +177,24 @@ public class SalesOrderRepository {
                 UPDATE sales_order_lines
                    SET shipped_qty = shipped_qty + ?
                  WHERE id = ? AND shipped_qty + ? <= qty
+                """, qty, lineId, qty) == 1;
+    }
+
+    /**
+     * 累计退货量（FR-RMA-01），<b>原子地</b>保证不超过已出货数量。
+     *
+     * <p>条件写成 {@code returned_qty + ? <= shipped_qty} 而不是让应用层先查后判：
+     * 两张退货单并发入库时，应用层的读数都可能是"还能退 3 件"，
+     * 而数据库求值只有一份 —— 后到者条件为假、更新 0 行，超退就被拦在这里。
+     * 这是本方法存在的唯一理由，调用方不得改用"先读再写"。
+     *
+     * @return 是否更新成功（false = 超退或行不存在）
+     */
+    public boolean applyReturnedQty(long lineId, int qty) {
+        return jdbc.update("""
+                UPDATE sales_order_lines
+                   SET returned_qty = returned_qty + ?
+                 WHERE id = ? AND returned_qty + ? <= shipped_qty
                 """, qty, lineId, qty) == 1;
     }
 

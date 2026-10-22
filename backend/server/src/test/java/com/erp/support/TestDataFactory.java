@@ -79,10 +79,13 @@ public class TestDataFactory {
 
     /** 清空业务表（每个测试用例前调用，保证用例间隔离）。 */
     public void truncateAll() {
+        // ★ M2 新增表必须同时进这条清单：return_order_lines 有指向 sales_order_lines 的外键，
+        //   顺序错了会因 CASCADE 之外的约束失败，表现为"第一条用例绿、第二条随机红"。
         jdbc.execute("""
                 TRUNCATE inventory_ledger, inventory_reservations, inventory_balances,
-                         sales_order_line_reservations, purchase_order_lines, sales_order_lines,
-                         purchase_orders, sales_orders,
+                         sales_order_line_reservations, return_order_lines,
+                         purchase_order_lines, sales_order_lines,
+                         return_orders, purchase_orders, sales_orders,
                          document_sequences, idempotency_keys,
                          skus, products, warehouses, suppliers, customers,
                          app_user_roles, app_users

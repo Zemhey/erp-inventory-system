@@ -1415,7 +1415,7 @@ components:
                  bizDate, totalAmount, totalQty, lines]
       properties:
         id: { type: integer, format: int64 }
-        orderNo: { type: string, example: RMA20261022-0001 }
+        orderNo: { type: string, example: RO20261022-0001 }
         status:
           type: string
           description: 退货单只使用 DRAFT / SUBMITTED / APPROVED / COMPLETED / VOIDED / REJECTED，不使用 PARTIAL
