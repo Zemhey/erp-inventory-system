@@ -42,6 +42,13 @@ erp:
   inventory:
     # 预占超时自动释放时长（分钟），BR-INV-05
     reservation-ttl-minutes: 30
+    # ★ 预占超时释放的定时任务开关（BR-INV-05），生产保持 true。
+    #   false = 整个调度装配（@EnableScheduling + 调度线程）都不注册。
+    #   测试侧由 src/test/resources/application-clock.yml 关掉：
+    #   @Scheduled 若在断言之前抢先释放预占，用例就会随机红（计划书 §6 坑 9b）。
+    expire-scheduling-enabled: true
+    # 扫描间隔（毫秒，此处 5 分钟）。只走配置，代码里不写死。
+    reservation-expire-interval-ms: 300000
   iam:
     # ★ JWT 签名密钥。生产必须用环境变量覆盖：
     #   ERP_JWT_SECRET=<至少 32 字节的随机串>

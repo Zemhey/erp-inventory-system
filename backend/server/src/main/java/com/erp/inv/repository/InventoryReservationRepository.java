@@ -1,6 +1,7 @@
 package com.erp.inv.repository;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -70,6 +71,42 @@ public class InventoryReservationRepository {
         return jdbc.update("""
                 UPDATE inventory_reservations
                    SET status = 'CONSUMED', updated_at = now()
+                 WHERE id = ? AND status = 'ACTIVE'
+                """, id) == 1;
+    }
+
+    /**
+     * 查出<b>已到期且仍 ACTIVE</b> 的预占（BR-INV-05）。
+     *
+     * <p>{@code now} 必须来自注入的 {@code ClockProvider}，不能由数据库的
+     * {@code now()} 代劳 —— 否则测试无法用可控时钟验证"到期/未到期"边界。
+     *
+     * <p>边界为<b>严格小于</b>：{@code expires_at == now} 时算未到期，留给下一轮。
+     * {@code expires_at IS NULL} 表示该预占不设超时，天然被排除（NULL 比较不为真）。
+     *
+     * <p>按 id 升序返回，让处理顺序确定 —— 并发下两个调度实例同时扫到同一批时，
+     * 相同顺序 + 条件更新可避免交叉等待。
+     */
+    public List<Reservation> findOverdueActive(LocalDateTime now) {
+        return jdbc.query("""
+                SELECT id, sku_id, warehouse_id, batch_no, reserved_qty, status, request_id
+                  FROM inventory_reservations
+                 WHERE status = 'ACTIVE' AND expires_at < ?
+                 ORDER BY id
+                """, MAPPER, now);
+    }
+
+    /**
+     * 标记为已超时（ACTIVE → EXPIRED）。
+     *
+     * <p>与 {@link #markReleased}、{@link #markConsumed} 同样是<b>条件更新</b>：
+     * 只有当前仍是 ACTIVE 才生效，因此重复执行过期任务不会二次置位，
+     * 也不会与并发的取消/出货互相覆盖（TC-INV-015）。
+     */
+    public boolean markExpired(long id) {
+        return jdbc.update("""
+                UPDATE inventory_reservations
+                   SET status = 'EXPIRED', updated_at = now()
                  WHERE id = ? AND status = 'ACTIVE'
                 """, id) == 1;
     }

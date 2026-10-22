@@ -1,0 +1,11 @@
+# 测试默认 profile 的覆盖（只存在于 test classpath，不进生产包）
+#
+# 目的同 application-clock.yml：把定时调度从**所有**测试上下文里关掉（计划书 §6 坑 9b）。
+# 没有 @ActiveProfiles 的集成测试走 default profile，靠这份文件关掉调度；
+# 用可控时钟的用例走 clock profile，靠 application-clock.yml。两份合起来才覆盖全部测试。
+#
+# 为什么 default 也要关：调度线程一旦起来就按真实墙钟每 5 分钟扫一次，
+# 全量 check 要跑 6 分钟，最后一轮测试正好可能被它插一刀 —— 那种红是随机的。
+erp:
+  inventory:
+    expire-scheduling-enabled: false

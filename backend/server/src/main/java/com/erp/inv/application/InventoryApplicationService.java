@@ -186,6 +186,46 @@ public class InventoryApplicationService {
     }
 
     /**
+     * 释放所有已到期的 ACTIVE 预占（BR-INV-05 预占超时自动释放）。
+     *
+     * <p><b>为什么必须存在</b>：预占只是"锁定可用量"，不是真实出库。
+     * 客户下单不付款，锁定的量若不回收，这批货就永远卖不掉。
+     *
+     * <p><b>与 {@link #release} 的区别只有状态</b>：数量侧完全一致
+     * （只减 {@code reserved_qty}，实存不动），语义侧要能区分"人为取消"和"超时回收"，
+     * 所以下游报表看到的是 EXPIRED 而不是 RELEASED。
+     *
+     * <p><b>绝不写流水</b>：本方法不触碰 {@code on_hand_qty}，
+     * 而不变量 INV-2（实存 == 流水净和）只在实存变动时才要求有流水。
+     * 若在这里补一条流水，等于凭空造出一次库存变动，INV-2 立刻漂移
+     * （TC-INV-014 守的就是这条线）。
+     *
+     * <p><b>幂等</b>：先做 {@code ACTIVE → EXPIRED} 的条件更新，只有真的翻转成功
+     * 才扣减预占量。因此重复执行、或并发多实例同时执行，同一条预占只会被释放一次
+     * （TC-INV-015）。整体放在一个事务里：要么这批全部落定，要么全部回滚，
+     * 不会出现"记录已 EXPIRED 但可用量没恢复"的中间态。
+     *
+     * <p>时间来自注入的 {@link ClockProvider}，所以到期与未到期的分界
+     * 可以由测试用可控时钟精确摆布（TC-INV-012/013）。
+     *
+     * @return 本次实际释放的预占条数
+     */
+    @Transactional
+    public int expireOverdueReservations() {
+        LocalDateTime now = clock.now();
+        var overdue = reservations.findOverdueActive(now);
+        int expired = 0;
+        for (var r : overdue) {
+            if (!reservations.markExpired(r.id())) {
+                continue;
+            }
+            balances.release(r.skuId(), r.warehouseId(), r.batchNo(), r.reservedQty());
+            expired++;
+        }
+        return expired;
+    }
+
+    /**
      * <b>按批次自动选择</b>的预占 —— 出货单建单专用（FR-SAL-01）。
      *
      * <p><b>为什么需要这个方法</b>（M1 集成测试捕获的真实的架构缺口）：

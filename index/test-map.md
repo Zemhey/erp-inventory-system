@@ -32,6 +32,11 @@
 | `TC-IAM-008` | ★ 角色隔离：采购员可建进货单但不能出货；管理员全权 | `backend/server/src/test/java/com/erp/iam/IamIT.java` |
 | `TC-IAM-009` | 权限变更立即生效：撤掉角色后，旧 token 的下一次请求即被拒绝 | `backend/server/src/test/java/com/erp/iam/IamIT.java` |
 | `TC-IAM-010` | 密码只存 BCrypt 哈希，明文绝不出现在库中 | `backend/server/src/test/java/com/erp/iam/IamIT.java` |
+| `TC-INV-012` | 到期 ACTIVE 预占被自动释放：可用量恢复、实存不动、状态置 EXPIRED | `backend/server/src/test/java/com/erp/inv/InventoryReservationExpiryIT.java` |
+| `TC-INV-013` | 未到期预占不动，且边界精确：ttl-1 与 ttl 都不放，ttl+1 才放 | `backend/server/src/test/java/com/erp/inv/InventoryReservationExpiryIT.java` |
+| `TC-INV-014` | 超时释放只影响预占量，一条流水都不写（不变量 INV-2 的前提） | `backend/server/src/test/java/com/erp/inv/InventoryReservationExpiryIT.java` |
+| `TC-INV-015` | 过期任务幂等且定时入口只是转发；测试上下文里调度器根本没装配（坑 9b 开关生效） | `backend/server/src/test/java/com/erp/inv/InventoryReservationExpiryIT.java` |
+| `TC-INV-016` | 过期释放后，余额行 reserved_qty 与 ACTIVE 预占合计逐行一致 | `backend/server/src/test/java/com/erp/inv/InventoryReservationExpiryIT.java` |
 | `TC-INV-001` | 预占成功后：实存不变、预占增加、可用量相应减少（不变量 INV-3） | `backend/server/src/test/java/com/erp/inv/InventoryReserveIT.java` |
 | `TC-INV-002` | 可用量不足必须拒绝，且不产生任何副作用（错误码含定位信息） | `backend/server/src/test/java/com/erp/inv/InventoryReserveIT.java` |
 | `TC-INV-003` | 预占只受可用量约束：实存 10、已预占 8 时，预占 3 必须失败 | `backend/server/src/test/java/com/erp/inv/InventoryReserveIT.java` |
@@ -117,4 +122,4 @@
 | `TC-DOC-005` | 未结状态判定：只有终态被视为已结 | `backend/server/src/test/java/com/erp/shared/document/DocumentStatusMachineTest.java` |
 | `TC-DOC-006` | PARTIAL->PARTIAL 自环合法：分批入库/出货可以多次进入部分状态 | `backend/server/src/test/java/com/erp/shared/document/DocumentStatusMachineTest.java` |
 
-共 112 条用例。
+共 117 条用例。
