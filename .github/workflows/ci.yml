@@ -17,7 +17,9 @@ name: CI
 #
 # 后续里程碑接入（见 docs/00 进度看板）：
 #   ⬜ 契约 diff（实现导出的 OpenAPI 与契约源比对）
-#   ⬜ Playwright Web E2E
+#   ⏸ Playwright Web E2E（M3-S8 已在本地落地 `npm run e2e`，连续两遍 15/15；
+#      当前 workflow 没有可复用的长驻 PG service 与可登录的种子账号，
+#      暂不接入，避免未验证 job 把主 CI 搞红。接入方案见 .plan/M3-计划书.md §5.9）
 #   ⬜ Android E2E（reactivecircus/android-emulator-runner）
 #   ⬜ 小程序 E2E（需 Windows self-hosted runner，因微信开发者工具依赖 GUI）
 #   ⬜ SonarQube / Trivy
