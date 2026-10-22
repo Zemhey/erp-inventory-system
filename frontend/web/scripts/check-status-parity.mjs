@@ -17,6 +17,9 @@
  *   ③ 每个动作的权限码与 Controller 上的 @RequirePermission 逐字一致；
  *   ④ 界面允许的动作都真实存在：有对应的 HTTP 子路径，且转换在状态机里合法。
  *
+ * 覆盖的单据：进货单 / 出货单 / 退货单（S5a 追加，事实源是 rma.api.ReturnOrderController）。
+ * 退货单另有一条独立断言：`RETURN_STATUSES` 必须等于 V4__rma.sql 的 ck_return_order_status 状态集。
+ *
  * 用法：
  *   node scripts/check-status-parity.mjs        # 校验
  *   node scripts/check-status-parity.mjs --json # 机器可读结果（CI 用）
@@ -76,6 +79,13 @@ const javaTerminal = javaStatuses.filter((s) => javaTransitions[s].length === 0)
 
 // ─────────────────────────── ② 解析 Controller 的动作与权限 ───────────────────────────
 
+/** 单据种类 → 契约里的列表路径段（三张单据的动作都挂在这些前缀下）。 */
+const KIND_BASE_PATH = {
+  PURCHASE: 'purchase-orders',
+  SALES: 'sales-orders',
+  RETURN: 'return-orders',
+}
+
 function parseControllerActions(file, kind) {
   const src = read(file)
   const out = {}
@@ -87,7 +97,7 @@ function parseControllerActions(file, kind) {
     const permission = m[2]
     const seg = path.split('/').pop()
     if (!seg || seg.startsWith('{')) continue
-    out[seg] = { path: `/api/v1/${kind === 'PURCHASE' ? 'purchase-orders' : 'sales-orders'}${path}`, permission }
+    out[seg] = { path: `/api/v1/${KIND_BASE_PATH[kind]}${path}`, permission }
   }
   return out
 }
@@ -95,6 +105,7 @@ function parseControllerActions(file, kind) {
 const controllerActions = {
   PURCHASE: parseControllerActions(join(javaRoot, 'pur', 'api', 'PurchaseOrderController.java'), 'PURCHASE'),
   SALES: parseControllerActions(join(javaRoot, 'sal', 'api', 'SalesOrderController.java'), 'SALES'),
+  RETURN: parseControllerActions(join(javaRoot, 'rma', 'api', 'ReturnOrderController.java'), 'RETURN'),
 }
 
 // ─────────────────────────── ③ 加载前端镜像表 ───────────────────────────
@@ -209,6 +220,23 @@ const KNOWN_GAPS = [
     key: 'SALES/REJECTED->DRAFT',
     reason: '同上，出货单 Controller 同样没有 reopen 接口。',
   },
+  {
+    key: 'RETURN/PARTIAL->COMPLETED',
+    reason:
+      '退货单复用共享七态状态机（DocumentStatus 允许 PARTIAL→COMPLETED），但退货是整单一次回补：'
+      + 'V4__rma.sql 的 ck_return_order_status 与契约 ReturnOrder.status enum 都排除了 PARTIAL，'
+      + '因此退货单根本到不了 PARTIAL，界面不给任何按钮。若将来支持分批入库（§7 决策 7），这条豁免必须删除。',
+  },
+  {
+    key: 'RETURN/PARTIAL->VOIDED',
+    reason: '同上：退货单的 PARTIAL 不可达，作废按钮无处安放。',
+  },
+  {
+    key: 'RETURN/REJECTED->DRAFT',
+    reason:
+      'ReturnOrderController 没有 reopen/backToDraft 子路径（与 pur/sal 同一取舍，G2）。'
+      + '后端补接口时这条豁免会反向报错，逼迫界面补按钮。',
+  },
 ]
 
 const gapKeys = new Set()
@@ -239,6 +267,28 @@ for (const gap of KNOWN_GAPS) {
     '该缺口已不存在（后端可能补了接口或改了规则）—— 请删除 KNOWN_GAPS 里的这条豁免，并考虑补上按钮',
   )
 }
+
+// ⑧ 退货单的状态子集与数据库约束一致
+//
+//     ★ 为什么单独校验这一条：RETURN_STATUSES 决定列表页"状态"筛选下拉给哪些选项。
+//       它依据的不是前端喜好，而是 V4__rma.sql 的 ck_return_order_status ——
+//       退货整单一次回补，PARTIAL 被 DB 与契约同时排除。
+//       将来若后端放开分批入库（§7 决策 7），这条检查会立刻变红，
+//       逼着页面把"部分入库"的筛选项与按钮一起补上，而不是留一个永远筛不出数据的选项。
+const v4Sql = read(
+  join(repoRoot, 'backend', 'server', 'src', 'main', 'resources', 'db', 'migration', 'V4__rma.sql'),
+)
+const returnCheck = v4Sql.match(/ck_return_order_status CHECK \(status IN\s*\(([^)]*)\)/)
+const sqlReturnStatuses = (returnCheck?.[1] ?? '')
+  .split(',')
+  .map((s) => s.trim().replace(/^'|'$/g, ''))
+  .filter(Boolean)
+check(
+  '退货状态子集与 V4 约束一致',
+  sqlReturnStatuses.length > 0 &&
+    JSON.stringify([...sqlReturnStatuses].sort()) === JSON.stringify([...ts.RETURN_STATUSES].sort()),
+  `V4 CHECK: [${sqlReturnStatuses.join(', ')}] ｜ TS: [${ts.RETURN_STATUSES.join(', ')}]`,
+)
 
 // ─────────────────────────── 输出 ───────────────────────────
 

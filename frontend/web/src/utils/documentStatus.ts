@@ -1,7 +1,7 @@
 /**
  * 单据状态机 → 界面动作映射（M3 计划书 §3.2）。
  *
- * ★ 为什么要有这个文件：七个状态 × 两张单据 = 十几个「什么状态能点什么按钮」的判断。
+ * ★ 为什么要有这个文件：七个状态 × 几张单据 = 十几个「什么状态能点什么按钮」的判断。
  *   散落写成 `v-if="status === 'DRAFT'"` 的话，改一次状态规则要动十几处模板，
  *   必然漏改一处 —— 而漏改的表现是用户点了按钮收到 409，看起来像系统坏了。
  *
@@ -24,7 +24,7 @@
  */
 
 /** 单据种类：状态机共用，动作集不同。 */
-export const DOCUMENT_KINDS = ['PURCHASE', 'SALES'] as const
+export const DOCUMENT_KINDS = ['PURCHASE', 'SALES', 'RETURN'] as const
 export type DocumentKind = (typeof DOCUMENT_KINDS)[number]
 
 /** 七个状态，顺序与后端 DocumentStatus.java 的枚举声明顺序一致。 */
@@ -38,6 +38,16 @@ export const DOCUMENT_STATUSES = [
   'REJECTED',
 ] as const
 export type DocumentStatus = (typeof DOCUMENT_STATUSES)[number]
+
+/**
+ * 退货单会用到的状态 = 七态去掉 PARTIAL。
+ *
+ * 依据不是页面偏好，而是两处写死的约束：契约 `ReturnOrder.status` 的 enum
+ * （packages/api-contract/openapi.yaml）与 `V4__rma.sql` 的
+ * `ck_return_order_status` CHECK —— 退货整单一次回补，不存在"部分入库"。
+ * 列表筛选若给出 PARTIAL，用户只会得到一个永远为空的查询结果，所以这里直接不给。
+ */
+export const RETURN_STATUSES = DOCUMENT_STATUSES.filter((s) => s !== 'PARTIAL') as readonly DocumentStatus[]
 
 /**
  * 状态元数据。
@@ -149,10 +159,10 @@ export type DocumentAction = (typeof DOCUMENT_ACTIONS)[number]
  * 「种类:动作」联合类型。
  *
  * ★ 为什么逐字列出来，而不用 `${DocumentKind}:${DocumentAction}` 拼：
- *   拼出来的类型包含 `PURCHASE:ship` 与 `SALES:receive` 这两个**不存在**的组合
- *   （进货不会"出货"，出货不会"入库"），于是 Record 会要求为它们也提供条目 ——
+ *   拼出来的类型包含 `PURCHASE:ship`、`SALES:receive`、`RETURN:ship` 这些**不存在**的组合
+ *   （进货不会"出货"，退货不会"出货"），于是 Record 会要求为它们也提供条目 ——
  *   变相强迫人写两条无意义的配置，或者把类型断言成 any 糊过去。
- *   逐字列出 10 个真实组合，多一个少一个都由编译器指出。
+ *   逐字列出 15 个真实组合，多一个少一个都由编译器指出。
  */
 export type ActionKey =
   | 'PURCHASE:submit'
@@ -165,6 +175,11 @@ export type ActionKey =
   | 'SALES:reject'
   | 'SALES:void'
   | 'SALES:ship'
+  | 'RETURN:submit'
+  | 'RETURN:approve'
+  | 'RETURN:reject'
+  | 'RETURN:void'
+  | 'RETURN:receive'
 
 /** 某动作对应的「种类:动作」键，供 ACTION_META 与 nextActions 共用。 */
 function actionKeyOf(kind: DocumentKind, action: DocumentAction): ActionKey {
@@ -284,6 +299,58 @@ export const ACTION_META: Record<ActionKey, ActionMeta> = {
     confirmText: '出货将从库存真实扣减（按 FEFO 拆批次），不可撤销。确定出货吗？',
     needsInput: false,
   },
+  // ★ 退货的权限码逐字取自 ReturnOrderController 的 @RequirePermission。
+  //   它的动作名与进货/出货同形（submit/approve/reject/void），
+  //   但执行动作复用 `receive`：后端路径是 /return-orders/{id}/receive，
+  //   语义是"退货入库（回补库存）"，与进货入库同名不同单据。
+  'RETURN:submit': {
+    action: 'submit',
+    label: '提交',
+    permission: 'rma:submit',
+    buttonType: 'primary',
+    needsConfirm: false,
+    needsInput: false,
+  },
+  'RETURN:approve': {
+    action: 'approve',
+    label: '审核通过',
+    permission: 'rma:approve',
+    buttonType: 'success',
+    needsConfirm: false,
+    needsInput: false,
+  },
+  'RETURN:reject': {
+    action: 'reject',
+    label: '驳回',
+    permission: 'rma:reject',
+    buttonType: 'warning',
+    needsConfirm: true,
+    confirmText: '驳回后单据不能被修改，只能作废。确定驳回吗？',
+    needsInput: false,
+  },
+  'RETURN:void': {
+    action: 'void',
+    label: '作废',
+    permission: 'rma:void',
+    buttonType: 'danger',
+    needsConfirm: true,
+    // 退货单在入库前作废不动库存；已入库的会被后端拒绝 —— 这句必须让用户看见，
+    // 否则会以为"作废"能把回补的库存退回去。
+    confirmText:
+      '入库前作废不产生任何库存变动，且是终态、不可撤销。已入库（已完成）的退货单作废会被后端拒绝（需红冲）。确定作废吗？',
+    needsInput: false,
+  },
+  'RETURN:receive': {
+    action: 'receive',
+    label: '退货入库',
+    permission: 'rma:receive',
+    buttonType: 'success',
+    needsConfirm: true,
+    confirmText:
+      '退货入库会整单一次把明细数量回补到原出货仓库，并写 RETURN_IN 流水、'
+      + '累加原出货行的已退数量；不可分批、不可撤销。确定入库吗？',
+    needsInput: false,
+  },
 }
 
 /**
@@ -291,21 +358,27 @@ export const ACTION_META: Record<ActionKey, ActionMeta> = {
  *
  * 逐条对应计划书 §3.2 的表，并已按后端实现校正：
  *
- * | 状态      | 进货单        | 出货单        |
- * |-----------|---------------|---------------|
- * | DRAFT     | 提交、作废     | 提交、作废     |
- * | SUBMITTED | 审核、驳回、作废 | 审核、驳回、作废 |
- * | APPROVED  | 入库、作废     | 出货、作废     |
- * | PARTIAL   | 继续入库       | 继续出货       |
- * | COMPLETED | —             | —             |
- * | VOIDED    | —             | —             |
- * | REJECTED  | 作废           | 作废           |
+ * | 状态      | 进货单        | 出货单        | 退货单        |
+ * |-----------|---------------|---------------|---------------|
+ * | DRAFT     | 提交、作废     | 提交、作废     | 提交、作废     |
+ * | SUBMITTED | 审核、驳回、作废 | 审核、驳回、作废 | 审核、驳回、作废 |
+ * | APPROVED  | 入库、作废     | 出货、作废     | 入库、作废     |
+ * | PARTIAL   | 继续入库       | 继续出货       | —（不会到达）   |
+ * | COMPLETED | —             | —             | —             |
+ * | VOIDED    | —             | —             | —             |
+ * | REJECTED  | 作废           | 作废           | 作废           |
  *
  * 三处与计划书原文的差异（都是按后端实际能力收敛的，已在 S1 报告里登记）：
  * 1. REJECTED 没有「退回草稿」——后端无该接口；
  * 2. PARTIAL 不给「作废」——已部分入库/出货的单据作废会被后端拒绝（提示需红冲），
  *    给按钮只会让用户白点一次；
  * 3. APPROVED/PARTIAL 的入库/出货在出货侧带二次确认（真实扣减库存）。
+ *
+ * RETURN 一列的三条依据（§5.6.1 的 check:status-parity 会逐项验证）：
+ * - 退货单的 PARTIAL 是**不可达**状态（整单一次回补，DB CHECK 与契约 enum 都没有它），
+ *   所以给空数组而不是"照抄进货单"；
+ * - APPROVED 的「作废」保留：入库前不动库存，后端允许；
+ * - 「入库」是真实回补库存的动作，因此 needsConfirm = true（见 ACTION_META）。
  */
 export const ALLOWED_ACTIONS: Record<DocumentKind, Record<DocumentStatus, DocumentAction[]>> = {
   PURCHASE: {
@@ -322,6 +395,15 @@ export const ALLOWED_ACTIONS: Record<DocumentKind, Record<DocumentStatus, Docume
     SUBMITTED: ['approve', 'reject', 'void'],
     APPROVED: ['ship', 'void'],
     PARTIAL: ['ship'],
+    COMPLETED: [],
+    VOIDED: [],
+    REJECTED: ['void'],
+  },
+  RETURN: {
+    DRAFT: ['submit', 'void'],
+    SUBMITTED: ['approve', 'reject', 'void'],
+    APPROVED: ['receive', 'void'],
+    PARTIAL: [],
     COMPLETED: [],
     VOIDED: [],
     REJECTED: ['void'],
