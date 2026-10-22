@@ -103,9 +103,13 @@ http.interceptors.response.use(
     const message = payload?.message || error.message || '请求失败'
 
     if (status === 401) {
-      // token 无效 / 过期：清掉本地 token 并回登录页
+      // token 无效 / 过期：清掉本地 token 并回登录页。
+      // 但在登录页本身，401 是“用户名或密码错误”的业务结果，必须原样展示 ——
+      // 否则用户点了登录毫无反馈（M3-S8 E2E-02 实测发现的缺陷）。
       clearToken()
-      if (window.location.pathname !== '/login') {
+      if (window.location.pathname === '/login') {
+        ElMessage.error(message)
+      } else {
         ElMessage.warning('登录已过期，请重新登录')
         window.location.href = '/login'
       }

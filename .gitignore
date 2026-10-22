@@ -35,6 +35,8 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 .pnpm-store/
+# Playwright E2E 产物（trace / screenshot / storageState / 报告）
+.e2e-artifacts/
 
 # ─────────────────────────── uni-app / 小程序 / Android（M4-M5 起使用） ───────────────────────────
 unpackage/
