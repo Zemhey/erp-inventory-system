@@ -37,6 +37,14 @@
 | POST | `/sales-orders` | `createSalesOrder` | 创建出货单（同时预占库存） |
 | POST | `/sales-orders/{id}/ship` | `shipSalesOrder` | 出货确认（预占转出库、扣减库存） |
 | POST | `/sales-orders/{id}/void` | `voidSalesOrder` | 作废/红冲出货单（回补库存） |
+| GET | `/return-orders` | `listReturnOrders` | 查询退货单（rma:read） |
+| POST | `/return-orders` | `createReturnOrder` | 创建退货单（rma:create） |
+| GET | `/return-orders/{id}` | `getReturnOrder` | 退货单详情（rma:read） |
+| POST | `/return-orders/{id}/submit` | `submitReturnOrder` | 提交退货单（rma:submit） |
+| POST | `/return-orders/{id}/approve` | `approveReturnOrder` | 审核退货单（rma:approve） |
+| POST | `/return-orders/{id}/reject` | `rejectReturnOrder` | 驳回退货单（rma:reject） |
+| POST | `/return-orders/{id}/receive` | `receiveReturnOrder` | 退货入库（rma:receive） |
+| POST | `/return-orders/{id}/void` | `voidReturnOrder` | 作废退货单（rma:void） |
 | POST | `/settlements/daily` | `runDailySettlement` | 日清（每日汇总当日出入库与金额） |
 | POST | `/settlements/monthly` | `runMonthlySettlement` | 月结（期间结账并锁账） |
 | GET | `/settlements/reconcile` | `reconcile` | 总账与明细对账（差额必须为 0） |

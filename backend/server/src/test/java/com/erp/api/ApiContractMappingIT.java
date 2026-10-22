@@ -60,7 +60,15 @@ class ApiContractMappingIT extends PostgresTestBase {
             "GET /api/v1/settlements/reconcile",
             "GET /api/v1/reports/purchase",
             "GET /api/v1/reports/sales",
-            "GET /api/v1/reports/inventory-summary");
+            "GET /api/v1/reports/inventory-summary",
+            "POST /api/v1/return-orders",
+            "GET /api/v1/return-orders",
+            "GET /api/v1/return-orders/{}",
+            "POST /api/v1/return-orders/{}/submit",
+            "POST /api/v1/return-orders/{}/approve",
+            "POST /api/v1/return-orders/{}/reject",
+            "POST /api/v1/return-orders/{}/receive",
+            "POST /api/v1/return-orders/{}/void");
 
     /**
      * 已实现、但契约尚未补齐的存量接口（M1 先于契约更新造成）。

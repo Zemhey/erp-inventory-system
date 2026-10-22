@@ -29,6 +29,8 @@ tags:
     description: 采购进货
   - name: sal
     description: 销售出货
+  - name: rma
+    description: 退货（RMA）
   - name: set
     description: 结算与对账
   - name: rpt
@@ -547,6 +549,7 @@ paths:
     get:
       tags: [sal]
       summary: 查询出货单
+      description: 明细行返回累计已退数量 `returnedQty`，供退货页计算剩余可退数量。
       operationId: listSalesOrders
       parameters:
         - $ref: '#/components/parameters/StatusFilter'
@@ -557,7 +560,20 @@ paths:
         - $ref: '#/components/parameters/Size'
       responses:
         '200':
-          $ref: '#/components/responses/PageResponse'
+          description: 出货单分页列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiPageResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/SalesOrder' }
     post:
       tags: [sal]
       summary: 创建出货单（同时预占库存）
@@ -571,7 +587,15 @@ paths:
             schema: { $ref: '#/components/schemas/SalesOrderCreate' }
       responses:
         '201':
-          $ref: '#/components/responses/SingleResponse'
+          description: 建单成功（返回出货单与明细）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/SalesOrder' }
         '409':
           $ref: '#/components/responses/Conflict'
 
@@ -615,6 +639,165 @@ paths:
         '409':
           $ref: '#/components/responses/Conflict'
 
+  # ─────────────────────────── RMA ───────────────────────────
+  /return-orders:
+    get:
+      tags: [rma]
+      summary: 查询退货单（rma:read）
+      operationId: listReturnOrders
+      parameters:
+        - $ref: '#/components/parameters/StatusFilter'
+        - name: customerId
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: originSalesOrderId
+          in: query
+          description: 按原出货单筛选
+          schema: { type: integer, format: int64 }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: 退货单分页列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiPageResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/ReturnOrder' }
+    post:
+      tags: [rma]
+      summary: 创建退货单（rma:create）
+      description: |
+        - 原出货单必须已出货（PARTIAL / COMPLETED），否则返回 `RMA_ORIGIN_NOT_SHIPPED`
+        - 只接收原明细行与退货数量；单价、折扣、客户、仓库全部从原出货单派生
+        - 累计退货数量不得超过已出货数量（`RMA_QTY_EXCEED_ORIGIN`）
+        - 建单不改变库存；相同 `X-Request-Id` 重复提交返回首次结果
+      operationId: createReturnOrder
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReturnOrderCreate' }
+      responses:
+        '201':
+          $ref: '#/components/responses/ReturnOrderResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /return-orders/{id}:
+    get:
+      tags: [rma]
+      summary: 退货单详情（rma:read）
+      operationId: getReturnOrder
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          $ref: '#/components/responses/ReturnOrderResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /return-orders/{id}/submit:
+    post:
+      tags: [rma]
+      summary: 提交退货单（rma:submit）
+      description: 状态流转 DRAFT → SUBMITTED。
+      operationId: submitReturnOrder
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          $ref: '#/components/responses/ReturnOrderResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /return-orders/{id}/approve:
+    post:
+      tags: [rma]
+      summary: 审核退货单（rma:approve）
+      description: 状态流转 SUBMITTED → APPROVED；审核不改变库存。
+      operationId: approveReturnOrder
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          $ref: '#/components/responses/ReturnOrderResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /return-orders/{id}/reject:
+    post:
+      tags: [rma]
+      summary: 驳回退货单（rma:reject）
+      description: 状态流转 SUBMITTED → REJECTED；驳回不改变库存。
+      operationId: rejectReturnOrder
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          $ref: '#/components/responses/ReturnOrderResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /return-orders/{id}/receive:
+    post:
+      tags: [rma]
+      summary: 退货入库（rma:receive）
+      description: |
+        - **整单一次性回补库存**，不接收分批入库参数（无请求体）
+        - 只通过库存模块生成 `RETURN_IN` 正向流水，并原子累加原出货行的累计退货量
+        - 状态流转 APPROVED → COMPLETED
+        - 相同 `X-Request-Id` 重复调用不重复加库存；已完成后换新 requestId 再入库返回 `RMA_STATUS_ILLEGAL`
+      operationId: receiveReturnOrder
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          $ref: '#/components/responses/ReturnOrderResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /return-orders/{id}/void:
+    post:
+      tags: [rma]
+      summary: 作废退货单（rma:void）
+      description: 仅入库前可作废（DRAFT / SUBMITTED / APPROVED → VOIDED）；已完成需红冲，M2 不支持。
+      operationId: voidReturnOrder
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          $ref: '#/components/responses/ReturnOrderResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
   # ─────────────────────────── SET ───────────────────────────
   /settlements/daily:
     post:
@@ -633,7 +816,15 @@ paths:
             schema: { $ref: '#/components/schemas/DailySettlementRequest' }
       responses:
         '200':
-          $ref: '#/components/responses/SingleResponse'
+          description: 日清结果（按仓库 items + 全部仓库 totals）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/DailySettlementResult' }
         '409':
           $ref: '#/components/responses/Conflict'
 
@@ -652,7 +843,15 @@ paths:
             schema: { $ref: '#/components/schemas/MonthlySettlementRequest' }
       responses:
         '200':
-          $ref: '#/components/responses/SingleResponse'
+          description: 月结结果（期间汇总 + 关闭时间）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/MonthlySettlementResult' }
         '409':
           $ref: '#/components/responses/Conflict'
 
@@ -669,18 +868,31 @@ paths:
           schema: { type: string, pattern: '^\d{4}-\d{2}$' }
       responses:
         '200':
-          $ref: '#/components/responses/SingleResponse'
+          description: 对账结果（差额必须为 0）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/ReconcileResult' }
         '409':
-          description: 对账不平
+          description: 账期未结算 / 对账不平
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ApiError' }
               examples:
+                periodNotClosed:
+                  value:
+                    code: SET_PERIOD_NOT_CLOSED
+                    message: "账期 2025-06 尚未月结，无法对账"
+                    details: { period: '2025-06' }
                 mismatch:
                   value:
                     code: SET_RECONCILE_MISMATCH
                     message: "对账不平：账期 2025-06 总账 100000 分，明细合计 99990 分，差额 10 分"
-                    details: { period: '2025-06', ledgerTotal: 100000, detailTotal: 99990, diff: 10 }
+                    details: { period: '2025-06', generalTotal: 100000, detailTotal: 99990, diff: 10 }
 
   # ─────────────────────────── RPT ───────────────────────────
   /reports/purchase:
@@ -702,7 +914,21 @@ paths:
           schema: { type: string, enum: [supplier, product, sku, day, month], default: supplier }
       responses:
         '200':
-          $ref: '#/components/responses/ListResponse'
+          description: 进货统计行（data.items）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        required: [items]
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/ReportRow' }
 
   /reports/sales:
     get:
@@ -723,7 +949,21 @@ paths:
           schema: { type: string, enum: [customer, product, sku, day, month], default: customer }
       responses:
         '200':
-          $ref: '#/components/responses/ListResponse'
+          description: 出货统计行（data.items）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        required: [items]
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/ReportRow' }
 
   /reports/inventory-summary:
     get:
@@ -741,7 +981,21 @@ paths:
           schema: { type: integer, format: int64 }
       responses:
         '200':
-          $ref: '#/components/responses/ListResponse'
+          description: 进销存汇总行（data.items）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        required: [items]
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/InventorySummaryRow' }
 
 components:
   parameters:
@@ -796,6 +1050,16 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ApiError' }
+    ReturnOrderResponse:
+      description: 退货单响应
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ApiResponse'
+              - type: object
+                properties:
+                  data: { $ref: '#/components/schemas/ReturnOrder' }
 
   schemas:
     ApiResponse:
@@ -1064,6 +1328,110 @@ components:
                 default: 10000
                 description: 折扣率，**整数万分比**（9000 = 9 折），禁止浮点（ADR-0005）
 
+    SalesOrder:
+      type: object
+      required: [id, orderNo, status, customerId, warehouseId, totalAmount, totalQty, lines]
+      properties:
+        id: { type: integer, format: int64 }
+        orderNo: { type: string, example: SO20261022-0001 }
+        status: { $ref: '#/components/schemas/DocumentStatus' }
+        customerId: { type: integer, format: int64 }
+        warehouseId: { type: integer, format: int64 }
+        bizDate: { type: string, format: date }
+        totalAmount: { type: integer, format: int64, description: 单据总金额（分） }
+        totalQty: { type: integer }
+        period: { type: string, nullable: true, description: 账期 yyyy-MM }
+        remark: { type: string, nullable: true }
+        lines:
+          type: array
+          items: { $ref: '#/components/schemas/SalesOrderLine' }
+
+    SalesOrderLine:
+      type: object
+      required: [id, lineNo, skuId, qty, shippedQty, returnedQty, openQty,
+                 unitPriceAmount, discountRate, amount]
+      properties:
+        id: { type: integer, format: int64 }
+        lineNo: { type: integer, minimum: 1 }
+        skuId: { type: integer, format: int64 }
+        qty: { type: integer, minimum: 1 }
+        shippedQty: { type: integer, minimum: 0, description: 累计已出库数量 }
+        returnedQty:
+          type: integer
+          minimum: 0
+          description: 累计已退货数量；退货入库时原子累加，剩余可退 = shippedQty − returnedQty
+        openQty: { type: integer, description: '= qty − shippedQty' }
+        unitPriceAmount: { type: integer, format: int64, minimum: 0, description: 单价（分） }
+        discountRate: { type: integer, minimum: 1, maximum: 10000, description: 整数万分比 }
+        amount: { type: integer, format: int64, minimum: 0, description: 行金额（分） }
+        reservationIds:
+          type: array
+          description: 本行对应的预占分段 id（FEFO 拆批次时可能有多段）
+          items: { type: integer, format: int64 }
+
+    ReturnOrderCreate:
+      type: object
+      required: [originSalesOrderId, lines]
+      properties:
+        originSalesOrderId: { type: integer, format: int64, description: 原出货单 id }
+        bizDate:
+          type: string
+          format: date
+          description: 业务日期；省略时由服务端 ClockProvider 取当天
+        remark: { type: string, maxLength: 500 }
+        lines:
+          type: array
+          minItems: 1
+          description: 同一原出货单明细行在一张退货单内只能出现一次
+          items:
+            type: object
+            required: [originLineId, qty]
+            properties:
+              originLineId: { type: integer, format: int64, description: 原出货单明细行 id }
+              qty: { type: integer, minimum: 1, description: 本次退货数量 }
+              batchNo: { type: string, maxLength: 64, default: '', description: 退货入库批次 }
+              productionDate: { type: string, format: date, nullable: true }
+              expiryDate: { type: string, format: date, nullable: true, description: 退货入库批次的效期 }
+
+    ReturnOrderLine:
+      type: object
+      required: [id, lineNo, originLineId, skuId, qty, unitPriceAmount, discountRate, amount]
+      properties:
+        id: { type: integer, format: int64 }
+        lineNo: { type: integer, minimum: 1 }
+        originLineId: { type: integer, format: int64 }
+        skuId: { type: integer, format: int64 }
+        qty: { type: integer, minimum: 1 }
+        unitPriceAmount: { type: integer, format: int64, minimum: 0, description: 从原出货行派生（分） }
+        discountRate: { type: integer, minimum: 1, maximum: 10000, description: 从原出货行派生 }
+        amount: { type: integer, format: int64, minimum: 0, description: 行退货金额（分） }
+        batchNo: { type: string, description: 退货入库批次，默认空批次 }
+        productionDate: { type: string, format: date, nullable: true }
+        expiryDate: { type: string, format: date, nullable: true }
+
+    ReturnOrder:
+      type: object
+      required: [id, orderNo, status, originSalesOrderId, customerId, warehouseId,
+                 bizDate, totalAmount, totalQty, lines]
+      properties:
+        id: { type: integer, format: int64 }
+        orderNo: { type: string, example: RMA20261022-0001 }
+        status:
+          type: string
+          description: 退货单只使用 DRAFT / SUBMITTED / APPROVED / COMPLETED / VOIDED / REJECTED，不使用 PARTIAL
+          enum: [DRAFT, SUBMITTED, APPROVED, COMPLETED, VOIDED, REJECTED]
+        originSalesOrderId: { type: integer, format: int64 }
+        customerId: { type: integer, format: int64, description: 从原出货单派生 }
+        warehouseId: { type: integer, format: int64, description: 从原出货单派生 }
+        bizDate: { type: string, format: date }
+        totalAmount: { type: integer, format: int64, description: 退货总金额（分） }
+        totalQty: { type: integer }
+        period: { type: string, nullable: true, description: 账期 yyyy-MM }
+        remark: { type: string, nullable: true }
+        lines:
+          type: array
+          items: { $ref: '#/components/schemas/ReturnOrderLine' }
+
     DailySettlementRequest:
       type: object
       required: [bizDate]
@@ -1076,6 +1444,57 @@ components:
       required: [period]
       properties:
         period: { type: string, pattern: '^\d{4}-\d{2}$', example: '2025-06' }
+
+    SettlementTotals:
+      type: object
+      required: [purchaseQty, purchaseAmount, salesQty, salesAmount,
+                 returnQty, returnAmount, netAmount]
+      properties:
+        purchaseQty: { type: integer, format: int64, description: 采购入库数量 }
+        purchaseAmount: { type: integer, format: int64, description: 采购入库金额（分） }
+        salesQty: { type: integer, format: int64, description: 销售出库数量 }
+        salesAmount: { type: integer, format: int64, description: 销售出库金额（分） }
+        returnQty: { type: integer, format: int64, description: 退货入库数量 }
+        returnAmount: { type: integer, format: int64, description: 退货入库金额（分） }
+        netAmount: { type: integer, format: int64, description: '= salesAmount − returnAmount（分）' }
+
+    DailySettlementResult:
+      type: object
+      required: [bizDate, items, totals]
+      properties:
+        bizDate: { type: string, format: date }
+        items:
+          type: array
+          description: 按仓库的日清结果；省略 warehouseId 时为全部仓库
+          items:
+            allOf:
+              - $ref: '#/components/schemas/SettlementTotals'
+              - type: object
+                required: [warehouseId]
+                properties:
+                  warehouseId: { type: integer, format: int64 }
+        totals: { $ref: '#/components/schemas/SettlementTotals' }
+
+    MonthlySettlementResult:
+      allOf:
+        - $ref: '#/components/schemas/SettlementTotals'
+        - type: object
+          required: [period, status, duplicate]
+          properties:
+            period: { type: string, pattern: '^\d{4}-\d{2}$', example: '2025-06' }
+            status: { type: string, enum: [OPEN, CLOSED] }
+            closedAt: { type: string, format: date-time, nullable: true, description: 锁账时间（ClockProvider） }
+            duplicate: { type: boolean, description: true 表示幂等命中，未重复结算 }
+
+    ReconcileResult:
+      type: object
+      required: [period, generalTotal, detailTotal, diff, balanced]
+      properties:
+        period: { type: string, pattern: '^\d{4}-\d{2}$' }
+        generalTotal: { type: integer, format: int64, description: 总账（期间汇总）金额（分） }
+        detailTotal: { type: integer, format: int64, description: 明细实时重算金额（分） }
+        diff: { type: integer, format: int64, description: '= generalTotal − detailTotal，必须为 0' }
+        balanced: { type: boolean }
 
     InventoryBalance:
       type: object
@@ -1104,3 +1523,27 @@ components:
         bizRefNo: { type: string, description: 来源单据号，可反查 }
         unitCostAmount: { type: integer, format: int64, description: 单位成本（分） }
         occurredAt: { type: string, format: date-time, description: 业务时间（由 ClockProvider 注入） }
+
+    ReportRow:
+      type: object
+      required: [key, label, qty, amount, orderCount]
+      properties:
+        key:
+          type: string
+          description: 分组键（供应商/客户/商品/SKU 编码，或日期、账期）
+        label: { type: string, description: 展示名称 }
+        qty: { type: integer, format: int64, description: 期间内数量 }
+        amount: { type: integer, format: int64, description: 期间内金额（分） }
+        orderCount: { type: integer, format: int64, description: 涉及单据数 }
+
+    InventorySummaryRow:
+      type: object
+      description: 进销存汇总行，恒等式 openingQty + inboundQty − outboundQty = closingQty
+      required: [skuId, warehouseId, openingQty, inboundQty, outboundQty, closingQty]
+      properties:
+        skuId: { type: integer, format: int64 }
+        warehouseId: { type: integer, format: int64 }
+        openingQty: { type: integer, format: int64, description: 期初数量 }
+        inboundQty: { type: integer, format: int64, description: 本期入库数量 }
+        outboundQty: { type: integer, format: int64, description: 本期出库数量 }
+        closingQty: { type: integer, format: int64, description: 期末数量 }
