@@ -243,7 +243,11 @@ export const salApi = {
   create: (body: SalesOrderCreate) => http.post<never, SalesOrder>('/sales-orders', body),
   submit: (id: number) => http.post<never, SalesOrder>(`/sales-orders/${id}/submit`),
   approve: (id: number) => http.post<never, SalesOrder>(`/sales-orders/${id}/approve`),
+  // 后端 SalesOrderController 有 @PostMapping("/{id}/reject")；REJECTED 只给作废（G2：无 reopen）
+  reject: (id: number) => http.post<never, SalesOrder>(`/sales-orders/${id}/reject`),
+  // 出货无参数：后端按各行未出量整行出货，批次由 FEFO 决定（FR-SAL-02）
   ship: (id: number) => http.post<never, SalesOrder>(`/sales-orders/${id}/ship`),
+  // 未出货作废会释放预占；已出货的作废被业务层拒绝（需红冲，FR-SAL-04 属 M2）
   voidOrder: (id: number) => http.post<never, SalesOrder>(`/sales-orders/${id}/void`),
 }
 
