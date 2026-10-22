@@ -19,9 +19,12 @@
 | `TC-API-010` | 缺少 X-Request-Id 的写接口 → 400（契约要求写操作必须带幂等键） | `backend/server/src/test/java/com/erp/api/MasterDataApiIT.java` |
 | `TC-API-014` | ★ 退货 HTTP 端到端：建单→提交→审核→入库，响应字段符合契约；出货明细露出 returnedQty | `backend/server/src/test/java/com/erp/api/ReturnOrderApiIT.java` |
 | `TC-API-015` | 退货接口守卫：缺 X-Request-Id → 400（不是 500）；VIEWER 可查不可建；未登录 401 | `backend/server/src/test/java/com/erp/api/ReturnOrderApiIT.java` |
+| `TC-API-016` | ★ 结算 HTTP 端到端：日清 items/totals → 月结 CLOSED → 对账 balanced，字段符合契约 | `backend/server/src/test/java/com/erp/api/SettlementApiIT.java` |
+| `TC-API-017` | ★★ 结算守卫：锁账后开单 409；FINANCE 可结算不可开单；缺幂等键/非法账期是 400 不是 500 | `backend/server/src/test/java/com/erp/api/SettlementApiIT.java` |
 | `TC-ARCH-001` | ★ 规则自检：禁止系统时间规则必须能拦住违规代码 | `backend/server/src/test/java/com/erp/arch/ArchitectureTest.java` |
 | `TC-ARCH-002` | ★ 规则自检：禁止裸异常规则必须能拦住违规代码 | `backend/server/src/test/java/com/erp/arch/ArchitectureTest.java` |
 | `TC-ARCH-003` | ★ 规则自检：状态机规则必须拦住不调 requireTransition 的方法 | `backend/server/src/test/java/com/erp/arch/ArchitectureTest.java` |
+| `TC-ARCH-004` | ★ 规则自检：单据模块不得依赖 set 的规则必须拦住直接 import 的写法 | `backend/server/src/test/java/com/erp/arch/ArchitectureTest.java` |
 | `TC-IAM-001` | 登录成功返回 token 与权限；密码错误返回 401（且不区分用户不存在） | `backend/server/src/test/java/com/erp/iam/IamIT.java` |
 | `TC-IAM-002` | ★ 密码连续错误达到阈值后锁定；到期后自动解锁（锁在数据库，重启不失效） | `backend/server/src/test/java/com/erp/iam/IamIT.java` |
 | `TC-IAM-003` | 停用账号无法登录（IAM_ACCOUNT_DISABLED） | `backend/server/src/test/java/com/erp/iam/IamIT.java` |
@@ -106,6 +109,20 @@
 | `TC-SAL-015` | ★ 端到端：进货入库 → 出货 → 两单流水可各自反查，且全库 INV-2 成立 | `backend/server/src/test/java/com/erp/sal/SalesOrderIT.java` |
 | `TC-SAL-016` | ★★ 出货后预占记录必须转为 CONSUMED：不允许永远停在 ACTIVE（M1 真实捕获的缺陷） | `backend/server/src/test/java/com/erp/sal/SalesOrderIT.java` |
 | `TC-SAL-017` | 作废后预占记录转为 RELEASED，且 ACTIVE 合计归零（与余额行一致） | `backend/server/src/test/java/com/erp/sal/SalesOrderIT.java` |
+| `TC-SET-001` | ★ 日清（单仓）：采购/销售/退货的数量与金额按单据 biz_date 正确汇总 | `backend/server/src/test/java/com/erp/set/SettlementIT.java` |
+| `TC-SET-002` | 日清省略 warehouseId：按仓库返回 items，再给出跨仓 totals，跨仓不串数 | `backend/server/src/test/java/com/erp/set/SettlementIT.java` |
+| `TC-SET-003` | ★ 日清幂等：同日重复执行结果一致且仍只有一行；重跑是覆盖而不是累加 | `backend/server/src/test/java/com/erp/set/SettlementIT.java` |
+| `TC-SET-004` | ★★ 月结锁账后，PUR / SAL / RMA 建单全部返回 SET_PERIOD_CLOSED 且不落库 | `backend/server/src/test/java/com/erp/set/SettlementIT.java` |
+| `TC-SET-005` | ★★ 锁账后入库 / 出货 / 退货入库全部被拒，库存、累计量与流水一条都不动 | `backend/server/src/test/java/com/erp/set/SettlementIT.java` |
+| `TC-SET-012` | 已锁账期再执行日清 → SET_PERIOD_CLOSED，且已锁的日清行一个字节都不改 | `backend/server/src/test/java/com/erp/set/SettlementIT.java` |
+| `TC-SET-006` | ★ 月结：期间汇总正确、状态置 CLOSED、closedAt 来自注入时钟；OPEN 行走 version 乐观锁更新 | `backend/server/src/test/java/com/erp/set/SettlementIT.java` |
+| `TC-SET-007` | ★★ 月结幂等与漂移：重复关闭返回同一汇总 duplicate=true；篡改过日清/汇总必须报 SET_ALREADY_SETTLED | `backend/server/src/test/java/com/erp/set/SettlementIT.java` |
+| `TC-SET-008` | ★ 跨月边界：1/31 与 2/1 的单据归属不同账期，锁 1 月不影响 2 月 | `backend/server/src/test/java/com/erp/set/SettlementIT.java` |
+| `TC-SET-009` | ★ 跨年与闰月：2024-02-29 / 2024-12-31 / 2025-01-01 各自归入正确账期 | `backend/server/src/test/java/com/erp/set/SettlementIT.java` |
+| `TC-SET-010` | ★ 对账平衡：差额 0、balanced=true；账期不存在或仍为 OPEN 时给 SET_PERIOD_NOT_CLOSED | `backend/server/src/test/java/com/erp/set/SettlementIT.java` |
+| `TC-SET-011` | 对账不平：篡改期间汇总 → SET_RECONCILE_MISMATCH，details 带 period/generalTotal/detailTotal/diff | `backend/server/src/test/java/com/erp/set/SettlementIT.java` |
+| `TC-SET-013` | ★★ 并发日清：8 个线程同时清同一天，只产生一行/仓，金额一份不翻倍 | `backend/server/src/test/java/com/erp/set/SettlementIT.java` |
+| `TC-SET-014` | ★ 金额舍入：奇数单价 × 折扣 9000 与 SAL 同一公式（HALF_UP），尾差不为负 | `backend/server/src/test/java/com/erp/set/SettlementIT.java` |
 | `TC-DOC-007` | 单号格式：前缀 + yyyyMMdd + 4 位流水，按天重置 | `backend/server/src/test/java/com/erp/shared/document/DocumentNumberGeneratorIT.java` |
 | `TC-DOC-008` | ★ 并发建单不重号：50 线程同时取号，单号必须全不重复且恰好 50 个 | `backend/server/src/test/java/com/erp/shared/document/DocumentNumberGeneratorIT.java` |
 | `TC-DOC-009` | 取号序列持久化在数据库中：不依赖进程内计数器（重启不重号） | `backend/server/src/test/java/com/erp/shared/document/DocumentNumberGeneratorIT.java` |
@@ -117,4 +134,4 @@
 | `TC-DOC-005` | 未结状态判定：只有终态被视为已结 | `backend/server/src/test/java/com/erp/shared/document/DocumentStatusMachineTest.java` |
 | `TC-DOC-006` | PARTIAL->PARTIAL 自环合法：分批入库/出货可以多次进入部分状态 | `backend/server/src/test/java/com/erp/shared/document/DocumentStatusMachineTest.java` |
 
-共 112 条用例。
+共 129 条用例。

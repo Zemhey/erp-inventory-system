@@ -101,7 +101,7 @@ class ArchitectureTest {
     static final ArchRule 业务代码禁止直接依赖系统时间类型 =
             noClasses()
                     .that().resideInAnyPackage("com.erp.inv..", "com.erp.pur..", "com.erp.sal..",
-                            "com.erp.rma..", "com.erp.mdm..", "com.erp.iam..",
+                            "com.erp.rma..", "com.erp.set..", "com.erp.mdm..", "com.erp.iam..",
                             "com.erp.shared.document..")
                     .and().doNotHaveSimpleName("ClockConfig")
                     .should().dependOnClassesThat().areAssignableTo(java.time.Clock.class)
@@ -109,6 +109,12 @@ class ArchitectureTest {
 
     /**
      * ★ 字段/参数上出现 {@code LocalDateTime.now()} 的最常见形态。
+     *
+     * <p>M2-S2 把 {@code com.erp.set..} 纳入：日清的 {@code settled_at}、月结的
+     * {@code closed_at} 全都是"账目什么时候结的"这一法律事实的时间戳。
+     * 一旦这里图省事写 {@code OffsetDateTime.now()}，
+     * 跨月/跨年/闰月的账期归属就只能等真实日历走到才能验证 ——
+     * TC-SET-008/009 会当场变成不可测，注入时钟的可测试性设计在此破产。
      *
      * <p><b>为什么这里用 {@code classes().that(...不匹配...).should(cond)}
      * 而不是 {@code noClasses().that(...匹配...).should(cond)}</b>
@@ -124,7 +130,7 @@ class ArchitectureTest {
     static final ArchRule 业务代码禁止调用系统时间静态方法 =
             classes()
                     .that().resideInAnyPackage("com.erp.inv..", "com.erp.pur..", "com.erp.sal..",
-                            "com.erp.rma..", "com.erp.mdm..", "com.erp.iam..",
+                            "com.erp.rma..", "com.erp.set..", "com.erp.mdm..", "com.erp.iam..",
                             "com.erp.shared.document..")
                     .and().doNotHaveSimpleName("ClockConfig")
                     .should(noSystemTimeCalls())
@@ -238,6 +244,33 @@ class ArchitectureTest {
             }
         };
     }
+
+    // ─────────────────────── 规则 6：锁账的依赖倒置（计划书 §3.1） ───────────────────────
+
+    /**
+     * ★ PUR / SAL / RMA 不得直接依赖 {@code com.erp.set..}。
+     *
+     * <p><b>为什么这条必须成为门禁</b>：锁账要求三域的每个写操作都调
+     * {@code PeriodGuard.requireOpen}。实现类 {@code SettlementPeriodGuard} 就在
+     * {@code set.application} 里，图省事的写法是直接 import 它 ——
+     * 而 SET 为了算日清又要读 PUR/SAL/RMA 的单据表。
+     * 两边一对不上就是<b>包依赖环</b>：编译能过，但模块再也拆不开、
+     * 单测只能整块起容器，M4/M5 多端复用时必然要重做一遍。
+     *
+     * <p>正确做法是依赖倒置：接口在 {@code shared.period}，实现在 {@code set.application}，
+     * 三域只认接口。这条规则把"只认接口"从注释变成红。
+     *
+     * <p><b>不是空规则</b>：{@code com.erp.set} 与三个调用方此刻都真实存在，
+     * 规则现在就跑在生产代码上；下面的自检用例
+     * （TC-ARCH-004）再证明一次"真有人 import 了就会红"。
+     */
+    @ArchTest
+    static final ArchRule 单据模块不得直接依赖结算模块 =
+            noClasses()
+                    .that().resideInAnyPackage("com.erp.pur..", "com.erp.sal..", "com.erp.rma..")
+                    .should().dependOnClassesThat().resideInAnyPackage("com.erp.set..")
+                    .because("锁账只能经由 shared.period.PeriodGuard 接口注入；"
+                            + "直接依赖 com.erp.set 会与「SET 只读三域单据」形成包依赖环（计划书 §3.1）");
 
     // ─────────────────────── 辅助实现 ───────────────────────
 
@@ -393,6 +426,32 @@ class ArchitectureTest {
                 .should(declareStatusTransition());
         org.assertj.core.api.Assertions.assertThat(rule.evaluate(classes).hasViolation())
                 .as("★ 规则必须能拦住未走统一状态机的类")
+                .isTrue();
+    }
+
+    /**
+     * ★ 自检：现场编译一段"进货模块直接依赖结算模块"的违规代码，断言规则拦得住。
+     *
+     * <p>探针刻意放进 {@code com.erp.pur.application}，与生产规则同一套包名匹配条件 ——
+     * 只有这样才能证明生产规则里那份 {@code resideInAnyPackage(...)} 清单
+     * 真的覆盖到了三个单据域，而不是靠探针自己的包名碰巧命中。
+     */
+    @org.junit.jupiter.api.Test
+    @CaseId("TC-ARCH-004")
+    @org.junit.jupiter.api.DisplayName("★ 规则自检：单据模块不得依赖 set 的规则必须拦住直接 import 的写法")
+    void 规则自检_锁账依赖倒置规则必须生效() {
+        var classes = compileProbe("com.erp.pur.application.BadSetDependencyProbe", """
+                package com.erp.pur.application;
+                public class BadSetDependencyProbe {
+                    public boolean bad(com.erp.set.application.SettlementPeriodGuard guard) {
+                        return guard != null;
+                    }
+                }
+                """);
+        var rule = 单据模块不得直接依赖结算模块;
+        org.assertj.core.api.Assertions.assertThat(rule.evaluate(classes).hasViolation())
+                .as("★ 规则必须能拦住 import com.erp.set 的单据模块代码；"
+                        + "若为 false 说明这条锁账依赖倒置规则已失效（假绿）")
                 .isTrue();
     }
 

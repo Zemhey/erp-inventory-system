@@ -13,6 +13,7 @@ import com.erp.shared.document.DocumentStatus;
 import com.erp.shared.document.DocumentStatusMachine;
 import com.erp.shared.error.BusinessException;
 import com.erp.shared.error.ErrorCode;
+import com.erp.shared.period.PeriodGuard;
 import com.erp.shared.time.ClockProvider;
 import com.erp.shared.web.PageResult;
 import java.math.BigDecimal;
@@ -48,6 +49,11 @@ public class SalesOrderApplicationService {
     private final InventoryApplicationService inventory;
     private final DocumentNumberGenerator numberGenerator;
     private final ClockProvider clock;
+    /**
+     * 账期锁（M2-S2）。只依赖 {@code shared.period} 接口，实现由 SET 提供；
+     * 出货的"建单即预占"也算写操作，因此建单路径同样要过锁。
+     */
+    private final PeriodGuard periodGuard;
 
     public SalesOrderApplicationService(SalesOrderRepository orders,
                                         CustomerRepository customers,
@@ -55,7 +61,8 @@ public class SalesOrderApplicationService {
                                         SkuRepository skus,
                                         InventoryApplicationService inventory,
                                         DocumentNumberGenerator numberGenerator,
-                                        ClockProvider clock) {
+                                        ClockProvider clock,
+                                        PeriodGuard periodGuard) {
         this.orders = orders;
         this.customers = customers;
         this.warehouses = warehouses;
@@ -63,6 +70,7 @@ public class SalesOrderApplicationService {
         this.inventory = inventory;
         this.numberGenerator = numberGenerator;
         this.clock = clock;
+        this.periodGuard = periodGuard;
     }
 
     /** 折扣率基准：10000 = 不打折（整数万分比，ADR-0005）。 */
@@ -99,6 +107,8 @@ public class SalesOrderApplicationService {
             throw new BusinessException(ErrorCode.SYS_VALIDATION_ERROR, "出货单至少需要一行明细");
         }
         LocalDate bizDate = cmd.bizDate() == null ? clock.today() : cmd.bizDate();
+        // 账期锁：置于幂等短路之后，重复提交不产生改动，锁账后也应原样返回首次结果。
+        periodGuard.requireOpen(bizDate);
 
         // ① 先算金额（纯计算，不碰数据库）
         long totalAmount = 0;
@@ -159,6 +169,7 @@ public class SalesOrderApplicationService {
     @Transactional
     public SalesOrder submit(long id) {
         SalesOrder o = require(id);
+        periodGuard.requireOpen(o.bizDate());
         DocumentStatusMachine.requireTransition(o.status(), DocumentStatus.SUBMITTED,
                 ErrorCode.SAL_STATUS_ILLEGAL, o.orderNo());
         transition(o, DocumentStatus.SUBMITTED);
@@ -168,6 +179,7 @@ public class SalesOrderApplicationService {
     @Transactional
     public SalesOrder approve(long id) {
         SalesOrder o = require(id);
+        periodGuard.requireOpen(o.bizDate());
         DocumentStatusMachine.requireTransition(o.status(), DocumentStatus.APPROVED,
                 ErrorCode.SAL_STATUS_ILLEGAL, o.orderNo());
         transition(o, DocumentStatus.APPROVED);
@@ -177,6 +189,7 @@ public class SalesOrderApplicationService {
     @Transactional
     public SalesOrder reject(long id) {
         SalesOrder o = require(id);
+        periodGuard.requireOpen(o.bizDate());
         DocumentStatusMachine.requireTransition(o.status(), DocumentStatus.REJECTED,
                 ErrorCode.SAL_STATUS_ILLEGAL, o.orderNo());
         transition(o, DocumentStatus.REJECTED);
@@ -194,6 +207,7 @@ public class SalesOrderApplicationService {
     @Transactional
     public SalesOrder voidOrder(long id) {
         SalesOrder o = require(id);
+        periodGuard.requireOpen(o.bizDate());
         DocumentStatusMachine.requireTransition(o.status(), DocumentStatus.VOIDED,
                 ErrorCode.SAL_STATUS_ILLEGAL, o.orderNo());
         if (o.anyShipped()) {
@@ -235,6 +249,7 @@ public class SalesOrderApplicationService {
                     "出货单 %s 当前状态 %s 不可出货（仅 APPROVED / PARTIAL 可出货）"
                             .formatted(o.orderNo(), o.status()));
         }
+        periodGuard.requireOpen(o.bizDate());
 
         for (SalesOrderLine line : o.lines()) {
             int openQty = line.openQty();

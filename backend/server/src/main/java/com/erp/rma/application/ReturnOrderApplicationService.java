@@ -15,6 +15,7 @@ import com.erp.shared.document.DocumentStatus;
 import com.erp.shared.document.DocumentStatusMachine;
 import com.erp.shared.error.BusinessException;
 import com.erp.shared.error.ErrorCode;
+import com.erp.shared.period.PeriodGuard;
 import com.erp.shared.time.ClockProvider;
 import com.erp.shared.web.PageResult;
 import java.time.LocalDate;
@@ -54,19 +55,29 @@ public class ReturnOrderApplicationService {
     private final InventoryApplicationService inventory;
     private final DocumentNumberGenerator numberGenerator;
     private final ClockProvider clock;
+    /**
+     * 账期锁（M2-S2 接入，S1 交付时计划书 §3.3 已预留此接入点）。
+     *
+     * <p>退货入库是<b>逆向</b>记账：它会把金额记到退货单自己的 {@code bizDate} 那一天，
+     * 因此锁的是<b>退货单的账期</b>，不是原出货单的账期 ——
+     * 十月出货、十一月退货时，锁死十月不应该拦住这张十一月的退货单。
+     */
+    private final PeriodGuard periodGuard;
 
     public ReturnOrderApplicationService(ReturnOrderRepository orders,
                                         ReturnableSalesOrderService returnableOrders,
                                         SalesOrderReturnService salesReturns,
                                         InventoryApplicationService inventory,
                                         DocumentNumberGenerator numberGenerator,
-                                        ClockProvider clock) {
+                                        ClockProvider clock,
+                                        PeriodGuard periodGuard) {
         this.orders = orders;
         this.returnableOrders = returnableOrders;
         this.salesReturns = salesReturns;
         this.inventory = inventory;
         this.numberGenerator = numberGenerator;
         this.clock = clock;
+        this.periodGuard = periodGuard;
     }
 
     // ─────────────────────────── 命令 ───────────────────────────
@@ -119,6 +130,8 @@ public class ReturnOrderApplicationService {
         }
 
         LocalDate bizDate = cmd.bizDate() == null ? clock.today() : cmd.bizDate();
+        // 账期锁：置于幂等短路之后（重复建单不产生改动，锁账后仍应返回首次结果）
+        periodGuard.requireOpen(bizDate);
         long totalAmount = 0;
         int totalQty = 0;
         List<PreparedLine> prepared = new ArrayList<>();
@@ -180,6 +193,7 @@ public class ReturnOrderApplicationService {
     @Transactional
     public ReturnOrder submit(long id) {
         ReturnOrder o = require(id);
+        periodGuard.requireOpen(o.bizDate());
         DocumentStatusMachine.requireTransition(o.status(), DocumentStatus.SUBMITTED,
                 ErrorCode.RMA_STATUS_ILLEGAL, o.orderNo());
         transition(o, DocumentStatus.SUBMITTED);
@@ -189,6 +203,7 @@ public class ReturnOrderApplicationService {
     @Transactional
     public ReturnOrder approve(long id) {
         ReturnOrder o = require(id);
+        periodGuard.requireOpen(o.bizDate());
         DocumentStatusMachine.requireTransition(o.status(), DocumentStatus.APPROVED,
                 ErrorCode.RMA_STATUS_ILLEGAL, o.orderNo());
         transition(o, DocumentStatus.APPROVED);
@@ -198,6 +213,7 @@ public class ReturnOrderApplicationService {
     @Transactional
     public ReturnOrder reject(long id) {
         ReturnOrder o = require(id);
+        periodGuard.requireOpen(o.bizDate());
         DocumentStatusMachine.requireTransition(o.status(), DocumentStatus.REJECTED,
                 ErrorCode.RMA_STATUS_ILLEGAL, o.orderNo());
         transition(o, DocumentStatus.REJECTED);
@@ -214,6 +230,7 @@ public class ReturnOrderApplicationService {
     @Transactional
     public ReturnOrder voidOrder(long id) {
         ReturnOrder o = require(id);
+        periodGuard.requireOpen(o.bizDate());
         if (o.status() == DocumentStatus.COMPLETED) {
             throw new BusinessException(ErrorCode.RMA_STATUS_ILLEGAL,
                     "退货单 %s 已入库完成，作废需先红冲并再次出库（M2.5 提供），本操作已拒绝"
@@ -259,6 +276,7 @@ public class ReturnOrderApplicationService {
                     "退货单 %s 当前状态 %s 不可入库（仅 APPROVED 可入库）"
                             .formatted(o.orderNo(), o.status()));
         }
+        periodGuard.requireOpen(o.bizDate());
 
         for (ReturnOrderLine line : o.lines()) {
             salesReturns.registerReturn(line.originLineId(), line.qty());
