@@ -579,6 +579,7 @@ onMounted(async () => {
       :page="page"
       :page-size="pageSize"
       :filtered="filtered"
+      :load-failed="!!listError"
       :can-create="canCreate"
       create-text="新建第一张进货单"
       empty-text="还没有进货单"
@@ -1000,8 +1001,10 @@ onMounted(async () => {
 
 .drawer-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   width: 100%;
 }
 

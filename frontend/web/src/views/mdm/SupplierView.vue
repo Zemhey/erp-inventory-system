@@ -31,10 +31,18 @@ const page = ref(1)
 const pageSize = ref(20)
 const keyword = ref('')
 const loading = ref(false)
+const listError = ref('')
 const filtered = computed(() => keyword.value.trim() !== '')
+
+/** 拦截器已经弹过统一 toast；这里把消息留在页面上，便于刷新后回看与重试。 */
+function errorMessage(error: unknown): string {
+  const e = error as { response?: { data?: { message?: string } }; message?: string }
+  return e?.response?.data?.message || e?.message || '请求失败'
+}
 
 async function loadSuppliers() {
   loading.value = true
+  listError.value = ''
   try {
     const data = await mdmApi.listSuppliers({
       keyword: keyword.value.trim() || undefined,
@@ -43,6 +51,10 @@ async function loadSuppliers() {
     })
     suppliers.value = data.items
     total.value = data.total
+  } catch (error) {
+    suppliers.value = []
+    total.value = 0
+    listError.value = errorMessage(error)
   } finally {
     loading.value = false
   }
@@ -73,6 +85,7 @@ const dialog = ref(false)
 const editing = ref<Supplier | null>(null)
 const formRef = ref<FormInstance>()
 const saving = ref(false)
+const formError = ref('')
 const form = reactive({
   code: '',
   name: '',
@@ -102,6 +115,7 @@ function clearValidate() {
 
 function openCreate() {
   editing.value = null
+  formError.value = ''
   Object.assign(form, {
     code: '',
     name: '',
@@ -115,6 +129,7 @@ function openCreate() {
 
 function openEdit(row: Supplier) {
   editing.value = row
+  formError.value = ''
   Object.assign(form, {
     code: row.code,
     name: row.name,
@@ -132,6 +147,7 @@ async function saveSupplier() {
   if (!valid) return
 
   saving.value = true
+  formError.value = ''
   try {
     const common: SupplierUpdate = {
       name: form.name.trim(),
@@ -150,6 +166,9 @@ async function saveSupplier() {
     }
     dialog.value = false
     await loadSuppliers()
+  } catch (error) {
+    // 后端消息含定位信息（如编码重复），原样留在弹窗里，用户不用去追 toast
+    formError.value = errorMessage(error)
   } finally {
     saving.value = false
   }
@@ -165,21 +184,29 @@ async function disableSupplier(row: Supplier) {
   } catch {
     return
   }
-  await mdmApi.disableSupplier(row.id)
-  ElMessage.success('供应商已停用')
-  await loadSuppliers()
+  try {
+    await mdmApi.disableSupplier(row.id)
+    ElMessage.success('供应商已停用')
+    await loadSuppliers()
+  } catch {
+    // 拦截器已提示；catch 只为避免未处理的 Promise 拒绝
+  }
 }
 
 async function enableSupplier(row: Supplier) {
-  await mdmApi.updateSupplier(row.id, {
-    name: row.name,
-    contactName: row.contactName ?? undefined,
-    contactPhone: row.contactPhone ?? undefined,
-    address: row.address ?? undefined,
-    enabled: true,
-  })
-  ElMessage.success('供应商已启用')
-  await loadSuppliers()
+  try {
+    await mdmApi.updateSupplier(row.id, {
+      name: row.name,
+      contactName: row.contactName ?? undefined,
+      contactPhone: row.contactPhone ?? undefined,
+      address: row.address ?? undefined,
+      enabled: true,
+    })
+    ElMessage.success('供应商已启用')
+    await loadSuppliers()
+  } catch {
+    // 同上
+  }
 }
 </script>
 
@@ -193,6 +220,17 @@ async function enableSupplier(row: Supplier) {
       维护进货来源；停用不删除，历史进货单仍可追溯，但新单据不能再选择。
     </p>
 
+    <el-alert
+      v-if="listError"
+      type="error"
+      show-icon
+      :closable="false"
+      class="mb-16"
+      :title="`供应商查询失败：${listError}`"
+    >
+      <el-button size="small" @click="loadSuppliers">重试</el-button>
+    </el-alert>
+
     <PageTable
       :rows="suppliers"
       :loading="loading"
@@ -200,6 +238,7 @@ async function enableSupplier(row: Supplier) {
       :page="page"
       :page-size="pageSize"
       :filtered="filtered"
+      :load-failed="!!listError"
       :can-create="canWrite"
       create-text="新建第一个供应商"
       empty-text="还没有供应商"
@@ -285,6 +324,7 @@ async function enableSupplier(row: Supplier) {
           <el-switch v-model="form.enabled" />
         </el-form-item>
       </el-form>
+      <el-alert v-if="formError" type="error" show-icon :closable="false" :title="formError" />
       <template #footer>
         <el-button @click="dialog = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="saveSupplier">保存</el-button>

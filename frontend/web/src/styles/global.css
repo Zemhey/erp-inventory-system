@@ -32,9 +32,18 @@ body {
 
 .page-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   margin-bottom: 16px;
+}
+
+/* 页头操作按钮组：窄屏时整体换行，而不是把标题挤出屏幕 */
+.page-header > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .page-title {
@@ -81,4 +90,42 @@ body {
   padding: 48px 0;
   text-align: center;
   color: #909399;
+}
+
+/*
+ * 弹窗默认不窄于内容，但不能宽过视口。
+ * 页面里各弹窗仍按桌面尺寸写 width（900/980px…），这里只加一道上限，
+ * 避免新增页面时又忘一次移动端。
+ */
+.el-dialog {
+  max-width: calc(100vw - 24px);
+}
+
+/* ── 窄屏（≤768px）──
+ * 只做"不塌"的最小修正：侧栏在 MainLayout 收成图标条，
+ * 弹窗/抽屉铺满可用宽度，页头与分页换行。不重做视觉风格。
+ */
+@media (max-width: 768px) {
+  .page {
+    padding: 8px;
+  }
+
+  .el-dialog {
+    width: calc(100vw - 24px) !important;
+    max-width: calc(100vw - 24px);
+  }
+
+  .el-dialog__body {
+    max-height: 70vh;
+    overflow-y: auto;
+  }
+
+  .el-drawer {
+    width: 100% !important;
+  }
+
+  .el-message-box {
+    width: calc(100vw - 32px) !important;
+    max-width: 420px;
+  }
 }

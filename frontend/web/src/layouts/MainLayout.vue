@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import {
@@ -30,6 +30,33 @@ const session = useSessionStore()
 
 const collapsed = ref(false)
 
+/**
+ * 窄屏用图标侧栏。
+ *
+ * 移动端不做抽屉式导航（那是 M4 小程序的活）：把 210px 侧栏固定收成 64px 图标条，
+ * 至少保证内容区不被挤成一条缝。桌面端仍可手动折叠/展开。
+ */
+const isMobile = ref(false)
+let mediaQuery: MediaQueryList | null = null
+
+function syncMobile(event?: MediaQueryListEvent) {
+  isMobile.value = event ? event.matches : (mediaQuery?.matches ?? false)
+  if (isMobile.value) collapsed.value = true
+}
+
+onMounted(() => {
+  mediaQuery = window.matchMedia('(max-width: 768px)')
+  syncMobile()
+  mediaQuery.addEventListener('change', syncMobile)
+})
+
+onBeforeUnmount(() => {
+  mediaQuery?.removeEventListener('change', syncMobile)
+})
+
+const asideWidth = computed(() => (collapsed.value || isMobile.value ? '64px' : '210px'))
+const menuCollapsed = computed(() => collapsed.value || isMobile.value)
+
 interface MenuItem {
   path: string
   title: string
@@ -56,11 +83,15 @@ const activeMenu = computed(() => route.path)
 const currentTitle = computed(() => (route.meta.title as string) || '')
 
 async function handleLogout() {
-  await ElMessageBox.confirm('确定要退出登录吗？', '提示', {
-    confirmButtonText: '退出',
-    cancelButtonText: '取消',
-    type: 'warning',
-  })
+  try {
+    await ElMessageBox.confirm('确定要退出登录吗？', '提示', {
+      confirmButtonText: '退出',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+  } catch {
+    return
+  }
   session.logout()
   router.push({ name: 'login' })
 }
@@ -69,12 +100,12 @@ async function handleLogout() {
 <template>
   <el-container class="layout">
     <!-- 侧边栏 -->
-    <el-aside :width="collapsed ? '64px' : '210px'" class="aside">
+    <el-aside :width="asideWidth" class="aside">
       <div class="logo">
-        <span v-if="!collapsed">进销存</span>
+        <span v-if="!menuCollapsed">进销存</span>
         <span v-else>ERP</span>
       </div>
-      <el-menu :default-active="activeMenu" :collapse="collapsed" router class="menu">
+      <el-menu :default-active="activeMenu" :collapse="menuCollapsed" router class="menu">
         <el-menu-item v-for="m in visibleMenus" :key="m.path" :index="m.path">
           <el-icon><component :is="m.icon" /></el-icon>
           <template #title>{{ m.title }}</template>
@@ -86,13 +117,13 @@ async function handleLogout() {
       <!-- 顶栏 -->
       <el-header class="header">
         <div class="header-left">
-          <el-button text :icon="collapsed ? undefined : undefined" @click="collapsed = !collapsed">
+          <el-button v-if="!isMobile" text @click="collapsed = !collapsed">
             {{ collapsed ? '»' : '«' }}
           </el-button>
           <span class="header-title">{{ currentTitle }}</span>
         </div>
         <div class="header-right">
-          <span class="text-muted mr-8">
+          <span class="text-muted mr-8 user-label">
             {{ session.displayName || session.username }}
             <template v-if="session.roles.length">（{{ session.roles.join(' / ') }}）</template>
           </span>
@@ -177,5 +208,24 @@ async function handleLogout() {
   padding: 16px;
   overflow-y: auto;
   background-color: #f5f7fa;
+}
+
+@media (max-width: 768px) {
+  .header {
+    padding: 0 12px;
+  }
+
+  .header-title {
+    font-size: 14px;
+  }
+
+  /* 窄屏优先保证"退出"可点，用户名/角色让位给内容区 */
+  .user-label {
+    display: none;
+  }
+
+  .main {
+    padding: 8px;
+  }
 }
 </style>

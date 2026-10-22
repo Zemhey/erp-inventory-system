@@ -32,10 +32,18 @@ const page = ref(1)
 const pageSize = ref(20)
 const keyword = ref('')
 const loading = ref(false)
+const listError = ref('')
 const filtered = computed(() => keyword.value.trim() !== '')
+
+/** 拦截器已经弹过统一 toast；这里把消息留在页面上，便于刷新后回看与重试。 */
+function errorMessage(error: unknown): string {
+  const e = error as { response?: { data?: { message?: string } }; message?: string }
+  return e?.response?.data?.message || e?.message || '请求失败'
+}
 
 async function loadCustomers() {
   loading.value = true
+  listError.value = ''
   try {
     const data = await mdmApi.listCustomers({
       keyword: keyword.value.trim() || undefined,
@@ -44,6 +52,10 @@ async function loadCustomers() {
     })
     customers.value = data.items
     total.value = data.total
+  } catch (error) {
+    customers.value = []
+    total.value = 0
+    listError.value = errorMessage(error)
   } finally {
     loading.value = false
   }
@@ -74,6 +86,7 @@ const dialog = ref(false)
 const editing = ref<Customer | null>(null)
 const formRef = ref<FormInstance>()
 const saving = ref(false)
+const formError = ref('')
 const form = reactive({
   code: '',
   name: '',
@@ -134,6 +147,7 @@ function clearValidate() {
 
 function openCreate() {
   editing.value = null
+  formError.value = ''
   Object.assign(form, {
     code: '',
     name: '',
@@ -147,6 +161,7 @@ function openCreate() {
 
 function openEdit(row: Customer) {
   editing.value = row
+  formError.value = ''
   Object.assign(form, {
     code: row.code,
     name: row.name,
@@ -164,6 +179,7 @@ async function saveCustomer() {
   if (!valid) return
 
   saving.value = true
+  formError.value = ''
   try {
     const common: CustomerUpdate = {
       name: form.name.trim(),
@@ -183,6 +199,8 @@ async function saveCustomer() {
     }
     dialog.value = false
     await loadCustomers()
+  } catch (error) {
+    formError.value = errorMessage(error)
   } finally {
     saving.value = false
   }
@@ -198,21 +216,29 @@ async function disableCustomer(row: Customer) {
   } catch {
     return
   }
-  await mdmApi.disableCustomer(row.id)
-  ElMessage.success('客户已停用')
-  await loadCustomers()
+  try {
+    await mdmApi.disableCustomer(row.id)
+    ElMessage.success('客户已停用')
+    await loadCustomers()
+  } catch {
+    // 拦截器已提示；catch 只为避免未处理的 Promise 拒绝
+  }
 }
 
 async function enableCustomer(row: Customer) {
-  await mdmApi.updateCustomer(row.id, {
-    name: row.name,
-    phone: row.phone ?? undefined,
-    discountRate: row.discountRate,
-    level: row.level || undefined,
-    enabled: true,
-  })
-  ElMessage.success('客户已启用')
-  await loadCustomers()
+  try {
+    await mdmApi.updateCustomer(row.id, {
+      name: row.name,
+      phone: row.phone ?? undefined,
+      discountRate: row.discountRate,
+      level: row.level || undefined,
+      enabled: true,
+    })
+    ElMessage.success('客户已启用')
+    await loadCustomers()
+  } catch {
+    // 同上
+  }
 }
 </script>
 
@@ -226,6 +252,17 @@ async function enableCustomer(row: Customer) {
       折扣以整数万分比保存（9000 = 9 折，10000 = 不打折）；停用不删除，历史出货单仍可追溯。
     </p>
 
+    <el-alert
+      v-if="listError"
+      type="error"
+      show-icon
+      :closable="false"
+      class="mb-16"
+      :title="`客户查询失败：${listError}`"
+    >
+      <el-button size="small" @click="loadCustomers">重试</el-button>
+    </el-alert>
+
     <PageTable
       :rows="customers"
       :loading="loading"
@@ -233,6 +270,7 @@ async function enableCustomer(row: Customer) {
       :page="page"
       :page-size="pageSize"
       :filtered="filtered"
+      :load-failed="!!listError"
       :can-create="canWrite"
       create-text="新建第一个客户"
       empty-text="还没有客户"
@@ -337,6 +375,7 @@ async function enableCustomer(row: Customer) {
           <el-switch v-model="form.enabled" />
         </el-form-item>
       </el-form>
+      <el-alert v-if="formError" type="error" show-icon :closable="false" :title="formError" />
       <template #footer>
         <el-button @click="dialog = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="saveCustomer">保存</el-button>

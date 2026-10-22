@@ -42,10 +42,18 @@ const productPage = ref(1)
 const productPageSize = ref(20)
 const keyword = ref('')
 const productLoading = ref(false)
+const productError = ref('')
 const productFiltered = computed(() => keyword.value.trim() !== '')
+
+/** 拦截器已经弹过统一 toast；这里把消息留在页面上，便于刷新后回看与重试。 */
+function errorMessage(error: unknown): string {
+  const e = error as { response?: { data?: { message?: string } }; message?: string }
+  return e?.response?.data?.message || e?.message || '请求失败'
+}
 
 async function loadProducts() {
   productLoading.value = true
+  productError.value = ''
   try {
     const data = await mdmApi.listProducts({
       keyword: keyword.value.trim() || undefined,
@@ -54,6 +62,10 @@ async function loadProducts() {
     })
     products.value = data.items
     productTotal.value = data.total
+  } catch (error) {
+    products.value = []
+    productTotal.value = 0
+    productError.value = errorMessage(error)
   } finally {
     productLoading.value = false
   }
@@ -84,6 +96,7 @@ const productDialog = ref(false)
 const editingProduct = ref<Product | null>(null)
 const productFormRef = ref<FormInstance>()
 const savingProduct = ref(false)
+const productFormError = ref('')
 const productForm = reactive({
   code: '',
   name: '',
@@ -108,6 +121,7 @@ function clearProductValidate() {
 
 function openCreateProduct() {
   editingProduct.value = null
+  productFormError.value = ''
   Object.assign(productForm, {
     code: '',
     name: '',
@@ -120,6 +134,7 @@ function openCreateProduct() {
 
 function openEditProduct(row: Product) {
   editingProduct.value = row
+  productFormError.value = ''
   Object.assign(productForm, {
     code: row.code,
     name: row.name,
@@ -136,6 +151,7 @@ async function saveProduct() {
   if (!valid) return
 
   savingProduct.value = true
+  productFormError.value = ''
   try {
     const common: ProductUpdate = {
       name: productForm.name.trim(),
@@ -153,6 +169,8 @@ async function saveProduct() {
     }
     productDialog.value = false
     await loadProducts()
+  } catch (error) {
+    productFormError.value = errorMessage(error)
   } finally {
     savingProduct.value = false
   }
@@ -168,20 +186,28 @@ async function disableProduct(row: Product) {
   } catch {
     return
   }
-  await mdmApi.disableProduct(row.id)
-  ElMessage.success('商品已停用')
-  await loadProducts()
+  try {
+    await mdmApi.disableProduct(row.id)
+    ElMessage.success('商品已停用')
+    await loadProducts()
+  } catch {
+    // 拦截器已提示；catch 只为避免未处理的 Promise 拒绝
+  }
 }
 
 async function enableProduct(row: Product) {
-  await mdmApi.updateProduct(row.id, {
-    name: row.name,
-    category: row.category ?? undefined,
-    season: row.season ?? undefined,
-    enabled: true,
-  })
-  ElMessage.success('商品已启用')
-  await loadProducts()
+  try {
+    await mdmApi.updateProduct(row.id, {
+      name: row.name,
+      category: row.category ?? undefined,
+      season: row.season ?? undefined,
+      enabled: true,
+    })
+    ElMessage.success('商品已启用')
+    await loadProducts()
+  } catch {
+    // 同上
+  }
 }
 
 // ─────────────────────────── SKU 抽屉 ───────────────────────────
@@ -195,6 +221,7 @@ const skuPageSize = ref(20)
 const skuColor = ref('')
 const skuSize = ref('')
 const skuLoading = ref(false)
+const skuError = ref('')
 const skuFiltered = computed(() => skuColor.value.trim() !== '' || skuSize.value.trim() !== '')
 const matrixDialog = ref(false)
 
@@ -214,6 +241,7 @@ async function loadSkus() {
     return
   }
   skuLoading.value = true
+  skuError.value = ''
   try {
     const data = await mdmApi.listSkus({
       productId: currentProduct.value.id,
@@ -225,6 +253,10 @@ async function loadSkus() {
     })
     skus.value = data.items
     skuTotal.value = data.total
+  } catch (error) {
+    skus.value = []
+    skuTotal.value = 0
+    skuError.value = errorMessage(error)
   } finally {
     skuLoading.value = false
   }
@@ -263,6 +295,7 @@ const skuDialog = ref(false)
 const editingSku = ref<Sku | null>(null)
 const skuFormRef = ref<FormInstance>()
 const savingSku = ref(false)
+const skuFormError = ref('')
 const skuForm = reactive({
   barcode: '',
   priceYuan: '',
@@ -290,6 +323,7 @@ const skuRules: FormRules = {
 
 function openEditSku(row: Sku) {
   editingSku.value = row
+  skuFormError.value = ''
   Object.assign(skuForm, {
     barcode: row.barcode ?? '',
     priceYuan: fenToYuan(row.retailPriceAmount),
@@ -304,6 +338,7 @@ async function saveSku() {
   if (!valid) return
 
   savingSku.value = true
+  skuFormError.value = ''
   try {
     await mdmApi.updateSku(editingSku.value.id, {
       barcode: skuForm.barcode.trim() || undefined,
@@ -313,6 +348,8 @@ async function saveSku() {
     ElMessage.success('SKU 已更新')
     skuDialog.value = false
     await loadSkus()
+  } catch (error) {
+    skuFormError.value = errorMessage(error)
   } finally {
     savingSku.value = false
   }
@@ -329,6 +366,17 @@ async function saveSku() {
       先建商品，再按颜色 × 尺码生成 SKU；停用不删除，历史单据与库存不受影响。
     </p>
 
+    <el-alert
+      v-if="productError"
+      type="error"
+      show-icon
+      :closable="false"
+      class="mb-16"
+      :title="`商品查询失败：${productError}`"
+    >
+      <el-button size="small" @click="loadProducts">重试</el-button>
+    </el-alert>
+
     <PageTable
       :rows="products"
       :loading="productLoading"
@@ -336,6 +384,7 @@ async function saveSku() {
       :page="productPage"
       :page-size="productPageSize"
       :filtered="productFiltered"
+      :load-failed="!!productError"
       :can-create="canWrite"
       create-text="新建第一个商品"
       empty-text="还没有商品"
@@ -436,6 +485,7 @@ async function saveSku() {
           <el-switch v-model="productForm.enabled" />
         </el-form-item>
       </el-form>
+      <el-alert v-if="productFormError" type="error" show-icon :closable="false" :title="productFormError" />
       <template #footer>
         <el-button @click="productDialog = false">取消</el-button>
         <el-button type="primary" :loading="savingProduct" @click="saveProduct">
@@ -460,6 +510,17 @@ async function saveSku() {
         </div>
       </template>
 
+      <el-alert
+        v-if="skuError"
+        type="error"
+        show-icon
+        :closable="false"
+        class="mb-16"
+        :title="`SKU 查询失败：${skuError}`"
+      >
+        <el-button size="small" @click="loadSkus">重试</el-button>
+      </el-alert>
+
       <PageTable
         :rows="skus"
         :loading="skuLoading"
@@ -467,6 +528,7 @@ async function saveSku() {
         :page="skuPage"
         :page-size="skuPageSize"
         :filtered="skuFiltered"
+        :load-failed="!!skuError"
         :can-create="canWrite"
         create-text="生成 SKU"
         empty-text="该商品还没有 SKU"
@@ -547,6 +609,7 @@ async function saveSku() {
           <el-switch v-model="skuForm.enabled" />
         </el-form-item>
       </el-form>
+      <el-alert v-if="skuFormError" type="error" show-icon :closable="false" :title="skuFormError" />
       <template #footer>
         <el-button @click="skuDialog = false">取消</el-button>
         <el-button type="primary" :loading="savingSku" @click="saveSku">保存</el-button>
@@ -572,8 +635,10 @@ async function saveSku() {
 
 .drawer-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   width: 100%;
 }
 

@@ -55,6 +55,8 @@ interface Props {
   emptyHint?: string
   /** 当前是否带着筛选条件（决定空状态说"没有数据"还是"换个条件"） */
   filtered?: boolean
+  /** 加载失败：空表时显示失败态，而不是"没有数据 / 新建第一条" */
+  loadFailed?: boolean
   /** 是否显示"新建第一条"按钮（空状态里） */
   canCreate?: boolean
   /** 新建按钮文案 */
@@ -75,6 +77,7 @@ const props = withDefaults(defineProps<Props>(), {
   rowKey: 'id',
   emptyText: '暂无数据',
   filtered: false,
+  loadFailed: false,
   canCreate: false,
   createText: '新建',
   tableSize: 'default',
@@ -98,12 +101,17 @@ const emit = defineEmits<{
  *   - 无筛选条件 → 引导建第一条
  *   - 有筛选且总数为 0 但 data 为空 → 同上，靠 filtered 区分
  */
-const emptyTitle = computed(() => (props.filtered ? '没有符合条件的数据' : props.emptyText))
-const emptySubtitle = computed(() =>
-  props.filtered
-    ? '试着放宽或清空筛选条件；如果确认数据应该存在，请联系管理员核对。'
-    : (props.emptyHint ?? ''),
+const emptyTitle = computed(() =>
+  props.loadFailed ? '数据加载失败' : props.filtered ? '没有符合条件的数据' : props.emptyText,
 )
+const emptySubtitle = computed(() => {
+  if (props.loadFailed) {
+    return '请按页面上方的错误提示重试；当前空表不代表系统里没有数据。'
+  }
+  return props.filtered
+    ? '试着放宽或清空筛选条件；如果确认数据应该存在，请联系管理员核对。'
+    : (props.emptyHint ?? '')
+})
 
 function handleSizeChange(nextSize: number) {
   // 条数变化时回到第 1 页：留在第 5 页而条数从 20 变 100，
@@ -158,7 +166,7 @@ defineExpose({})
               <div class="empty-title">{{ emptyTitle }}</div>
               <div v-if="emptySubtitle" class="empty-subtitle">{{ emptySubtitle }}</div>
               <el-button
-                v-if="canCreate && !filtered"
+                v-if="canCreate && !filtered && !loadFailed"
                 type="primary"
                 class="empty-create"
                 @click="emit('create')"
@@ -205,8 +213,10 @@ defineExpose({})
 
 .table-card-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
 }
 
 .table {
@@ -243,6 +253,13 @@ defineExpose({})
 
   .pagination {
     justify-content: center;
+    overflow-x: auto;
+  }
+
+  /* 窄屏只留"总数 + 翻页"：条数选择与跳页塞不下，会把整行顶出屏幕 */
+  .pagination :deep(.el-pagination__sizes),
+  .pagination :deep(.el-pagination__jump) {
+    display: none;
   }
 }
 </style>

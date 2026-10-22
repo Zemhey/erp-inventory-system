@@ -99,11 +99,12 @@ async function handleSubmit() {
   align-items: center;
   justify-content: center;
   height: 100vh;
+  padding: 16px;
   background: linear-gradient(135deg, #304156 0%, #1f2d3d 100%);
 }
 
 .login-card {
-  width: 400px;
+  width: min(400px, 100%);
   padding: 40px 36px 28px;
   background: #fff;
   border-radius: 8px;
@@ -135,5 +136,11 @@ async function handleSubmit() {
   margin: 0;
   text-align: center;
   font-size: 12px;
+}
+
+@media (max-width: 480px) {
+  .login-card {
+    padding: 28px 20px 20px;
+  }
 }
 </style>

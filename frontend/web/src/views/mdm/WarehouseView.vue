@@ -30,12 +30,23 @@ const canWrite = computed(() => session.hasPermission('mdm:write'))
 const warehouses = ref<Warehouse[]>([])
 const onlyEnabled = ref(false)
 const loading = ref(false)
+const listError = ref('')
 const filtered = computed(() => onlyEnabled.value)
+
+/** 拦截器已经弹过统一 toast；这里把消息留在页面上，便于刷新后回看与重试。 */
+function errorMessage(error: unknown): string {
+  const e = error as { response?: { data?: { message?: string } }; message?: string }
+  return e?.response?.data?.message || e?.message || '请求失败'
+}
 
 async function loadWarehouses() {
   loading.value = true
+  listError.value = ''
   try {
     warehouses.value = await mdmApi.listWarehouses(onlyEnabled.value)
+  } catch (error) {
+    warehouses.value = []
+    listError.value = errorMessage(error)
   } finally {
     loading.value = false
   }
@@ -54,6 +65,7 @@ const dialog = ref(false)
 const editing = ref<Warehouse | null>(null)
 const formRef = ref<FormInstance>()
 const saving = ref(false)
+const formError = ref('')
 const form = reactive({
   code: '',
   name: '',
@@ -79,12 +91,14 @@ function clearValidate() {
 
 function openCreate() {
   editing.value = null
+  formError.value = ''
   Object.assign(form, { code: '', name: '', address: '', enabled: true })
   dialog.value = true
 }
 
 function openEdit(row: Warehouse) {
   editing.value = row
+  formError.value = ''
   Object.assign(form, {
     code: row.code,
     name: row.name,
@@ -100,6 +114,7 @@ async function saveWarehouse() {
   if (!valid) return
 
   saving.value = true
+  formError.value = ''
   try {
     const common: WarehouseUpdate = {
       name: form.name.trim(),
@@ -116,6 +131,8 @@ async function saveWarehouse() {
     }
     dialog.value = false
     await loadWarehouses()
+  } catch (error) {
+    formError.value = errorMessage(error)
   } finally {
     saving.value = false
   }
@@ -131,19 +148,27 @@ async function disableWarehouse(row: Warehouse) {
   } catch {
     return
   }
-  await mdmApi.disableWarehouse(row.id)
-  ElMessage.success('仓库已停用')
-  await loadWarehouses()
+  try {
+    await mdmApi.disableWarehouse(row.id)
+    ElMessage.success('仓库已停用')
+    await loadWarehouses()
+  } catch {
+    // 拦截器已提示；catch 只为避免未处理的 Promise 拒绝
+  }
 }
 
 async function enableWarehouse(row: Warehouse) {
-  await mdmApi.updateWarehouse(row.id, {
-    name: row.name,
-    address: row.address ?? undefined,
-    enabled: true,
-  })
-  ElMessage.success('仓库已启用')
-  await loadWarehouses()
+  try {
+    await mdmApi.updateWarehouse(row.id, {
+      name: row.name,
+      address: row.address ?? undefined,
+      enabled: true,
+    })
+    ElMessage.success('仓库已启用')
+    await loadWarehouses()
+  } catch {
+    // 同上
+  }
 }
 </script>
 
@@ -157,11 +182,23 @@ async function enableWarehouse(row: Warehouse) {
       库存余额的维度是（SKU × 仓库 × 批次）；停用不删除，历史单据与库存仍可追溯。
     </p>
 
+    <el-alert
+      v-if="listError"
+      type="error"
+      show-icon
+      :closable="false"
+      class="mb-16"
+      :title="`仓库查询失败：${listError}`"
+    >
+      <el-button size="small" @click="loadWarehouses">重试</el-button>
+    </el-alert>
+
     <PageTable
       :rows="warehouses"
       :loading="loading"
       :paginated="false"
       :filtered="filtered"
+      :load-failed="!!listError"
       :can-create="canWrite"
       create-text="新建第一个仓库"
       empty-text="还没有仓库"
@@ -227,6 +264,7 @@ async function enableWarehouse(row: Warehouse) {
           <el-switch v-model="form.enabled" />
         </el-form-item>
       </el-form>
+      <el-alert v-if="formError" type="error" show-icon :closable="false" :title="formError" />
       <template #footer>
         <el-button @click="dialog = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="saveWarehouse">保存</el-button>

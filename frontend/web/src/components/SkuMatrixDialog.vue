@@ -36,7 +36,13 @@ const colorDraft = ref('')
 const sizeDraft = ref('')
 const priceYuan = ref('')
 const submitting = ref(false)
+const submitError = ref('')
 const result = ref<{ createdCount: number; skipped: number } | null>(null)
+
+function errorMessage(error: unknown): string {
+  const e = error as { response?: { data?: { message?: string } }; message?: string }
+  return e?.response?.data?.message || e?.message || '请求失败'
+}
 
 const visible = computed({
   get: () => props.modelValue,
@@ -61,6 +67,7 @@ function reset() {
   sizeDraft.value = ''
   priceYuan.value = ''
   result.value = null
+  submitError.value = ''
 }
 
 function addValue(list: string[], value: string, maxLength: number, label: string): boolean {
@@ -122,6 +129,7 @@ async function submit() {
   }
 
   submitting.value = true
+  submitError.value = ''
   result.value = null
   try {
     const res = await mdmApi.createSkuMatrix({
@@ -137,6 +145,9 @@ async function submit() {
     } else {
       ElMessage.warning('没有新建 SKU：所有组合都已存在')
     }
+  } catch (error) {
+    // 后端消息原样留在弹窗里（如重复组合 409），不用去追 toast
+    submitError.value = errorMessage(error)
   } finally {
     submitting.value = false
   }
@@ -250,6 +261,15 @@ async function submit() {
     </el-form>
 
     <el-alert
+      v-if="submitError"
+      type="error"
+      show-icon
+      :closable="false"
+      class="mb-16"
+      :title="submitError"
+    />
+
+    <el-alert
       v-if="result"
       :type="result.skipped > 0 ? 'warning' : 'success'"
       :closable="false"
@@ -324,5 +344,17 @@ async function submit() {
   margin-top: 4px;
   font-size: 12px;
   line-height: 1.6;
+}
+
+@media (max-width: 768px) {
+  .tag-input,
+  .price-input {
+    width: 100%;
+  }
+
+  .price-hint {
+    display: block;
+    margin-left: 0;
+  }
 }
 </style>

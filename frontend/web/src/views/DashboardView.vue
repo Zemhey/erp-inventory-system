@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { ElMessage } from 'element-plus'
 import { invApi, mdmApi, purApi, salApi } from '@/api/client'
 import { useSessionStore } from '@/stores/session'
 
@@ -15,6 +14,8 @@ import { useSessionStore } from '@/stores/session'
 const session = useSessionStore()
 
 const loading = ref(false)
+const loadError = ref('')
+const consistencyError = ref(false)
 const productTotal = ref<number | null>(null)
 const inventoryRows = ref<number | null>(null)
 const purchaseTotal = ref<number | null>(null)
@@ -34,6 +35,8 @@ const displayName = computed(() => session.displayName || session.username || '�
 
 async function load() {
   loading.value = true
+  loadError.value = ''
+  consistencyError.value = false
   // 用 allSettled：任一接口失败不应让整个工作台空白
   const results = await Promise.allSettled([
     mdmApi.listProducts({ page: 1, size: 1 }),
@@ -50,11 +53,13 @@ async function load() {
   if (results[4].status === 'fulfilled') {
     consistent.value = results[4].value.consistent
   } else {
-    consistent.value = false
+    // 读不到 ≠ 漂移。保留 null 并单独提示，不能把接口失败说成"库存有问题"
+    consistent.value = null
+    consistencyError.value = true
   }
 
   if (results.some((r) => r.status === 'rejected')) {
-    ElMessage.warning('部分统计加载失败，请稍后重试')
+    loadError.value = '部分统计加载失败，显示为 - 的数字不是真实值。请重试。'
   }
   loading.value = false
 }
@@ -68,6 +73,17 @@ onMounted(load)
       <h2 class="page-title">{{ greeting }}，{{ displayName }}</h2>
       <el-button @click="load">刷新</el-button>
     </div>
+
+    <el-alert
+      v-if="loadError"
+      type="error"
+      show-icon
+      :closable="false"
+      class="mb-16"
+      :title="loadError"
+    >
+      <el-button size="small" @click="load">重试</el-button>
+    </el-alert>
 
     <!-- 数据概览 -->
     <el-row :gutter="16" class="mb-16">
@@ -106,8 +122,18 @@ onMounted(load)
       <template #header>
         <span>库存一致性（不变量 INV-2：实存 == 流水净和）</span>
       </template>
+      <el-alert
+        v-if="consistencyError"
+        type="warning"
+        show-icon
+        :closable="false"
+        title="库存一致性检查失败"
+        description="无法读取一致性结果，不代表存在库存漂移。请稍后重试。"
+      >
+        <el-button size="small" @click="load">重试</el-button>
+      </el-alert>
       <el-result
-        v-if="consistent !== null"
+        v-else-if="consistent !== null"
         :icon="consistent ? 'success' : 'error'"
         :title="consistent ? '库存与流水一致' : '检测到库存漂移'"
         :sub-title="
