@@ -228,6 +228,9 @@ export const purApi = {
   submit: (id: number) => http.post<never, PurchaseOrder>(`/purchase-orders/${id}/submit`),
   approve: (id: number) => http.post<never, PurchaseOrder>(`/purchase-orders/${id}/approve`),
   reject: (id: number) => http.post<never, PurchaseOrder>(`/purchase-orders/${id}/reject`),
+  // 后端 PurchaseOrderController 有 @PostMapping("/{id}/void")；
+  // 已入库的单据会被业务层拒绝（需先红冲，FR-PUR-03 属 M2），错误消息原样透出。
+  voidOrder: (id: number) => http.post<never, PurchaseOrder>(`/purchase-orders/${id}/void`),
   receive: (id: number, body: { lines: ReceiveLine[] }) =>
     http.post<never, PurchaseOrder>(`/purchase-orders/${id}/receive`, body),
 }
