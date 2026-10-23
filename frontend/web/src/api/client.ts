@@ -280,6 +280,41 @@ export const rmaApi = {
   voidOrder: (id: number) => http.post<never, ReturnOrder>(`/return-orders/${id}/void`),
 }
 
+/**
+ * 结算（FR-SET-01/02/03）。
+ *
+ * ★ 三个动作是三个权限码（`set:daily` / `set:monthly` / `set:reconcile`），
+ *   入口页权限只是 `set:read`。所以"能不能进这一页"和"能不能点执行"必须分开判断，
+ *   按钮显隐问各自的动作码 —— FINANCE 能结算、VIEWER 只能看，靠的就是这个拆分。
+ *
+ * ★ 对账是 GET 但也要 `set:reconcile`：它不写数据，却把总账与明细都重算一遍，
+ *   属于财务动作而不是查询。
+ */
+export const setApi = {
+  daily: (body: DailySettlementRequest) => http.post<never, DailySettlementResult>('/settlements/daily', body),
+  monthly: (body: MonthlySettlementRequest) =>
+    http.post<never, MonthlySettlementResult>('/settlements/monthly', body),
+  reconcile: (period: string) =>
+    http.get<never, ReconcileResult>('/settlements/reconcile', { params: { period } }),
+}
+
+/**
+ * 报表（FR-RPT-01/02/03）。整个模块只读，全 GET，权限只有一个 `rpt:read`。
+ *
+ * ★ 两组参数不能混用（计划书 §3.5 / §6 坑 4）：
+ *   进货、出货统计收 `from`/`to` 闭区间 + `groupBy`；
+ *   进销存汇总收 `period`（yyyy-MM），因为它要的是"期初/期末"，
+ *   任意日期区间没有期初概念。
+ */
+export const rptApi = {
+  purchase: (params: { from: string; to: string; groupBy?: ReportGroupBy; warehouseId?: number }) =>
+    http.get<never, { items: ReportRow[] }>('/reports/purchase', { params }),
+  sales: (params: { from: string; to: string; groupBy?: ReportGroupBy; warehouseId?: number }) =>
+    http.get<never, { items: ReportRow[] }>('/reports/sales', { params }),
+  inventorySummary: (params: { period: string; warehouseId?: number }) =>
+    http.get<never, { items: InventorySummaryRow[] }>('/reports/inventory-summary', { params }),
+}
+
 // ═══════════════════════ 类型定义（与后端 DTO 对齐） ═══════════════════════
 
 export interface Product {
@@ -554,6 +589,99 @@ export interface ReturnOrderCreate {
     productionDate?: string
     expiryDate?: string
   }[]
+}
+
+/**
+ * 结算七项汇总（契约 `SettlementTotals`）。
+ *
+ * 金额一律整数分；`netAmount` 由后端算好返回（= salesAmount − returnAmount），
+ * 前端不得自己再减一次 —— 两处算法迟早分叉，对账就永远调不平。
+ */
+export interface SettlementTotals {
+  purchaseQty: number
+  purchaseAmount: number
+  salesQty: number
+  salesAmount: number
+  returnQty: number
+  returnAmount: number
+  netAmount: number
+}
+
+/** 日清：`warehouseId` 省略 = 全部仓库（后端按仓返回 items + 一份 totals）。 */
+export interface DailySettlementRequest {
+  bizDate: string
+  warehouseId?: number
+}
+
+export interface DailySettlementItem extends SettlementTotals {
+  warehouseId: number
+}
+
+export interface DailySettlementResult {
+  bizDate: string
+  items: DailySettlementItem[]
+  totals: SettlementTotals
+}
+
+/** 月结请求：账期 `yyyy-MM`。 */
+export interface MonthlySettlementRequest {
+  period: string
+}
+
+/**
+ * 月结结果 = 期间汇总 + 账期状态。
+ *
+ * `status` 只有 OPEN/CLOSED 两态，不是单据状态机（无 PARTIAL/VOIDED），
+ * 因此不进 `documentStatus.ts`，页面内联判断即可。
+ * `duplicate=true` 表示这次是幂等命中（账期早已关闭且重算一致），没有重复结算。
+ */
+export interface MonthlySettlementResult extends SettlementTotals {
+  period: string
+  status: 'OPEN' | 'CLOSED'
+  closedAt?: string | null
+  duplicate: boolean
+}
+
+/**
+ * 对账结果（契约 `ReconcileResult`）。
+ *
+ * 差额不为 0 时后端不会返回这个对象，而是 409 `SET_RECONCILE_MISMATCH`
+ * （details 带 period/generalTotal/detailTotal/diff），所以成功分支里 `balanced` 恒为 true；
+ * 页面仍按字段渲染，不去猜后端什么时候报错。
+ */
+export interface ReconcileResult {
+  period: string
+  generalTotal: number
+  detailTotal: number
+  diff: number
+  balanced: boolean
+}
+
+/** 契约 `groupBy` 取值：进货无 customer、出货无 supplier，各自见报表页候选表。 */
+export type ReportGroupBy = 'supplier' | 'customer' | 'product' | 'sku' | 'day' | 'month'
+
+/** 进货 / 出货统计行（契约 `ReportRow`）。`amount` 为分。 */
+export interface ReportRow {
+  key: string
+  label: string
+  qty: number
+  amount: number
+  orderCount: number
+}
+
+/**
+ * 进销存汇总行（契约 `InventorySummaryRow`），粒度是 (SKU, 仓库)。
+ *
+ * 恒等式 `openingQty + inboundQty − outboundQty == closingQty` 由后端在一条聚合 SQL 里
+ * 分别求和保证（TC-RPT-006）；`outboundQty` 已取正数，所以恒等式里是减号。
+ */
+export interface InventorySummaryRow {
+  skuId: number
+  warehouseId: number
+  openingQty: number
+  inboundQty: number
+  outboundQty: number
+  closingQty: number
 }
 
 // ═══════════════════════ 金额工具（ADR-0005） ═══════════════════════
