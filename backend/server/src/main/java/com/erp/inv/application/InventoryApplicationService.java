@@ -499,6 +499,39 @@ public class InventoryApplicationService {
         return b + suffix;
     }
 
+/**
+     * 采购退货出库（FR-PUR-06）：按原收货批次扣减实存并写 {@code PURCHASE_RETURN} 负向流水。
+     *
+     * <p>与进货红冲共用 {@code decreaseOnHand} 的两条守卫：
+     * 实存足够、且回退后不低于已预占量。不足时 {@code INV_NEGATIVE_NOT_ALLOWED}，
+     * 由调用方事务整体回滚，不跨批次挪用。
+     *
+     * <p>本方法只负责库存事实；退货状态、应付冲减、可退量校验都在 PUR 退货服务里。
+     */
+    @Transactional
+    public void purchaseReturnOut(long skuId, long warehouseId, String batchNo, int qty,
+                                  String bizRefNo, Long bizRefId, Long unitCostAmount,
+                                  String requestId) {
+        if (qty <= 0) {
+            throw new BusinessException(ErrorCode.SYS_VALIDATION_ERROR,
+                    "采购退货数量必须为正：qty=%d".formatted(qty));
+        }
+        if (!balances.decreaseOnHand(skuId, warehouseId, batchNo, qty)) {
+            InventoryBalance b = balances.find(skuId, warehouseId, batchNo).orElse(null);
+            int onHand = b == null ? 0 : b.onHandQty();
+            int reserved = b == null ? 0 : b.reservedQty();
+            throw new BusinessException(ErrorCode.INV_NEGATIVE_NOT_ALLOWED,
+                    "采购退货失败：SKU %d 在仓库 %d 批次 '%s' 当前实存 %d、已预占 %d，"
+                            .formatted(skuId, warehouseId, batchNo, onHand, reserved)
+                            + "需要扣减 %d（扣减后会为负或低于预占）".formatted(qty),
+                    java.util.Map.of("skuId", skuId, "warehouseId", warehouseId,
+                            "batchNo", batchNo, "onHand", onHand,
+                            "reserved", reserved, "required", qty));
+        }
+        ledger.insert(skuId, warehouseId, batchNo, -qty, "PURCHASE_RETURN", bizRefNo, bizRefId,
+                unitCostAmount, requestId, clock.now());
+    }
+
     // ───────────────────────────── 库存作业（V2-1：调拨 / 盘点 / 调整 / 冻结） ─────────────────────────────
 
     /**
@@ -615,7 +648,6 @@ public class InventoryApplicationService {
     public int frozenQty(long skuId, long warehouseId, String batchNo) {
         return balances.frozenQty(skuId, warehouseId, batchNo);
     }
-
     // ───────────────────────────── 不变量校验（对账，不变量 INV-2） ─────────────────────────────
 
     public record InvariantViolation(long skuId, long warehouseId, String batchNo,
