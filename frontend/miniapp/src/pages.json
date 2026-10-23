@@ -1,0 +1,49 @@
+{
+  "pages": [
+    {
+      "path": "pages/login/login",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "登录"
+      }
+    },
+    {
+      "path": "pages/dashboard/dashboard",
+      "style": {
+        "navigationBarTitleText": "工作台",
+        "enablePullDownRefresh": true,
+        "backgroundTextStyle": "dark"
+      }
+    },
+    {
+      "path": "pages/inventory/inventory",
+      "style": {
+        "navigationBarTitleText": "库存查询",
+        "enablePullDownRefresh": true,
+        "backgroundTextStyle": "dark"
+      }
+    }
+  ],
+  "globalStyle": {
+    "navigationBarTextStyle": "white",
+    "navigationBarTitleText": "云裳进销存",
+    "navigationBarBackgroundColor": "#1b2233",
+    "backgroundColor": "#f4f5f7"
+  },
+  "tabBar": {
+    "color": "#8a90a2",
+    "selectedColor": "#1f3a63",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "black",
+    "list": [
+      {
+        "pagePath": "pages/dashboard/dashboard",
+        "text": "工作台"
+      },
+      {
+        "pagePath": "pages/inventory/inventory",
+        "text": "库存"
+      }
+    ]
+  }
+}
