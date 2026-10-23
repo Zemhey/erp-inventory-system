@@ -90,6 +90,25 @@ public class CustomerApplicationService {
         return require(id);
     }
 
+    /** 信用额度与账期（FR-SAL-09）；0 额度 = 不设限。 */
+    public record CreditCommand(long creditLimit, int creditDays) {
+    }
+
+    @Transactional
+    public Customer updateCredit(long id, CreditCommand cmd) {
+        require(id);
+        if (cmd.creditLimit() < 0 || cmd.creditDays() < 0) {
+            throw new BusinessException(ErrorCode.SYS_VALIDATION_ERROR,
+                    "信用额度与账期不能为负：limit=%d, days=%d"
+                            .formatted(cmd.creditLimit(), cmd.creditDays()));
+        }
+        if (!customers.updateCredit(id, cmd.creditLimit(), cmd.creditDays())) {
+            throw new BusinessException(ErrorCode.SYS_NOT_FOUND,
+                    "客户不存在：id=%d".formatted(id));
+        }
+        return require(id);
+    }
+
     @Transactional
     public void disable(long id) {
         require(id);

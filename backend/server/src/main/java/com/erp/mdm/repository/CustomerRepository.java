@@ -35,7 +35,9 @@ public class CustomerRepository {
             rs.getString("phone"),
             rs.getInt("discount_rate"),
             rs.getString("level"),
-            rs.getBoolean("enabled"));
+            rs.getBoolean("enabled"),
+            rs.getLong("credit_limit"),
+            rs.getInt("credit_days"));
 
     private final JdbcTemplate jdbc;
 
@@ -77,14 +79,16 @@ public class CustomerRepository {
 
     public Optional<Customer> findById(long id) {
         return jdbc.query("""
-                SELECT id, code, name, phone, discount_rate, level, enabled
+                SELECT id, code, name, phone, discount_rate, level, enabled,
+                       credit_limit, credit_days
                   FROM customers WHERE id = ?
                 """, MAPPER, id).stream().findFirst();
     }
 
     public Optional<Customer> findByCode(String code) {
         return jdbc.query("""
-                SELECT id, code, name, phone, discount_rate, level, enabled
+                SELECT id, code, name, phone, discount_rate, level, enabled,
+                       credit_limit, credit_days
                   FROM customers WHERE code = ?
                 """, MAPPER, code).stream().findFirst();
     }
@@ -132,7 +136,8 @@ public class CustomerRepository {
         pageArgs.add(s);
         pageArgs.add(PageResult.offset(p, s));
         List<Customer> items = jdbc.query("""
-                SELECT id, code, name, phone, discount_rate, level, enabled
+                SELECT id, code, name, phone, discount_rate, level, enabled,
+                       credit_limit, credit_days
                   FROM customers
                 """ + where + " ORDER BY id LIMIT ? OFFSET ?", MAPPER, pageArgs.toArray());
         return new PageResult<>(items, total == null ? 0 : total, p, s);
@@ -146,6 +151,29 @@ public class CustomerRepository {
                        enabled = ?, updated_at = now()
                  WHERE id = ?
                 """, name, phone, discountRate, level, enabled, id) == 1;
+    }
+
+    /**
+     * 锁客户行并读取（FR-SAL-09 信用校验）。
+     *
+     * <p>并发建单时，两个请求都可能先读到"还有额度"；把客户行锁进事务后，
+     * 授信判断与建单在同一把行锁下串行化，超额的那一单会看到已占用的敞口。
+     */
+    public Optional<Customer> findByIdForUpdate(long id) {
+        return jdbc.query("""
+                SELECT id, code, name, phone, discount_rate, level, enabled,
+                       credit_limit, credit_days
+                  FROM customers WHERE id = ? FOR UPDATE
+                """, MAPPER, id).stream().findFirst();
+    }
+
+    /** 更新信用额度与账期（FR-SAL-09）。 */
+    public boolean updateCredit(long id, long creditLimit, int creditDays) {
+        return jdbc.update("""
+                UPDATE customers
+                   SET credit_limit = ?, credit_days = ?, updated_at = now()
+                 WHERE id = ?
+                """, creditLimit, creditDays, id) == 1;
     }
 
     public boolean disable(long id) {

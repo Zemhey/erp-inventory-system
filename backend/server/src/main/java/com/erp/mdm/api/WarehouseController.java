@@ -5,6 +5,7 @@ import com.erp.mdm.domain.Warehouse;
 import com.erp.iam.security.RequirePermission;
 import com.erp.shared.web.ApiResponses;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import java.util.LinkedHashMap;
@@ -36,13 +37,15 @@ public class WarehouseController {
             @NotBlank @Size(min = 2, max = 32) String code,
             @NotBlank @Size(max = 64) String name,
             @Size(max = 200) String address,
-            Boolean enabled) {
+            Boolean enabled,
+            @Min(0) Integer priority) {
     }
 
     public record UpdateRequest(
             @NotBlank @Size(max = 64) String name,
             @Size(max = 200) String address,
-            Boolean enabled) {
+            Boolean enabled,
+            @Min(0) Integer priority) {
     }
 
     @GetMapping
@@ -64,7 +67,8 @@ public class WarehouseController {
     @RequirePermission("mdm:write")
     public ResponseEntity<Map<String, Object>> create(@Valid @RequestBody CreateRequest req) {
         Warehouse w = warehouses.create(new WarehouseApplicationService.CreateCommand(
-                req.code(), req.name(), req.address(), req.enabled() == null || req.enabled()));
+                req.code(), req.name(), req.address(), req.enabled() == null || req.enabled(),
+                req.priority()));
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.ok(toMap(w)));
     }
 
@@ -73,7 +77,8 @@ public class WarehouseController {
     public ResponseEntity<Map<String, Object>> update(@PathVariable long id,
                                                       @Valid @RequestBody UpdateRequest req) {
         Warehouse w = warehouses.update(id, new WarehouseApplicationService.UpdateCommand(
-                req.name(), req.address(), req.enabled() == null || req.enabled()));
+                req.name(), req.address(), req.enabled() == null || req.enabled(),
+                req.priority()));
         return ResponseEntity.ok(ApiResponses.ok(toMap(w)));
     }
 
@@ -91,6 +96,7 @@ public class WarehouseController {
         m.put("name", w.name());
         m.put("address", w.address());
         m.put("enabled", w.enabled());
+        m.put("priority", w.priority());
         return m;
     }
 }

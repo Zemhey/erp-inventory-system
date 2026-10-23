@@ -119,4 +119,17 @@ public class InventoryReservationRepository {
                 """, Integer.class, skuId, warehouseId);
         return v == null ? 0 : v;
     }
+
+    /** 按 id 批量取仍为 ACTIVE 的预占（发货确认按预占分段消费）。 */
+    public List<Reservation> findActiveByIds(java.util.Collection<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        String placeholders = String.join(",", java.util.Collections.nCopies(ids.size(), "?"));
+        return jdbc.query("""
+                SELECT id, sku_id, warehouse_id, batch_no, reserved_qty, status, request_id
+                  FROM inventory_reservations
+                 WHERE status = 'ACTIVE' AND id IN (""" + placeholders + ") ORDER BY id",
+                MAPPER, ids.toArray());
+    }
 }

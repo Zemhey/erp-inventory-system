@@ -15,5 +15,17 @@ package com.erp.mdm.domain;
  * @param enabled           是否启用
  */
 public record Sku(long id, long productId, String color, String size, String barcode,
-                  long retailPriceAmount, boolean enabled) {
+                  long retailPriceAmount, boolean enabled,
+                  String seasonCode, String bandCode, java.time.LocalDate launchDate) {
+
+    /** 兼容 M1 的构造：未填写季节/波段/上市日期。 */
+    public Sku(long id, long productId, String color, String size, String barcode,
+               long retailPriceAmount, boolean enabled) {
+        this(id, productId, color, size, barcode, retailPriceAmount, enabled, null, null, null);
+    }
+
+    /** 年份维度由上市日期派生（FR-MDM-08 不另存冗余列）。 */
+    public Integer seasonYear() {
+        return launchDate == null ? null : launchDate.getYear();
+    }
 }

@@ -105,6 +105,8 @@ public class CustomerController {
         m.put("discountRate", c.discountRate());
         m.put("level", c.level());
         m.put("enabled", c.enabled());
+        m.put("creditLimit", c.creditLimit());
+        m.put("creditDays", c.creditDays());
         return m;
     }
 }

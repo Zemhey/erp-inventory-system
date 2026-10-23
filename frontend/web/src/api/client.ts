@@ -369,6 +369,11 @@ export interface Sku {
   barcode?: string | null
   retailPriceAmount: number
   enabled: boolean
+  /** FR-MDM-08 季节/波段/上市日期；年份由上市日期派生 */
+  seasonCode?: string | null
+  bandCode?: string | null
+  launchDate?: string | null
+  seasonYear?: number | null
 }
 
 export interface SkuCreate {
@@ -429,6 +434,9 @@ export interface Customer {
   discountRate: number
   level: string
   enabled: boolean
+  /** 0 = 不设限（FR-SAL-09） */
+  creditLimit: number
+  creditDays: number
 }
 
 export interface CustomerCreate {
@@ -455,6 +463,8 @@ export interface Warehouse {
   name: string
   address?: string | null
   enabled: boolean
+  /** 发货选仓优先级：越小越优先（FR-SAL-11） */
+  priority: number
 }
 
 export interface WarehouseCreate {
@@ -506,6 +516,12 @@ export interface OrderLine {
   returnedQty?: number
   openQty?: number
   discountRate?: number
+  bundleId?: number | null
+  bundleGroupNo?: number | null
+  bundleRatio?: number | null
+  bundleQty?: number | null
+  /** 按仓拆分的预占分配（自动选仓时可见） */
+  allocations?: { warehouseId: number; qty: number }[]
 }
 
 export interface PurchaseOrder {

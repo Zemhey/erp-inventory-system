@@ -96,6 +96,38 @@ class ApiContractMappingIT extends PostgresTestBase {
         UNDOCUMENTED_DEBT.put("POST /api/v1/sales-orders/{}/submit", "出货工作流，契约待补");
         UNDOCUMENTED_DEBT.put("POST /api/v1/sales-orders/{}/approve", "出货工作流，契约待补");
         UNDOCUMENTED_DEBT.put("POST /api/v1/sales-orders/{}/reject", "出货工作流，契约待补");
+
+        // ── V2-3 销售闭环（feat/v23-sal-loop）──
+        // 本泳道不是契约 owner：以下条目仅为本地门禁放行，
+        // 合并时由清场删除 debt 并把 .plan/V2-3-契约申请.md 落进 openapi.yaml。
+        UNDOCUMENTED_DEBT.put("GET /api/v1/sales-quotes", "V2-3 报价单，合并时由清场删除 debt 并落契约");
+        UNDOCUMENTED_DEBT.put("POST /api/v1/sales-quotes", "V2-3 报价单，合并时由清场删除 debt 并落契约");
+        UNDOCUMENTED_DEBT.put("GET /api/v1/sales-quotes/{}", "V2-3 报价单，合并时由清场删除 debt 并落契约");
+        UNDOCUMENTED_DEBT.put("POST /api/v1/sales-quotes/{}/submit", "V2-3 报价单，合并时由清场删除 debt 并落契约");
+        UNDOCUMENTED_DEBT.put("POST /api/v1/sales-quotes/{}/approve", "V2-3 报价单，合并时由清场删除 debt 并落契约");
+        UNDOCUMENTED_DEBT.put("POST /api/v1/sales-quotes/{}/reject", "V2-3 报价单，合并时由清场删除 debt 并落契约");
+        UNDOCUMENTED_DEBT.put("POST /api/v1/sales-quotes/{}/void", "V2-3 报价单，合并时由清场删除 debt 并落契约");
+        UNDOCUMENTED_DEBT.put("POST /api/v1/sales-quotes/{}/convert", "V2-3 报价转化，合并时由清场删除 debt 并落契约");
+        UNDOCUMENTED_DEBT.put("POST /api/v1/sales-orders/auto-split", "V2-3 自动选仓，合并时由清场删除 debt 并落契约");
+        UNDOCUMENTED_DEBT.put("GET /api/v1/product-bundles", "V2-3 套装，合并时由清场删除 debt 并落契约");
+        UNDOCUMENTED_DEBT.put("POST /api/v1/product-bundles", "V2-3 套装，合并时由清场删除 debt 并落契约");
+        UNDOCUMENTED_DEBT.put("GET /api/v1/product-bundles/{}", "V2-3 套装，合并时由清场删除 debt 并落契约");
+        UNDOCUMENTED_DEBT.put("PUT /api/v1/product-bundles/{}", "V2-3 套装，合并时由清场删除 debt 并落契约");
+        UNDOCUMENTED_DEBT.put("POST /api/v1/product-bundles/{}/disable", "V2-3 套装，合并时由清场删除 debt 并落契约");
+        UNDOCUMENTED_DEBT.put("GET /api/v1/product-bundles/{}/availability", "V2-3 套装可用量，合并时由清场删除 debt 并落契约");
+        UNDOCUMENTED_DEBT.put("GET /api/v1/shipments", "V2-3 发货作业，合并时由清场删除 debt 并落契约");
+        UNDOCUMENTED_DEBT.put("GET /api/v1/shipments/{}", "V2-3 发货作业，合并时由清场删除 debt 并落契约");
+        UNDOCUMENTED_DEBT.put("POST /api/v1/sales-orders/{}/shipments", "V2-3 发货计划，合并时由清场删除 debt 并落契约");
+        UNDOCUMENTED_DEBT.put("POST /api/v1/shipments/{}/scan", "V2-3 扫码，合并时由清场删除 debt 并落契约");
+        UNDOCUMENTED_DEBT.put("POST /api/v1/shipments/{}/confirm", "V2-3 发货确认，合并时由清场删除 debt 并落契约");
+        UNDOCUMENTED_DEBT.put("GET /api/v1/receivables", "V2-3 应收，合并时由清场删除 debt 并落契约");
+        UNDOCUMENTED_DEBT.put("GET /api/v1/receivables/summary", "V2-3 应收，合并时由清场删除 debt 并落契约");
+        UNDOCUMENTED_DEBT.put("GET /api/v1/receivables/{}", "V2-3 应收，合并时由清场删除 debt 并落契约");
+        UNDOCUMENTED_DEBT.put("POST /api/v1/customer-receipts", "V2-3 收款核销，合并时由清场删除 debt 并落契约");
+        UNDOCUMENTED_DEBT.put("GET /api/v1/customer-receipts", "V2-3 收款核销，合并时由清场删除 debt 并落契约");
+        UNDOCUMENTED_DEBT.put("GET /api/v1/customer-receipts/{}", "V2-3 收款核销，合并时由清场删除 debt 并落契约");
+        UNDOCUMENTED_DEBT.put("GET /api/v1/customers/{}/credit", "V2-3 信用，合并时由清场删除 debt 并落契约");
+        UNDOCUMENTED_DEBT.put("PUT /api/v1/customers/{}/credit", "V2-3 信用，合并时由清场删除 debt 并落契约");
     }
 
     @Autowired

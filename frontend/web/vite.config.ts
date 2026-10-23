@@ -24,7 +24,8 @@ export default defineConfig({
     //   5173 不在 `netsh int ipv4 show excludedportrange` 列出的排除段里，
     //   属于被其他保留策略占用的情形 —— 换端口是最省事的解法，
     //   不必为此去改系统保留配置（那需要管理员权限且有副作用）。
-    port: 3000,
+    // ★ 并行泳道用环境变量覆盖端口/后端地址，默认值保持原有开发体验不变。
+    port: Number(process.env.VITE_DEV_PORT ?? 3000),
     // 显式绑 IPv4 回环：本机 localhost 解析到 ::1，而 Vite 绑 ::1 曾被拒
     host: '127.0.0.1',
     // 端口被占用时直接失败，而不是静默换端口 —— 否则你会对着旧端口调试半天
@@ -32,7 +33,7 @@ export default defineConfig({
     proxy: {
       // 与后端 application.yml 的 server.servlet.context-path 保持一致
       '/api': {
-        target: 'http://127.0.0.1:8080',
+        target: process.env.VITE_API_TARGET ?? 'http://127.0.0.1:8080',
         changeOrigin: true,
       },
     },

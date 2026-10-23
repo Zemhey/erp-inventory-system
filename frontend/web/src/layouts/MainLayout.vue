@@ -9,12 +9,15 @@ import {
   Goods,
   House,
   Menu as MenuIcon,
+  Money,
   OfficeBuilding,
   RefreshLeft,
   Sell,
   ShoppingCart,
   SwitchButton,
+  Tickets,
   User,
+  Van,
 } from '@element-plus/icons-vue'
 import { useSessionStore } from '@/stores/session'
 
@@ -80,6 +83,10 @@ const allMenus: MenuItem[] = [
   { path: '/return-orders', title: '退货单', icon: RefreshLeft, permission: 'rma:read' },
   { path: '/settlements', title: '结算', icon: Coin, permission: 'set:read' },
   { path: '/reports', title: '报表', icon: DataAnalysis, permission: 'rpt:read' },
+  // V2-3 销售闭环：只往后追加，不重排
+  { path: '/sales-quotes', title: '报价单', icon: Tickets, permission: 'sal:read' },
+  { path: '/shipments', title: '拣货发货', icon: Van, permission: 'sal:read' },
+  { path: '/receivables', title: '应收 / 收款', icon: Money, permission: 'sal:read' },
 ]
 
 const visibleMenus = computed(() =>

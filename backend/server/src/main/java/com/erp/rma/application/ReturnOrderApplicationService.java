@@ -7,6 +7,7 @@ import com.erp.rma.repository.ReturnOrderRepository;
 import com.erp.sal.application.ReturnableSalesOrderService;
 import com.erp.sal.application.ReturnableSalesOrderService.ReturnableLine;
 import com.erp.sal.application.ReturnableSalesOrderService.ReturnableOrder;
+import com.erp.sal.application.ReceivableService;
 import com.erp.sal.application.SalesOrderApplicationService;
 import com.erp.sal.application.SalesOrderReturnService;
 import com.erp.shared.db.DbErrors;
@@ -53,6 +54,7 @@ public class ReturnOrderApplicationService {
     private final ReturnableSalesOrderService returnableOrders;
     private final SalesOrderReturnService salesReturns;
     private final InventoryApplicationService inventory;
+    private final ReceivableService receivables;
     private final DocumentNumberGenerator numberGenerator;
     private final ClockProvider clock;
     /**
@@ -68,6 +70,7 @@ public class ReturnOrderApplicationService {
                                         ReturnableSalesOrderService returnableOrders,
                                         SalesOrderReturnService salesReturns,
                                         InventoryApplicationService inventory,
+                                        ReceivableService receivables,
                                         DocumentNumberGenerator numberGenerator,
                                         ClockProvider clock,
                                         PeriodGuard periodGuard) {
@@ -75,6 +78,7 @@ public class ReturnOrderApplicationService {
         this.returnableOrders = returnableOrders;
         this.salesReturns = salesReturns;
         this.inventory = inventory;
+        this.receivables = receivables;
         this.numberGenerator = numberGenerator;
         this.clock = clock;
         this.periodGuard = periodGuard;
@@ -286,6 +290,9 @@ public class ReturnOrderApplicationService {
                     "RETURN_IN", o.orderNo(), o.id(), null,
                     ledgerRequestId(requestId, line.lineNo()));
         }
+
+        // FR-SAL-07：退货金额同步冲减原出货单应收（与库存回补同一事务）
+        receivables.recordReturn(o.originSalesOrderId(), o.totalAmount());
 
         DocumentStatusMachine.requireTransition(o.status(), DocumentStatus.COMPLETED,
                 ErrorCode.RMA_STATUS_ILLEGAL, o.orderNo());

@@ -72,6 +72,27 @@ public class InventoryApplicationService {
     }
 
     /**
+     * 某 SKU 在某仓的可用量合计（所有批次）。
+     *
+     * <p>选仓/套装可用量只需要“够不够”，不需要批次明细；单条聚合放在 INV 内部，
+     * 避免调用方逐个批次读取后自己求和（那会把跨模块的库存口径再抄一遍）。
+     */
+    @Transactional(readOnly = true)
+    public int availableQty(long skuId, long warehouseId) {
+        return balances.query(skuId, warehouseId, null, false).stream()
+                .mapToInt(InventoryBalance::availableQty)
+                .sum();
+    }
+
+    /** 某 SKU 在所有仓库的可用量合计（套装跨仓汇总口径）。 */
+    @Transactional(readOnly = true)
+    public int availableQtyAllWarehouses(long skuId) {
+        return balances.query(skuId, null, null, false).stream()
+                .mapToInt(InventoryBalance::availableQty)
+                .sum();
+    }
+
+    /**
      * 按来源单号 + 业务类型取原始流水（M2.5 红冲）。
      *
      * <p>红冲方据此知道"原单当初在哪些批次上动了多少"，逐条反向；
@@ -538,6 +559,19 @@ public class InventoryApplicationService {
     @Transactional(readOnly = true)
     public int sumActiveReservedQty(long skuId, long warehouseId) {
         return reservations.sumActiveReservedQty(skuId, warehouseId);
+    }
+
+    /** 仍为 ACTIVE 的预占（发货确认按预占分段消费时使用）。 */
+    public record ActiveReservation(long id, long skuId, long warehouseId, String batchNo,
+                                    int reservedQty) {
+    }
+
+    @Transactional(readOnly = true)
+    public List<ActiveReservation> findActiveReservations(java.util.Collection<Long> ids) {
+        return reservations.findActiveByIds(ids).stream()
+                .map(r -> new ActiveReservation(r.id(), r.skuId(), r.warehouseId(),
+                        r.batchNo(), r.reservedQty()))
+                .toList();
     }
 
     /**

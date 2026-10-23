@@ -16,10 +16,19 @@ package com.erp.sal.domain;
  */
 public record SalesOrderLine(long id, int lineNo, long skuId, int qty, int shippedQty,
                              int returnedQty, long unitPriceAmount, int discountRate, long amount,
-                             java.util.List<LineReservation> reservations) {
+                             java.util.List<LineReservation> reservations,
+                             Long bundleId, Integer bundleGroupNo, Integer bundleRatio) {
 
     public SalesOrderLine {
         reservations = reservations == null ? java.util.List.of() : java.util.List.copyOf(reservations);
+    }
+
+    /** 兼容 M1~M2.5 的构造（普通 SKU 行）。 */
+    public SalesOrderLine(long id, int lineNo, long skuId, int qty, int shippedQty,
+                          int returnedQty, long unitPriceAmount, int discountRate, long amount,
+                          java.util.List<LineReservation> reservations) {
+        this(id, lineNo, skuId, qty, shippedQty, returnedQty, unitPriceAmount, discountRate,
+                amount, reservations, null, null, null);
     }
 
     public int openQty() {
@@ -38,5 +47,10 @@ public record SalesOrderLine(long id, int lineNo, long skuId, int qty, int shipp
 
     public long totalReservedQty() {
         return reservations.stream().mapToLong(LineReservation::reservedQty).sum();
+    }
+
+    /** 套装组件行的套装数量 = 组件数量 ÷ 配比；普通行为 null。 */
+    public Integer bundleQty() {
+        return bundleRatio == null ? null : qty / bundleRatio;
     }
 }
