@@ -8,6 +8,7 @@ import {
   type DailySettlementResult,
   type MonthlySettlementResult,
   type ReconcileResult,
+  type SettlementPeriodRow,
   type SettlementTotals,
   type Warehouse,
 } from '@/api/client'
@@ -16,11 +17,11 @@ import { useSessionStore } from '@/stores/session'
 /**
  * 结算（FR-SET-01/02/03，计划书 §3.4 / §3.8）。
  *
- * ★ 这一页与其余页面最大的不同：**没有任何"列表查询"可复用**。
- *   日清、月结是写操作（POST），对账虽是 GET 也要 `set:reconcile`。
- *   所以入口权限 `set:read` 只决定"能不能进这一页"，
+ * ★ 本页唯一的只读数据是账期列表（GET /settlements/periods，set:read）：
+ *   它回答"每个账期结没结、结出来多少"，不重算、不写表。
+ *   日清、月结是写操作（POST），对账虽是 GET 也要 `set:reconcile`；
  *   三个执行按钮各问各的动作码 —— FINANCE 三个都有，VIEWER 一个都没有，
- *   这是 §3.6 职责分离（"财务能结算不能开单"）在前端的唯一落点。
+ *   这是 §3.6 职责分离（"财务能结算不能开单"）在前端的落点。
  *
  * ★ 月结是不可逆的：契约 §3.4 明写不提供解锁接口。
  *   所以确认框必须把后果写全（锁账后该期间的单据不能新增/执行/作废），
@@ -46,10 +47,9 @@ const activeTab = ref<'daily' | 'monthly' | 'reconcile'>('daily')
 
 const warehouses = ref<Warehouse[]>([])
 /**
- * 名称字典走的是主数据接口（`/warehouses` 要 `mdm:read`），而 V5 给 FINANCE 的只有
- * `rma/set/rpt` 三组码 —— 财务进得来这一页却读不到仓库名。
- * 这里先问权限再决定发不发请求：请求照发只会换来一个 403 红条，
- * 页面反而说不清"为什么没有名字"。（缺口已登记计划书 §6，修法留给 S7 定夺）
+ * 名称字典走的是主数据接口（`/warehouses` 要 `mdm:read`）。
+ * V7 已给 FINANCE 补上该权限；这里仍先问权限再决定发不发请求，作为防御 ——
+ * 权限数据由部署环境决定，页面不该假设某个角色必然持有某个码。
  */
 const canReadMaster = computed(() => session.hasPermission('mdm:read'))
 
@@ -232,6 +232,8 @@ async function runMonthly() {
         ? `账期 ${monthlyResult.value.period} 早已锁账且重算一致，本次为幂等命中，未重复结算`
         : `账期 ${monthlyResult.value.period} 已锁账：净销售额 ¥${fenToYuan(monthlyResult.value.netAmount)}`,
     )
+    // 月结会新增/更新账期行：列表跟着刷新，不然上方还显示旧状态
+    await loadPeriods()
   } catch (error) {
     const info = errorInfo(error)
     monthlyError.value = info.message
@@ -282,7 +284,40 @@ const detailEntries = computed(() =>
   })),
 )
 
-onMounted(loadWarehouses)
+// ─────────────────────────── 账期列表（只读，set:read） ───────────────────────────
+
+const periodRows = ref<SettlementPeriodRow[]>([])
+const periodLoading = ref(false)
+const periodError = ref('')
+const periodTruncated = ref(false)
+
+async function loadPeriods() {
+  periodLoading.value = true
+  periodError.value = ''
+  try {
+    const page = await setApi.periods({ page: 1, size: 200 })
+    periodRows.value = page.items
+    periodTruncated.value = page.total > page.items.length
+  } catch (error) {
+    periodRows.value = []
+    periodTruncated.value = false
+    periodError.value = errorInfo(error).message
+  } finally {
+    periodLoading.value = false
+  }
+}
+
+/** 把某个账期带进月结/对账表单，省得手敲；只填值，不自动执行。 */
+function usePeriod(period: string, target: 'monthly' | 'reconcile') {
+  if (target === 'monthly') monthlyForm.period = period
+  else reconcileForm.period = period
+  activeTab.value = target
+}
+
+onMounted(() => {
+  loadWarehouses()
+  loadPeriods()
+})
 </script>
 
 <template>
@@ -315,8 +350,79 @@ onMounted(loadWarehouses)
       :closable="false"
       class="mb-16"
       title="当前账号只有结算页的查看权限（set:read）"
-      description="本页三项结果都要执行动作才能取到：日清 set:daily、月结 set:monthly、对账 set:reconcile。后端没有账期状态的只读查询接口，因此无执行权限时页面没有数据可显示，这不代表系统里没有账期。"
+      description="账期列表（上方）对 set:read 可读；日清 set:daily、月结 set:monthly、对账 set:reconcile 三项结果要执行动作才能取到。没有执行权限时下方三个标签页没有新结果，但不代表系统里没有账期 —— 既有账期看上方列表。"
     />
+
+    <!-- ─────────── 账期列表（只读，set:read） ─────────── -->
+    <div class="totals-card mb-16">
+      <div class="result-head">
+        <span class="result-title">账期列表</span>
+        <span class="text-muted">只读（set:read）· 按账期倒序 · 没结过账的月份不会出现</span>
+        <el-button size="small" :loading="periodLoading" @click="loadPeriods">刷新</el-button>
+      </div>
+
+      <el-alert
+        v-if="periodError"
+        type="error"
+        show-icon
+        :closable="false"
+        class="mb-16"
+        :title="`账期列表加载失败：${periodError}`"
+      >
+        <el-button size="small" @click="loadPeriods">重试</el-button>
+      </el-alert>
+
+      <el-table v-else :data="periodRows" size="small" border>
+        <el-table-column prop="period" label="账期" width="100" />
+        <el-table-column label="状态" width="100">
+          <template #default="{ row }">
+            <el-tag :type="row.status === 'CLOSED' ? 'danger' : 'success'" disable-transitions>
+              {{ row.status === 'CLOSED' ? '已锁账' : '未锁账' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="净销售额" width="140" align="right">
+          <template #default="{ row }">
+            <span class="amount">¥ {{ fenToYuan(row.netAmount) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="销售 / 退货金额" min-width="190" align="right">
+          <template #default="{ row }">
+            ¥ {{ fenToYuan(row.salesAmount) }} / ¥ {{ fenToYuan(row.returnAmount) }}
+          </template>
+        </el-table-column>
+        <el-table-column label="锁账时间" min-width="170">
+          <template #default="{ row }">{{ dateTimeText(row.closedAt) }}</template>
+        </el-table-column>
+        <el-table-column label="带入表单" width="150">
+          <template #default="{ row }">
+            <el-button
+              size="small"
+              text
+              :disabled="!canMonthly"
+              @click="usePeriod(row.period, 'monthly')"
+            >
+              月结
+            </el-button>
+            <el-button
+              size="small"
+              text
+              :disabled="!canReconcile"
+              @click="usePeriod(row.period, 'reconcile')"
+            >
+              对账
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <p v-if="periodTruncated" class="field-hint">
+        账期行超过 200 条，这里只显示最新 200 条。
+      </p>
+      <p v-else-if="!periodLoading && !periodRows.length && !periodError" class="field-hint">
+        还没有已落库的账期：执行一次月结后，这里会出现对应账期。
+      </p>
+    </div>
 
     <el-tabs v-model="activeTab" class="set-tabs">
       <!-- ─────────── 日清 ─────────── -->

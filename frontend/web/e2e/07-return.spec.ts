@@ -29,8 +29,9 @@ async function waitForReturn(api: ApiClient, originSalesOrderId: number): Promis
 /**
  * 在「新建退货单」弹窗里选中原出货单，并等到可退明细出现。
  *
- * 明细是选中后**另发一次请求**拉回来的（要读原单每行的 shippedQty / returnedQty），
- * 所以点完下拉不能立刻填数字。选项文案是「单号 · 客户名 · 可退 N 件」。
+ * 可退明细由 `GET /return-orders/returnable-orders` 直接带出（服务端只返回还有可退量的行），
+ * 选中即渲染，不再另发一次「取原单详情」请求。
+ * 选项文案是「单号 · 客户名 · 可退 N 件」。
  */
 async function pickOrigin(page: Page, dialog: Locator, order: SalesOrderDto, customerName: string) {
   await selectOption(page, formSelect(dialog, /原出货单/), `${order.orderNo} · ${customerName}`)

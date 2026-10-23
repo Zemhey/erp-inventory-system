@@ -7,12 +7,11 @@ import {
   fenToYuan,
   mdmApi,
   rmaApi,
-  salApi,
   type Customer,
   type Product,
+  type ReturnableOrder,
   type ReturnOrder,
   type ReturnOrderCreate,
-  type SalesOrder,
   type Sku,
   type Warehouse,
 } from '@/api/client'
@@ -200,67 +199,39 @@ function skuText(id: number): string {
 }
 
 /**
- * 可作退货来源的出货单：状态 PARTIAL / COMPLETED。
+ * 可退单据：GET /return-orders/returnable-orders（M2 补口，rma:read 单码即可）。
  *
- * 两次分页各取 200 条（后端 MAX_SIZE = 200，且没有按 id 批量取单号的接口）。
- * 取满即认为可能不全，用 shippedTruncated 明说 —— 建单是"选单"而不是搜索，
- * 列表外的单子必须让用户知道这里可能筛不到，而不是以为系统里没有。
+ * ★ 名单口径由出货域单一定义（只含 PARTIAL / COMPLETED 且至少一行还有剩余可退），
+ *   本页不再自己算"哪些单可退"；客户名与 SKU 展示名也由服务端批量补齐。
+ * ★ 分页上限 200：`total > items.length` 即认为可能不全，必须明说 ——
+ *   建单是"选单"而不是搜索，列表外的单子不能让用户误以为系统里没有。
+ * ★ 只读接口失败（网络 / 权限）时原样透出后端消息：界面空白不等于系统里没有可退的单。
  */
-const shippedOrders = ref<SalesOrder[]>([])
-const shippedTruncated = ref(false)
-/**
- * 取不到可退单据的原因（后端原始消息）。
- *
- * 建单页要跨模块读出货单（选原单 + 拉可退明细），所以**只有 rma:\* 而没有 sal:read 的角色**
- * 会在这里吃到 403。不把它显示出来的话，界面看起来像"系统里没有可退的单"，
- * 用户会去怀疑数据本身 —— 那比报错糟得多。（缺口已登记进 M2 计划书 §6。）
- */
-const shippedError = ref('')
+const returnableOrders = ref<ReturnableOrder[]>([])
+const returnableTruncated = ref(false)
+const returnableError = ref('')
 
-async function loadShippedOrders() {
-  const [completed, partial] = await Promise.allSettled([
-    salApi.list({ status: 'COMPLETED', page: 1, size: 200 }),
-    salApi.list({ status: 'PARTIAL', page: 1, size: 200 }),
-  ])
-  const items: SalesOrder[] = []
-  let truncated = false
-  let firstError = ''
-  for (const result of [completed, partial]) {
-    if (result.status === 'fulfilled') {
-      items.push(...result.value.items)
-      truncated = truncated || result.value.total > result.value.items.length
-    } else if (!firstError) {
-      firstError = errorMessage(result.reason)
-    }
+async function loadReturnableOrders() {
+  try {
+    const page = await rmaApi.returnableOrders({ page: 1, size: 200 })
+    returnableOrders.value = page.items
+    returnableTruncated.value = page.total > page.items.length
+    returnableError.value = ''
+  } catch (error) {
+    returnableOrders.value = []
+    returnableTruncated.value = false
+    returnableError.value = errorMessage(error)
   }
-  shippedOrders.value = items.sort((a, b) => b.id - a.id)
-  // 任一路失败都意味着这份名单不全：既报原因，也按"可能不全"提示
-  shippedError.value = firstError
-  shippedTruncated.value = truncated || firstError !== ''
 }
 
-/** 至少还有一行可退的出货单才进建单下拉：全退完的单子在列表里也是白列。 */
-const returnableOrders = computed(() =>
-  shippedOrders.value.filter((o) =>
-    (o.lines ?? []).some((l) => remainingOf(l.shippedQty, l.returnedQty) > 0),
-  ),
-)
-
-function remainingOf(shippedQty: number | undefined, returnedQty: number | undefined): number {
-  return (shippedQty ?? 0) - (returnedQty ?? 0)
-}
-
-/** 原出货单显示成单号；字典取不到（超出 200 条）时退回 id，不留空白。 */
+/** 原出货单显示成单号；可退名单外的（如已全退的历史单）退回 id，不留空白。 */
 function originText(id: number): string {
-  return shippedOrders.value.find((o) => o.id === id)?.orderNo ?? `出货单#${id}`
+  return returnableOrders.value.find((o) => o.orderId === id)?.orderNo ?? `出货单#${id}`
 }
 
-function originOptionLabel(order: SalesOrder): string {
-  const returnableQty = (order.lines ?? []).reduce(
-    (sum, l) => sum + Math.max(0, remainingOf(l.shippedQty, l.returnedQty)),
-    0,
-  )
-  return `${order.orderNo} · ${customerText(order.customerId)} · 可退 ${returnableQty} 件`
+function originOptionLabel(order: ReturnableOrder): string {
+  const returnableQty = order.lines.reduce((sum, l) => sum + l.returnableQty, 0)
+  return `${order.orderNo} · ${order.customerName} · 可退 ${returnableQty} 件`
 }
 
 // ─────────────────────────── 状态机驱动的动作按钮 ───────────────────────────
@@ -322,7 +293,7 @@ async function runAction(row: ReturnOrder, meta: ActionMeta) {
  * 所以任何动作之后都要一起刷新，否则下一次建单会按旧的可退量填数。
  */
 async function refreshAll() {
-  await Promise.all([loadOrders(), loadShippedOrders()])
+  await Promise.all([loadOrders(), loadReturnableOrders()])
 }
 
 // ─────────────────────────── 建单（选已出货单 → 填可退明细） ───────────────────────────
@@ -331,8 +302,8 @@ interface ReturnLineDraft {
   /** 原出货单明细行 id：提交时唯一的行标识 */
   originLineId: number
   lineNo: number
-  skuId: number
-  qty: number
+  /** 展示名由可退接口批量补齐，本页不再查主数据字典 */
+  skuName: string
   shippedQty: number
   returnedQty: number
   remainingQty: number
@@ -349,7 +320,6 @@ const createDialog = ref(false)
 const createFormRef = ref<FormInstance>()
 const saving = ref(false)
 const createError = ref('')
-const originLoading = ref(false)
 const createForm = reactive({
   originSalesOrderId: undefined as number | undefined,
   bizDate: '',
@@ -360,7 +330,7 @@ const createRules: FormRules = {
   originSalesOrderId: [{ required: true, message: '请选择原出货单', trigger: 'change' }],
 }
 
-const originOrder = ref<SalesOrder | null>(null)
+const originOrder = ref<ReturnableOrder | null>(null)
 const lines = ref<ReturnLineDraft[]>([])
 
 /** 填超了的行：只做提示，**判定权在后端**。 */
@@ -400,53 +370,44 @@ async function openCreate() {
   lines.value = []
   createError.value = ''
   createDialog.value = true
-  // 每次打开都重取可退量：列表里那份 lines 可能是上一次刷新时的旧值，
-  // 拿旧值显示"可退 10"、实际只剩 4，用户填 6 就会被后端拒绝（§0 服务端为唯一真相）。
-  await loadShippedOrders()
+  // 每次打开都重取可退名单：上次打开后发生的入库会改变各行的剩余可退，
+  // 拿旧值显示"可退 10"、实际只剩 4，用户填 6 就会被后端拒绝（服务端为唯一真相）。
+  await loadReturnableOrders()
 }
 
 /**
- * 选中原出货单后拉一次详情，把明细摊成可填的行。
+ * 选中可退单据后，直接把接口带出的可退明细摊成可填的行。
  *
- * 未出货（shippedQty = 0）与已退完（剩余 0）的行**照样列出来但禁填** ——
- * 操作员需要对得上"这单到底退到哪了"，隐藏行会让他以为系统少算了。
+ * 接口只返回"还有可退量"的行（整行退完的不出现）—— 口径在服务端，
+ * 本页不再自行过滤，避免两处算法分叉。
  */
-async function onOriginChange() {
+function onOriginChange() {
   createError.value = ''
   originOrder.value = null
   lines.value = []
   const id = createForm.originSalesOrderId
   if (id == null) return
 
-  originLoading.value = true
-  try {
-    const fresh = await salApi.get(id)
-    originOrder.value = fresh
-    lines.value = (fresh.lines ?? []).map((l) => {
-      const shipped = l.shippedQty ?? 0
-      const returned = l.returnedQty ?? 0
-      return {
-        originLineId: l.id,
-        lineNo: l.lineNo,
-        skuId: l.skuId,
-        qty: l.qty,
-        shippedQty: shipped,
-        returnedQty: returned,
-        remainingQty: shipped - returned,
-        unitPriceAmount: l.unitPriceAmount,
-        discountRate: l.discountRate ?? 10000,
-        inputQty: undefined,
-        batchNo: '',
-        productionDate: '',
-        expiryDate: '',
-      }
-    })
-  } catch (error) {
-    // 原单加载失败：弹窗留着，把后端消息原样显示，用户可换个单子再试。
-    createError.value = errorMessage(error)
-  } finally {
-    originLoading.value = false
+  const selected = returnableOrders.value.find((o) => o.orderId === id)
+  if (!selected) {
+    createError.value = '可退单据列表里找不到这张单，请关闭弹窗后重试'
+    return
   }
+  originOrder.value = selected
+  lines.value = selected.lines.map((l) => ({
+    originLineId: l.originLineId,
+    lineNo: l.lineNo,
+    skuName: l.skuName,
+    shippedQty: l.shippedQty,
+    returnedQty: l.returnedQty,
+    remainingQty: l.returnableQty,
+    unitPriceAmount: l.unitPriceAmount,
+    discountRate: l.discountRate,
+    inputQty: undefined,
+    batchNo: '',
+    productionDate: '',
+    expiryDate: '',
+  }))
 }
 
 /** 一键按"剩余可退"填满：全退是退货里最常见的一种，不该让人逐行敲数字。 */
@@ -545,7 +506,7 @@ function closeDetail() {
 }
 
 onMounted(async () => {
-  await Promise.all([loadDictionary(), loadShippedOrders(), loadOrders()])
+  await Promise.all([loadDictionary(), loadReturnableOrders(), loadOrders()])
 })
 </script>
 
@@ -571,7 +532,7 @@ onMounted(async () => {
       :closable="false"
       class="mb-16"
       title="部分客户 / SKU 未能显示名称"
-      description="主数据查询接口每页最多 200 条，且后端没有按 ID 批量取名的接口；字典外的行会显示 客户#编号、SKU#编号。"
+      description="主数据查询接口每页最多 200 条，本页字典按该上限加载；字典外的行会显示 客户#编号、SKU#编号。"
     />
 
     <el-alert
@@ -586,15 +547,15 @@ onMounted(async () => {
     </el-alert>
 
     <el-alert
-      v-if="shippedError"
+      v-if="returnableError"
       type="warning"
       show-icon
       :closable="false"
       class="mb-16"
-      :title="`可退出货单加载失败：${shippedError}`"
-      description="退货建单要先读出货单（选原单、取每行已出货与已退数量）。这一步失败时，「原出货单」下拉与筛选会是空的，不代表系统里没有可退的单。"
+      :title="`可退单据加载失败：${returnableError}`"
+      description="退货建单要靠可退单据列表（选原单、取每行已出货与已退数量），只需要 rma:read。这一步失败时，「原出货单」下拉与筛选会是空的，不代表系统里没有可退的单。"
     >
-      <el-button size="small" @click="loadShippedOrders">重试</el-button>
+      <el-button size="small" @click="loadReturnableOrders">重试</el-button>
     </el-alert>
 
     <PageTable
@@ -643,10 +604,10 @@ onMounted(async () => {
           @change="searchOrders"
         >
           <el-option
-            v-for="o in shippedOrders"
-            :key="o.id"
-            :label="originText(o.id)"
-            :value="o.id"
+            v-for="o in returnableOrders"
+            :key="o.orderId"
+            :label="originText(o.orderId)"
+            :value="o.orderId"
           />
         </el-select>
         <el-button type="primary" @click="searchOrders">查询</el-button>
@@ -711,15 +672,15 @@ onMounted(async () => {
       :close-on-click-modal="false"
     >
       <el-alert
-        v-if="shippedError"
+        v-if="returnableError"
         type="error"
         show-icon
         :closable="false"
         class="mb-16"
-        :title="`可退出货单加载失败：${shippedError}`"
-        description="读不到出货单就没法选原单：这一步需要 sal:read 权限（退货的数量上限、单价、折扣、客户、仓库全部来自原出货单）。"
+        :title="`可退单据加载失败：${returnableError}`"
+        description="读不到可退单据就没法选原单（只需要 rma:read）：退货的数量上限、单价、折扣、客户、仓库全部来自原出货单。"
       >
-        <el-button size="small" @click="loadShippedOrders">重试</el-button>
+        <el-button size="small" @click="loadReturnableOrders">重试</el-button>
       </el-alert>
 
       <el-form ref="createFormRef" :model="createForm" :rules="createRules" label-width="100px">
@@ -733,16 +694,16 @@ onMounted(async () => {
           >
             <el-option
               v-for="o in returnableOrders"
-              :key="o.id"
+              :key="o.orderId"
               :label="originOptionLabel(o)"
-              :value="o.id"
+              :value="o.orderId"
             />
           </el-select>
-          <span v-if="!returnableOrders.length && !originLoading && !shippedError" class="field-hint">
-            当前没有可退的出货单（近 200 条已完成 / 部分出货单据里，各行的已退数量都已达到已出货数量）
+          <span v-if="!returnableOrders.length && !returnableError" class="field-hint">
+            当前没有可退的出货单（已出货单据的每一行都已退完，或还没有已出货的单据）
           </span>
-          <span v-else-if="shippedTruncated" class="field-hint">
-            可退单据按状态各取最近 200 条，可能没列全：请改用出货单页查单号后再回来选
+          <span v-else-if="returnableTruncated" class="field-hint">
+            可退单据最多列出 200 张，可能没列全：请关闭弹窗后重试，或用出货单号在退货列表里反查
           </span>
         </el-form-item>
         <el-form-item label="业务日期">
@@ -760,7 +721,7 @@ onMounted(async () => {
           <div class="origin-grid">
             <div><span class="dt">单号</span>{{ originOrder.orderNo }}</div>
             <div><span class="dt">状态</span>{{ statusMeta(originOrder.status).label }}</div>
-            <div><span class="dt">客户</span>{{ customerText(originOrder.customerId) }}</div>
+            <div><span class="dt">客户</span>{{ originOrder.customerName }}</div>
             <div>
               <span class="dt">回补仓库</span>{{ warehouseText(originOrder.warehouseId) }}
               <span class="field-hint">由原单派生，不可改</span>
@@ -772,24 +733,17 @@ onMounted(async () => {
           <el-table :data="lines" size="small" border class="lines-table">
             <el-table-column prop="lineNo" label="行号" width="60" />
             <el-table-column label="SKU" min-width="180">
-              <template #default="{ row }">{{ skuText(row.skuId) }}</template>
+              <template #default="{ row }">{{ row.skuName }}</template>
             </el-table-column>
-            <el-table-column prop="qty" label="单据数量" width="90" align="right" />
             <el-table-column prop="shippedQty" label="已出货" width="80" align="right" />
             <el-table-column prop="returnedQty" label="已退货" width="80" align="right" />
-            <el-table-column label="剩余可退" width="90" align="right">
-              <template #default="{ row }">
-                <span :class="{ 'text-muted': row.remainingQty === 0 }">{{ row.remainingQty }}</span>
-              </template>
-            </el-table-column>
+            <el-table-column prop="remainingQty" label="剩余可退" width="90" align="right" />
             <el-table-column label="本次退货" width="140">
               <template #default="{ row }">
                 <el-input-number
                   v-model="row.inputQty"
                   :min="1"
-                  :step="1"
-                  :disabled="row.remainingQty === 0"
-                  controls-position="right"
+                  :step="1"                  controls-position="right"
                   class="full"
                 />
               </template>
@@ -799,9 +753,7 @@ onMounted(async () => {
                 <el-input
                   v-model="row.batchNo"
                   maxlength="64"
-                  placeholder="可选"
-                  :disabled="row.remainingQty === 0"
-                />
+                  placeholder="可选"                />
               </template>
             </el-table-column>
             <el-table-column label="生产日期" width="150">
@@ -811,9 +763,7 @@ onMounted(async () => {
                   type="date"
                   value-format="YYYY-MM-DD"
                   placeholder="可选"
-                  class="full"
-                  :disabled="row.remainingQty === 0"
-                />
+                  class="full"                />
               </template>
             </el-table-column>
             <el-table-column label="效期" width="150">
@@ -823,9 +773,7 @@ onMounted(async () => {
                   type="date"
                   value-format="YYYY-MM-DD"
                   placeholder="可选"
-                  class="full"
-                  :disabled="row.remainingQty === 0"
-                />
+                  class="full"                />
               </template>
             </el-table-column>
             <el-table-column label="单价" width="100" align="right">
@@ -889,7 +837,7 @@ onMounted(async () => {
         <el-button
           type="primary"
           :loading="saving"
-          :disabled="!lines.length || originLoading"
+          :disabled="!lines.length"
           @click="saveOrder"
         >
           保存草稿

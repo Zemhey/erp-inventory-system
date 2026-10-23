@@ -263,6 +263,9 @@ export const salApi = {
  * X-Request-Id 由请求拦截器统一注入，建单键与入库键在后端分列。
  */
 export const rmaApi = {
+  // 可退单据：rma:read 单码可读（M2 补口，替代"跨模块读 /sales-orders 要 sal:read"）
+  returnableOrders: (params?: { page?: number; size?: number }) =>
+    http.get<never, PageData<ReturnableOrder>>('/return-orders/returnable-orders', { params }),
   list: (params: {
     status?: string
     customerId?: number
@@ -291,6 +294,9 @@ export const rmaApi = {
  *   属于财务动作而不是查询。
  */
 export const setApi = {
+  // 账期只读列表：set:read 唯一可消费的读出口（M2 补口 2）
+  periods: (params?: { status?: 'OPEN' | 'CLOSED'; page?: number; size?: number }) =>
+    http.get<never, PageData<SettlementPeriodRow>>('/settlements/periods', { params }),
   daily: (body: DailySettlementRequest) => http.post<never, DailySettlementResult>('/settlements/daily', body),
   monthly: (body: MonthlySettlementRequest) =>
     http.post<never, MonthlySettlementResult>('/settlements/monthly', body),
@@ -592,6 +598,36 @@ export interface ReturnOrderCreate {
 }
 
 /**
+ * 可退单据（契约 `ReturnableOrder`）。
+ *
+ * rma:read 单码即可读，不再跨模块要 sal:read；
+ * `lines` 只含还有可退量的行（整行退完的不出现），
+ * 客户名与 SKU 展示名由服务端批量补齐，前端不必再查主数据字典。
+ */
+export interface ReturnableOrderLine {
+  originLineId: number
+  lineNo: number
+  skuId: number
+  skuName: string
+  shippedQty: number
+  returnedQty: number
+  returnableQty: number
+  unitPriceAmount: number
+  discountRate: number
+}
+
+export interface ReturnableOrder {
+  orderId: number
+  orderNo: string
+  status: 'PARTIAL' | 'COMPLETED'
+  customerId: number
+  customerName: string
+  warehouseId: number
+  bizDate: string
+  lines: ReturnableOrderLine[]
+}
+
+/**
  * 结算七项汇总（契约 `SettlementTotals`）。
  *
  * 金额一律整数分；`netAmount` 由后端算好返回（= salesAmount − returnAmount），
@@ -605,6 +641,17 @@ export interface SettlementTotals {
   returnQty: number
   returnAmount: number
   netAmount: number
+}
+
+/**
+ * 账期行（契约 `SettlementPeriodRow`）：只读。
+ * `closedAt` 在 OPEN 行上是 null；没结过账的月份不会补 0 值行。
+ */
+export interface SettlementPeriodRow extends SettlementTotals {
+  period: string
+  status: 'OPEN' | 'CLOSED'
+  closedAt: string | null
+  closedBy: number | null
 }
 
 /** 日清：`warehouseId` 省略 = 全部仓库（后端按仓返回 items + 一份 totals）。 */

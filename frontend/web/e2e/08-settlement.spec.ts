@@ -115,6 +115,15 @@ test('E2E-17 日清 → 月结 → 对账 → 报表页显示合计', async ({ p
   await expect(metric(monthly, '退货金额')).toHaveText('¥ 232.20')
   await expect(metric(monthly, '净销售额')).toHaveText('¥ 464.40')
 
+  // ── 账期列表（set:read 只读接口）随月结刷新：2031-01 已锁账 + 期间净额 ──
+  const periodRow = page
+    .locator('.totals-card')
+    .filter({ hasText: '账期列表' })
+    .locator('tbody tr')
+    .filter({ hasText: PERIOD_17 })
+  await expect(periodRow).toContainText('已锁账')
+  await expect(periodRow).toContainText('¥ 464.40')
+
   // ── 对账：总账 = 明细，差额 0 ──
   await switchTab(page, '对账')
   panel = visiblePanel(page)
