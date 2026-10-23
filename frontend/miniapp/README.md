@@ -162,7 +162,10 @@ npm run build:app         # → dist/build/app（App 资源包，本批实测 92
 `.env.production.local`（该文件不入库）：
 
 ```dotenv
-# 模拟器联调：用本机局域网 IP，不要用 127.0.0.1（真机连不到电脑回环）
+# 开发者工具模拟器：可以用 127.0.0.1（与后端在同一台电脑）
+# VITE_API_BASE_URL=http://127.0.0.1:8082/api/v1
+
+# 真机预览：必须用本机局域网 IP（手机连不到电脑的 127.0.0.1）
 VITE_API_BASE_URL=http://192.168.1.23:8082/api/v1
 
 # 正式环境：必须是 HTTPS + 已备案域名
