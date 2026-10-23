@@ -1623,6 +1623,262 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ApiError' }
 
+  /purchase-requisitions:
+    get:
+      tags: [pur]
+      summary: 查询请购单
+      operationId: listPurchaseRequisitions
+      parameters:
+        - $ref: '#/components/parameters/StatusFilter'
+        - name: supplierId
+          in: query
+          schema: { type: integer, format: int64 }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200': { $ref: '#/components/responses/PageResponse' }
+    post:
+      tags: [pur]
+      summary: 创建请购单（草稿）
+      operationId: createPurchaseRequisition
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PurchaseRequisitionCreate' }
+      responses:
+        '201': { $ref: '#/components/responses/SingleResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /purchase-requisitions/{id}:
+    get:
+      tags: [pur]
+      summary: 请购单详情
+      operationId: getPurchaseRequisition
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200': { $ref: '#/components/responses/SingleResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /purchase-requisitions/{id}/submit:
+    post:
+      tags: [pur]
+      summary: 提交请购单
+      operationId: submitPurchaseRequisition
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200': { $ref: '#/components/responses/SingleResponse' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /purchase-requisitions/{id}/approve:
+    post:
+      tags: [pur]
+      summary: 审核请购单
+      operationId: approvePurchaseRequisition
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200': { $ref: '#/components/responses/SingleResponse' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /purchase-requisitions/{id}/convert:
+    post:
+      tags: [pur]
+      summary: 请购转采购订单
+      description: |
+        必须覆盖请购单全部明细（行不丢），每行数量 1..申请数量（数量不超）。
+        转化成功后请购单状态 COMPLETED 且不可再改；同 X-Request-Id 重放返回首次订单。
+      operationId: convertPurchaseRequisition
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PurchaseRequisitionConvertRequest' }
+      responses:
+        '200':
+          description: 生成的进货单（草稿）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PurchaseOrder' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /purchase-orders/{id}/receipts:
+    get:
+      tags: [pur]
+      summary: 到货/质检记录
+      operationId: listPurchaseReceipts
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: 到货单列表（按 id 升序）
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/PurchaseReceipt' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /purchase-returns:
+    get:
+      tags: [pur]
+      summary: 查询采购退货单
+      operationId: listPurchaseReturns
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [DRAFT, COMPLETED, VOIDED] }
+        - name: supplierId
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: purchaseOrderId
+          in: query
+          schema: { type: integer, format: int64 }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200': { $ref: '#/components/responses/PageResponse' }
+    post:
+      tags: [pur]
+      summary: 创建采购退货单（草稿，不动库存/应付）
+      operationId: createPurchaseReturn
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PurchaseReturnCreate' }
+      responses:
+        '201': { $ref: '#/components/responses/SingleResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /purchase-returns/{id}:
+    get:
+      tags: [pur]
+      summary: 采购退货单详情
+      operationId: getPurchaseReturn
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200': { $ref: '#/components/responses/SingleResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /purchase-returns/{id}/approve:
+    post:
+      tags: [pur]
+      summary: 执行采购退货（扣库存 + 冲应付）
+      description: |
+        按原到货批次扣减实存并写 `PURCHASE_RETURN` 负流水，同时冲减该到货单应付。
+        库存不足 → INV_NEGATIVE_NOT_ALLOWED；退货超过应付余额 → PUR_RETURN_EXCEED_PAYABLE。
+        同 X-Request-Id 重放返回首次结果，不重复扣减。
+      operationId: approvePurchaseReturn
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200': { $ref: '#/components/responses/SingleResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /purchase-returns/{id}/void:
+    post:
+      tags: [pur]
+      summary: 作废采购退货草稿
+      operationId: voidPurchaseReturn
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200': { $ref: '#/components/responses/SingleResponse' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /supplier-payables:
+    get:
+      tags: [pur]
+      summary: 查询供应商应付单
+      operationId: listSupplierPayables
+      parameters:
+        - name: supplierId
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: status
+          in: query
+          schema: { type: string, enum: [OPEN, PARTIAL, SETTLED] }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200': { $ref: '#/components/responses/PageResponse' }
+
+  /supplier-payables/reconcile:
+    get:
+      tags: [pur]
+      summary: 应付余额与核销守恒核对
+      description: |
+        实时聚合，不读缓存：
+        `balance == purchaseAmount - returnAmount - paidAmount`；
+        `paymentTotal == allocationTotal == paidAmount`。
+      operationId: reconcileSupplierPayables
+      parameters:
+        - name: supplierId
+          in: query
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: 核对结果
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PayableReconcile' }
+
+  /supplier-payables/{id}:
+    get:
+      tags: [pur]
+      summary: 应付单详情（含核销明细）
+      operationId: getSupplierPayable
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200': { $ref: '#/components/responses/SingleResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /supplier-payments:
+    post:
+      tags: [pur]
+      summary: 付款并核销（支持部分核销、多应付、超额拒绝）
+      description: |
+        核销明细合计必须等于付款金额，否则 400 PUR_PAYMENT_AMOUNT_MISMATCH；
+        任一明细超过应付余额 → 409 PUR_PAYMENT_EXCEED_PAYABLE；
+        同 X-Request-Id 重放返回首次核销结果。
+      operationId: createSupplierPayment
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SupplierPaymentRequest' }
+      responses:
+        '201':
+          description: 付款与核销结果
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SupplierPaymentResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
 components:
   parameters:
     RequestId:
@@ -1676,6 +1932,12 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ApiError' }
+    BadRequest:
+      description: 参数/状态校验失败
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+
     ReturnOrderResponse:
       description: 退货单响应
       content:
@@ -2516,3 +2778,248 @@ components:
         items:
           type: array
           items: { $ref: '#/components/schemas/ProfitRow' }
+
+    PurchaseRequisitionCreate:
+      type: object
+      required: [supplierId, warehouseId, lines]
+      properties:
+        supplierId: { type: integer, format: int64 }
+        warehouseId: { type: integer, format: int64 }
+        bizDate: { type: string, format: date, description: 缺省取服务端 ClockProvider 的今天 }
+        remark: { type: string, maxLength: 500 }
+        lines:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [skuId, qty, unitPriceAmount]
+            properties:
+              skuId: { type: integer, format: int64 }
+              qty: { type: integer, minimum: 1 }
+              unitPriceAmount: { type: integer, format: int64, minimum: 0 }
+
+    PurchaseRequisition:
+      type: object
+      required: [id, orderNo, status, supplierId, warehouseId, totalQty, totalAmount, lines]
+      properties:
+        id: { type: integer, format: int64 }
+        orderNo: { type: string, example: PR20261023-0001 }
+        status: { $ref: '#/components/schemas/DocumentStatus' }
+        supplierId: { type: integer, format: int64 }
+        warehouseId: { type: integer, format: int64 }
+        bizDate: { type: string, format: date }
+        totalAmount: { type: integer, format: int64, description: 分 }
+        totalQty: { type: integer }
+        period: { type: string, nullable: true }
+        remark: { type: string, nullable: true }
+        convertedOrderId:
+          type: integer
+          format: int64
+          nullable: true
+          description: 非空 = 已转单；此后请购单不可再改
+        lines:
+          type: array
+          items: { $ref: '#/components/schemas/RequisitionLine' }
+
+    RequisitionLine:
+      type: object
+      required: [id, lineNo, skuId, qty, unitPriceAmount, amount]
+      properties:
+        id: { type: integer, format: int64 }
+        lineNo: { type: integer, minimum: 1 }
+        skuId: { type: integer, format: int64 }
+        qty: { type: integer, minimum: 1 }
+        unitPriceAmount: { type: integer, format: int64, minimum: 0 }
+        amount: { type: integer, format: int64, minimum: 0 }
+
+    PurchaseRequisitionConvertRequest:
+      type: object
+      required: [lines]
+      properties:
+        bizDate: { type: string, format: date, description: 生成的订单业务日期，缺省今天 }
+        remark: { type: string, maxLength: 500 }
+        lines:
+          type: array
+          minItems: 1
+          description: 必须覆盖请购单全部行；数量 1..申请数量
+          items:
+            type: object
+            required: [lineId, qty]
+            properties:
+              lineId: { type: integer, format: int64 }
+              qty: { type: integer, minimum: 1 }
+
+    PurchaseReceipt:
+      type: object
+      required: [id, receiptNo, purchaseOrderId, supplierId, warehouseId,
+                 totalQty, acceptedQty, rejectedQty, acceptedAmount, lines]
+      properties:
+        id: { type: integer, format: int64 }
+        receiptNo: { type: string, example: GR20261023-0001 }
+        purchaseOrderId: { type: integer, format: int64 }
+        supplierId: { type: integer, format: int64 }
+        warehouseId: { type: integer, format: int64 }
+        bizDate: { type: string, format: date }
+        totalQty: { type: integer, description: 本次到货量 }
+        acceptedQty: { type: integer, description: 合格量（入库/应付） }
+        rejectedQty: { type: integer, description: 不合格量（不入库/不生成应付） }
+        acceptedAmount: { type: integer, format: int64, description: 合格金额（分） }
+        lines:
+          type: array
+          items: { $ref: '#/components/schemas/PurchaseReceiptLine' }
+
+    PurchaseReceiptLine:
+      type: object
+      required: [id, lineNo, purchaseOrderLineId, skuId, batchNo,
+                 receivedQty, qcQty, rejectedQty, unitPriceAmount, acceptedAmount, qcStatus]
+      properties:
+        id: { type: integer, format: int64 }
+        lineNo: { type: integer, minimum: 1 }
+        purchaseOrderLineId: { type: integer, format: int64 }
+        skuId: { type: integer, format: int64 }
+        batchNo: { type: string }
+        receivedQty: { type: integer }
+        qcQty: { type: integer }
+        rejectedQty: { type: integer }
+        qcStatus: { type: string, enum: [PASSED, PARTIAL, FAILED] }
+        qcNote: { type: string, nullable: true }
+        unitPriceAmount: { type: integer, format: int64 }
+        acceptedAmount: { type: integer, format: int64 }
+
+    PurchaseReturnCreate:
+      type: object
+      required: [purchaseOrderId, lines]
+      properties:
+        purchaseOrderId: { type: integer, format: int64 }
+        bizDate: { type: string, format: date }
+        remark: { type: string, maxLength: 500 }
+        lines:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [receiptLineId, qty]
+            properties:
+              receiptLineId: { type: integer, format: int64, description: 原到货行 id }
+              qty: { type: integer, minimum: 1, description: 不得超过该行合格量 − 已退量 }
+
+    PurchaseReturn:
+      type: object
+      required: [id, returnNo, purchaseOrderId, supplierId, warehouseId,
+                 status, totalQty, totalAmount, lines]
+      properties:
+        id: { type: integer, format: int64 }
+        returnNo: { type: string, example: RT20261023-0001 }
+        purchaseOrderId: { type: integer, format: int64 }
+        supplierId: { type: integer, format: int64 }
+        warehouseId: { type: integer, format: int64 }
+        bizDate: { type: string, format: date }
+        period: { type: string, nullable: true }
+        status: { type: string, enum: [DRAFT, COMPLETED, VOIDED] }
+        totalQty: { type: integer }
+        totalAmount: { type: integer, format: int64 }
+        remark: { type: string, nullable: true }
+        lines:
+          type: array
+          items: { $ref: '#/components/schemas/PurchaseReturnLine' }
+
+    PurchaseReturnLine:
+      type: object
+      required: [receiptLineId, purchaseOrderLineId, skuId, qty, unitPriceAmount, amount, batchNo]
+      properties:
+        receiptLineId: { type: integer, format: int64 }
+        purchaseOrderLineId: { type: integer, format: int64 }
+        skuId: { type: integer, format: int64 }
+        qty: { type: integer, minimum: 1 }
+        unitPriceAmount: { type: integer, format: int64 }
+        amount: { type: integer, format: int64 }
+        batchNo: { type: string }
+
+    SupplierPayable:
+      type: object
+      required: [id, payableNo, supplierId, purchaseOrderId, orderNo, receiptId,
+                 originalAmount, returnedAmount, paidAmount, balance, status, allocations]
+      properties:
+        id: { type: integer, format: int64 }
+        payableNo: { type: string, example: AP20261023-0001 }
+        supplierId: { type: integer, format: int64 }
+        purchaseOrderId: { type: integer, format: int64 }
+        orderNo: { type: string }
+        receiptId: { type: integer, format: int64 }
+        bizDate: { type: string, format: date }
+        period: { type: string, nullable: true }
+        originalAmount: { type: integer, format: int64, description: 合格到货金额（分） }
+        returnedAmount: { type: integer, format: int64 }
+        paidAmount: { type: integer, format: int64 }
+        balance:
+          type: integer
+          format: int64
+          description: 数据库生成列 = originalAmount − returnedAmount − paidAmount
+        status: { type: string, enum: [OPEN, PARTIAL, SETTLED] }
+        allocations:
+          type: array
+          items: { $ref: '#/components/schemas/PayableAllocation' }
+
+    PayableAllocation:
+      type: object
+      required: [id, paymentNo, amount, paymentAmount, bizDate]
+      properties:
+        id: { type: integer, format: int64 }
+        paymentNo: { type: string, example: PY20261023-0001 }
+        amount: { type: integer, format: int64, description: 本行核销金额 }
+        paymentAmount: { type: integer, format: int64, description: 付款单总额（同组相同） }
+        bizDate: { type: string, format: date }
+        remark: { type: string, nullable: true }
+
+    PayableReconcile:
+      type: object
+      required: [purchaseAmount, returnAmount, paidAmount, balance,
+                 paymentTotal, allocationTotal, balanced, conserved]
+      properties:
+        supplierId: { type: integer, format: int64, nullable: true }
+        purchaseAmount: { type: integer, format: int64 }
+        returnAmount: { type: integer, format: int64 }
+        paidAmount: { type: integer, format: int64 }
+        balance: { type: integer, format: int64 }
+        paymentTotal: { type: integer, format: int64, description: Σ付款单金额 }
+        allocationTotal: { type: integer, format: int64, description: Σ核销明细 }
+        balanced:
+          type: boolean
+          description: balance == purchaseAmount − returnAmount − paidAmount
+        conserved:
+          type: boolean
+          description: paymentTotal == allocationTotal == paidAmount
+
+    SupplierPaymentRequest:
+      type: object
+      required: [supplierId, amount, allocations]
+      properties:
+        supplierId: { type: integer, format: int64 }
+        amount: { type: integer, format: int64, minimum: 1 }
+        bizDate: { type: string, format: date }
+        remark: { type: string, maxLength: 500 }
+        allocations:
+          type: array
+          minItems: 1
+          description: Σamount 必须等于付款金额；同一 payableId 只出现一次
+          items:
+            type: object
+            required: [payableId, amount]
+            properties:
+              payableId: { type: integer, format: int64 }
+              amount: { type: integer, format: int64, minimum: 1 }
+
+    SupplierPaymentResult:
+      type: object
+      required: [paymentNo, paymentAmount, allocations]
+      properties:
+        paymentNo: { type: string, example: PY20261023-0001 }
+        paymentAmount: { type: integer, format: int64 }
+        allocations:
+          type: array
+          items:
+            type: object
+            required: [payableId, amount]
+            properties:
+              payableId: { type: integer, format: int64 }
+              amount: { type: integer, format: int64 }
