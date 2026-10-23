@@ -30,6 +30,7 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.method.HandlerMethod;
@@ -65,6 +66,8 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
  */
 @SpringBootTest
 @AutoConfigureMockMvc
+@org.springframework.context.annotation.Import(
+        AuditCompletenessIT.BackdoorProbeConfig.class)
 @DisplayName("★ INV-15 · 审计完备性（每个写接口必须留痕）")
 class AuditCompletenessIT extends PostgresTestBase {
 
@@ -106,6 +109,9 @@ class AuditCompletenessIT extends PostgresTestBase {
     private PasswordEncoder encoder;
     @Autowired
     private AuditRecorder recorder;
+    /** ★ 后门探针 Bean：本用例临时映射到 {@code POST /__test__/probe}，用完注销。 */
+    @Autowired
+    private BackdoorProbe backdoorProbe;
     @Autowired
     private com.erp.iam.application.AuthenticationService authentication;
 
@@ -224,19 +230,107 @@ class AuditCompletenessIT extends PostgresTestBase {
     }
 
     /**
-     * 后门接口确实不产生审计（排除规则生效，而不是"碰巧没调用到"）。
+     * ★ 后门接口确实不产生审计 —— <b>而且这条用例真的能证伪</b>。
+     *
+     * <p><b>为什么必须真的注册一个后门</b>（本条用例首版是「空断言」，由指挥会话复核发现）：
+     * 首版写法是请求 {@code POST /__test__/no-such-backdoor} 再断言行数不变。
+     * 这条断言<b>无论排除逻辑在不在都必然通过</b> —— 该路径没有映射，Spring 直接 404，
+     * 请求根本没走到审计判断。它测的是"不存在的路径不产生审计"，
+     * 与我们要证明的"排除逻辑生效"毫无关系。
+     *
+     * <p>更关键的事实：{@code /__test__} 后门<b>在 main 源码里根本不存在</b>
+     * （{@code git grep 'Profile("test")'} 无命中），所以首版排除的是一个从来不存在
+     * 的路径 —— 典型的假绿。
+     *
+     * <p>本版改为用 {@code RequestMappingHandlerMapping.registerMapping} 在<b>用例内
+     * 临时注册</b>一个真实的 {@code POST /__test__/probe}（{@code finally} 里注销，
+     * 不污染其它测试上下文，也不会被组件扫描带进 {@code ApiContractMappingIT}），然后：
+     * <ol>
+     *   <li>断言它<b>返回 200</b> —— 证明处理器真的被调用了（不是 404 缺席），
+     *       因此"没有审计"不可能是"没走到"造成的；</li>
+     *   <li>断言 {@code audit_logs} <b>没有</b>新增 —— 这才是排除逻辑生效的证据。
+     *       删掉 {@link com.erp.sys.application.AuditSafetyNetFilter} 里的
+     *       {@code TEST_BACKDOOR_PREFIX} 判断，本用例立刻变红。</li>
+     * </ol>
+     *
+     * <p>切面那一半的排除逻辑另由 {@code AuditAspectTest} 的单元用例钉住 ——
+     * 切面切入点只覆盖 {@code com.erp..api..}，本探针不在该包内，故此处只能验证过滤器层。
      */
     @Test
     @CaseId("TC-SYS-031")
-    @DisplayName("后门前缀 /__test__/* 的写请求不产生审计")
+    @DisplayName("★ 后门前缀 /__test__/* 的写请求不产生审计（注册真实后门，删掉排除逻辑即红）")
     void testBackdoorWrite_mustNotBeAudited() throws Exception {
-        long before = auditCount();
-        // 直接调一个必然 404 的 __test__ 路径：即使它没被注册，切面也不应留痕
-        mvc.perform(post("/__test__/no-such-backdoor").contentType(MediaType.APPLICATION_JSON)
-                .content("{}"));
-        assertThat(auditCount())
-                .as("__test__ 后门的写请求不得进入审计表（否则审计会被测试夹具淹没）")
-                .isEqualTo(before);
+        String probePath = TEST_BACKDOOR_PREFIX + "/probe";
+        RequestMappingInfo info = RequestMappingInfo.paths(probePath)
+                .methods(RequestMethod.POST).build();
+        handlerMapping.registerMapping(info, backdoorProbe,
+                BackdoorProbe.class.getMethod("probe"));
+        try {
+            long before = auditCount();
+            MvcResult handled = mvc.perform(post(probePath)
+                            .header("Authorization", adminAuth)
+                            .header("X-Request-Id", "backdoor-probe-001")
+                            .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                    .andReturn();
+
+            // ① 探针自检：证明后门真的存在且被调用 —— 否则本用例又退化成空断言
+            assertThat(handled.getResponse().getStatus())
+                    .as("★ 后门探针必须真的被处理（200）；若是 404 说明它没注册，"
+                            + "本用例就退化成了「不存在的路径不产生审计」的空断言")
+                    .isEqualTo(200);
+            assertThat(backdoorProbe.invocations())
+                    .as("★ 探针必须真的被调用过（计数=1）—— 这是「处理器执行了」的硬证据；"
+                            + "只靠状态码 200 不够，MockMvc 下的响应体可能为空")
+                    .isEqualTo(1);
+
+            // ② 真正的断言：被真实调用过，但没有留痕
+            assertThat(auditCount())
+                    .as("★ /__test__ 后门即使被真实调用过，也绝不能进审计表 —— "
+                            + "若行数增加，说明 AuditSafetyNetFilter 的排除逻辑已失效")
+                    .isEqualTo(before);
+
+            // ③ 枚举器也必须把它排除（否则 INV-15 会要求后门留痕，与排除逻辑自相矛盾）
+            assertThat(writeEndpoints())
+                    .as("★ INV-15 的枚举器必须排除真实存在的后门；"
+                            + "否则 INV-15 与排除逻辑互相矛盾")
+                    .noneSatisfy(e -> assertThat(e.path()).startsWith(TEST_BACKDOOR_PREFIX));
+        } finally {
+            handlerMapping.unregisterMapping(info);
+        }
+    }
+
+    /**
+     * 临时后门探针（由 {@link BackdoorProbeConfig} 注册成 Bean）。
+     *
+     * <p><b>刻意不加 {@code @RestController}</b>：加了它会被 {@code com.erp} 的组件扫描
+     * 在<b>所有</b>测试上下文里拾取，于是 {@code POST /__test__/probe} 会变成
+     * {@code ApiContractMappingIT} 眼里的"已实现但未写入契约的接口"而让它变红。
+     * 这里只作为普通 Bean 存在，映射由用例在 {@code try/finally} 里显式注册与注销。
+     */
+    static class BackdoorProbe {
+
+        /** 被调用次数：证明"处理器真的执行了"，不依赖响应体（MockMvc 下响应体可能为空）。 */
+        private final java.util.concurrent.atomic.AtomicInteger invocations =
+                new java.util.concurrent.atomic.AtomicInteger();
+
+        public String probe() {
+            invocations.incrementAndGet();
+            return "backdoor-probe";
+        }
+
+        public int invocations() {
+            return invocations.get();
+        }
+    }
+
+    /** 把探针注册成 Bean（过滤器层会经过它）。 */
+    @org.springframework.boot.test.context.TestConfiguration(proxyBeanMethods = false)
+    static class BackdoorProbeConfig {
+
+        @org.springframework.context.annotation.Bean
+        BackdoorProbe backdoorProbe() {
+            return new BackdoorProbe();
+        }
     }
 
     /**
