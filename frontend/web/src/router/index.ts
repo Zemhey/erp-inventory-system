@@ -99,6 +99,20 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/rpt/ReportView.vue'),
         meta: { title: '报表', permission: 'rpt:read' },
       },
+      // V2-6 追加：审批工作台与用户角色管理。仍遵守"只往后加"的约定，
+      // 通配兜底路由继续留在数组最后。
+      {
+        path: 'approvals',
+        name: 'approvals',
+        component: () => import('@/views/iam/ApprovalView.vue'),
+        meta: { title: '审批工作台', permission: 'aps:read' },
+      },
+      {
+        path: 'iam',
+        name: 'iam',
+        component: () => import('@/views/iam/UserRoleView.vue'),
+        meta: { title: '用户与角色', permission: 'iam:read' },
+      },
     ],
   },
   {

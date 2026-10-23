@@ -4,10 +4,12 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import {
   Box,
+  Checked,
   Coin,
   DataAnalysis,
   Goods,
   House,
+  Key,
   Menu as MenuIcon,
   OfficeBuilding,
   RefreshLeft,
@@ -80,6 +82,9 @@ const allMenus: MenuItem[] = [
   { path: '/return-orders', title: '退货单', icon: RefreshLeft, permission: 'rma:read' },
   { path: '/settlements', title: '结算', icon: Coin, permission: 'set:read' },
   { path: '/reports', title: '报表', icon: DataAnalysis, permission: 'rpt:read' },
+  // V2-6 追加：审批与权限管理（同样是"只往后加"）
+  { path: '/approvals', title: '审批工作台', icon: Checked, permission: 'aps:read' },
+  { path: '/iam', title: '用户与角色', icon: Key, permission: 'iam:read' },
 ]
 
 const visibleMenus = computed(() =>

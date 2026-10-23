@@ -62,8 +62,22 @@ public class ReportRepository {
 
     private final JdbcTemplate jdbc;
 
-    public ReportRepository(JdbcTemplate jdbc) {
+    /**
+     * 数据权限（FR-IAM-04）。
+     *
+     * <p><b>★ "统计聚合"越权方式的防线</b>：这是五种越权方式里最隐蔽的一种 ——
+     * 攻击者不查明细、只查"本月出货总额"，而汇总里混进了别仓的数字。
+     * 页面看不出异常（数字就是个数字），但数据已经泄露。
+     * 因此仓库收窄必须同时进入<b>三条</b>聚合 SQL（进货/出货/进销存）。
+     *
+     * <p>报表是只读的，所以这里只需要仓库维度（没有"谁建的"这回事：
+     * 统计的对象是单据事实，不是操作行为）。
+     */
+    private final com.erp.shared.scope.ScopeContext scope;
+
+    public ReportRepository(JdbcTemplate jdbc, com.erp.shared.scope.ScopeContext scope) {
         this.jdbc = jdbc;
+        this.scope = scope;
     }
 
     /**
@@ -105,15 +119,23 @@ public class ReportRepository {
     }
 
     Sql purchaseSql(LocalDate from, LocalDate to, ReportGroupBy groupBy, Long warehouseId) {
-        return documentSql(Source.PURCHASE, from, to, groupBy, warehouseId);
+        return documentSql(Source.PURCHASE, from, to, groupBy, warehouseId,
+                scope.current());
     }
 
     Sql salesSql(LocalDate from, LocalDate to, ReportGroupBy groupBy, Long warehouseId) {
-        return documentSql(Source.SALES, from, to, groupBy, warehouseId);
+        return documentSql(Source.SALES, from, to, groupBy, warehouseId,
+                scope.current());
     }
 
+    /**
+     * @param dataScope 数据权限。<b>由调用方传入而不是在这里取</b>：
+     *                  本方法是静态的（要能被执行计划用例直接调用），
+     *                  在静态方法里读实例字段等于绕过构造注入。
+     */
     private static Sql documentSql(Source src, LocalDate from, LocalDate to,
-                                   ReportGroupBy groupBy, Long warehouseId) {
+                                   ReportGroupBy groupBy, Long warehouseId,
+                                   com.erp.shared.scope.DataScope dataScope) {
         Group g = group(src, groupBy);
         List<Object> args = new ArrayList<>(List.of(from, to));
 
@@ -135,6 +157,9 @@ public class ReportRepository {
             sql.append("   AND o.warehouse_id = ?\n");
             args.add(warehouseId);
         }
+        // ★ 数据权限：与用户给的 warehouseId 是"与"关系，不会互相覆盖 ——
+        //   传一个别仓的 warehouseId 只会得到空结果，而不是别人的数据。
+        sql.append(dataScope.warehousePredicate("o.warehouse_id", args)).append('\n');
         sql.append(" GROUP BY ").append(g.groupByExpr()).append('\n');
         // ORDER BY 1 = 分组键：编码类维度按字典序、day/month 按时间序，结果顺序确定可复现
         sql.append(" ORDER BY 1");
@@ -184,6 +209,8 @@ public class ReportRepository {
             sql.append("   AND l.warehouse_id = ?\n");
             args.add(warehouseId);
         }
+        // ★ 数据权限：进销存汇总同样要收窄，否则"合计"会把别仓的进出算进来
+        sql.append(scope.current().warehousePredicate("l.warehouse_id", args)).append('\n');
         sql.append(" GROUP BY l.sku_id, l.warehouse_id\n");
         sql.append(" ORDER BY l.sku_id, l.warehouse_id");
         return new Sql(sql.toString(), args);

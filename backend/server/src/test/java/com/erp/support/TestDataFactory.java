@@ -91,9 +91,121 @@ public class TestDataFactory {
                          daily_settlements, settlement_periods,
                          document_sequences, idempotency_keys,
                          skus, products, warehouses, suppliers, customers,
+                         data_scopes,
                          app_user_roles, app_users
                 RESTART IDENTITY CASCADE
                 """);
+        // ★★ 审批的两张表<b>刻意不放进 TRUNCATE</b>：{@code approval_flows} 与
+        //   {@code approval_steps} 的定义行是**配置**（由 V14 迁移种子给出），
+        //   而 TRUNCATE 的 CASCADE 会把引用它的表整表清掉 ——
+        //   TRUNCATE approval_instances CASCADE 会顺手清空 approval_steps，
+        //   连"定义节点"（instance_id IS NULL）一起消失，于是后续用例看到
+        //   "流程存在但没有任何节点"（实测：TC-APS-019 报"在金额 10000 下没有任何可执行节点"）。
+        //
+        //   正确做法是 DELETE：只清实例及其快照节点，定义节点自然保留。
+        //   同时把"启用态"复位成迁移里的初始值（全部停用），
+        //   因为部分唯一索引只允许同类型有一条启用流，用例改过之后必须还原。
+        // ★★ 角色与权限也是**配置**（V3/V5/V7 种子），同样不能 truncate；
+        //   但用例会改它们（"撤掉 pur:approve""给角色加 mdm:write"），
+        //   若不复位，下一条用例就继承了上一条的改坏状态 ——
+        //   症状是"单独跑绿、整套跑红"（实测：TC-IAM-033 之后所有 403 断言全反）。
+        //   这里把种子恢复成迁移里的初始授权（与 V3+V5+V7 的三段 INSERT 一致）。
+        restoreSeedRolePermissions();
+        // 用例自建的流程（如会签/或签）不在种子里，删掉；种子流程保留
+        jdbc.update("DELETE FROM approval_flows WHERE code NOT IN ('PO-STD','SO-STD','RO-STD')");
+        jdbc.update("DELETE FROM approval_steps WHERE instance_id IS NOT NULL");
+        jdbc.update("DELETE FROM approval_instances");
+        jdbc.update("UPDATE approval_flows SET enabled = FALSE");
+        ensureApprovalSeed();
+    }
+
+    /**
+     * 修复/补齐审批流种子（幂等）。
+     *
+     * <p><b>★ 为什么需要"修复"而不只是"假设种子在"</b>：
+     * 测试容器的 PostgreSQL 是 <b>{@code withReuse(true)}</b>（含 {@code PostgresTestBase}
+     * 的复用配置），同一台容器会被本机反复的 {@code gradlew test} 共用。
+     * 早先版本的 {@code truncateAll} 里写过 {@code TRUNCATE ... approval_instances CASCADE}，
+     * 而 CASCADE 会连着清空引用它的 {@code approval_steps} —— <b>连定义节点一起没了</b>。
+     * 那一次破坏留在了复用容器里，之后每次跑都报
+     * "审批流 PO-STD 在金额 50000 下没有任何可执行节点"（看起来像代码 bug，其实是脏库）。
+     *
+     * <p>因此这里做两件事：① 缺 flow 就补 flow；② 缺定义节点就补定义节点。
+     * 这个修复本身也是幂等的，正常干净的库上不会产生任何改动。
+     */
+    public void ensureApprovalSeed() {
+        jdbc.update("""
+                INSERT INTO approval_flows (code, name, biz_type, description, enabled)
+                VALUES ('PO-STD','进货单标准审批','PURCHASE_ORDER','采购主管 → （金额超阈值）财务',FALSE),
+                       ('SO-STD','出货单标准审批','SALES_ORDER','销售主管 → （金额超阈值）财务',FALSE),
+                       ('RO-STD','退货单标准审批','RETURN_ORDER','客服主管 → （金额超阈值）财务',FALSE)
+                ON CONFLICT (code) DO NOTHING
+                """);
+        jdbc.update("""
+                INSERT INTO approval_steps
+                    (flow_id, instance_id, step_no, name, approver_permission, approve_mode,
+                     required_approvals, threshold_amount)
+                SELECT f.id, NULL, s.step_no, s.name, s.permission, 'SINGLE', 1, s.threshold
+                  FROM approval_flows f
+                  JOIN (VALUES
+                    ('PO-STD',1,'采购主管审批','pur:approve',0),
+                    ('PO-STD',2,'财务审批（金额超阈值）','set:monthly',500000),
+                    ('SO-STD',1,'销售主管审批','sal:approve',0),
+                    ('SO-STD',2,'财务审批（金额超阈值）','set:monthly',500000),
+                    ('RO-STD',1,'客服主管审批','rma:approve',0),
+                    ('RO-STD',2,'财务审批（金额超阈值）','set:monthly',500000)
+                  ) AS s(flow_code, step_no, name, permission, threshold)
+                    ON f.code = s.flow_code
+                 WHERE NOT EXISTS (
+                    SELECT 1 FROM approval_steps d
+                     WHERE d.flow_id = f.id AND d.instance_id IS NULL
+                       AND d.step_no = s.step_no)
+                """);
+    }
+
+    /**
+     * 把四个种子角色的权限恢复成 V3/V5/V7 的初始授权。
+     *
+     * <p><b>为什么必须显式恢复而不是"反正用例会自己重建"</b>：
+     * 角色是<b>配置</b>而不是业务数据，{@code truncateAll} 不碰它们；
+     * 而权限测试必然会改角色权限（撤权、加权限、覆盖式保存）。
+     * 只要有一条用例改了不改回来，后续所有 RBAC 断言就会静默反向 ——
+     * 那类失败最难查，因为它取决于用例执行顺序。
+     *
+     * <p>清单与迁移逐条对应：{@code V3__iam.sql}（mdm/pur/sal/inv）、
+     * {@code V5__settlement.sql}（set/rpt + FINANCE）、
+     * {@code V7__finance_mdm_read.sql}（FINANCE 的 mdm:read）、
+     * {@code V14__iam_deepening_and_approval.sql}（iam 与 aps 两组权限码）。
+     */
+    public void restoreSeedRolePermissions() {
+        jdbc.update("DELETE FROM app_role_permissions");
+        jdbc.update("""
+                INSERT INTO app_role_permissions (role_id, permission)
+                SELECT r.id, p.permission FROM app_roles r
+                JOIN (VALUES
+                    ('ADMIN','mdm:*'),('ADMIN','pur:*'),('ADMIN','sal:*'),('ADMIN','inv:*'),
+                    ('ADMIN','rma:*'),('ADMIN','set:*'),('ADMIN','rpt:*'),('ADMIN','nl:*'),
+                    ('ADMIN','iam:*'),('ADMIN','aps:*'),
+                    ('PURCHASER','mdm:read'),('PURCHASER','pur:create'),('PURCHASER','pur:submit'),
+                    ('PURCHASER','pur:approve'),('PURCHASER','pur:receive'),('PURCHASER','pur:void'),
+                    ('PURCHASER','inv:read'),('PURCHASER','pur:read'),
+                    ('PURCHASER','aps:submit'),('PURCHASER','aps:read'),('PURCHASER','iam:read'),
+                    ('SALESPERSON','mdm:read'),('SALESPERSON','sal:create'),('SALESPERSON','sal:submit'),
+                    ('SALESPERSON','sal:ship'),('SALESPERSON','sal:approve'),('SALESPERSON','sal:void'),
+                    ('SALESPERSON','sal:read'),('SALESPERSON','inv:read'),
+                    ('SALESPERSON','aps:submit'),('SALESPERSON','aps:read'),('SALESPERSON','iam:read'),
+                    ('VIEWER','mdm:read'),('VIEWER','inv:read'),('VIEWER','pur:read'),
+                    ('VIEWER','sal:read'),('VIEWER','aps:read'),('VIEWER','iam:read'),
+                    ('FINANCE','mdm:read'),('FINANCE','set:read'),('FINANCE','set:daily'),
+                    ('FINANCE','set:monthly'),('FINANCE','set:reconcile'),('FINANCE','rpt:read'),
+                    ('FINANCE','rma:read'),('FINANCE','aps:read'),('FINANCE','aps:approve'),
+                    ('FINANCE','iam:read')
+                ) AS p(role_code, permission) ON r.code = p.role_code
+                """);
+        // 用例临时建的角色（不在种子里的）随用户一起被清掉即可，但为了避免
+        // uq_app_role_code 冲突，这里把非种子角色也一并删除。
+        jdbc.update("DELETE FROM app_roles WHERE code NOT IN "
+                + "('ADMIN','PURCHASER','SALESPERSON','VIEWER','FINANCE')");
     }
 
     /**

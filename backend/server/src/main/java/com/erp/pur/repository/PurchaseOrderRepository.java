@@ -50,21 +50,39 @@ public class PurchaseOrderRepository {
 
     private final JdbcTemplate jdbc;
 
-    public PurchaseOrderRepository(JdbcTemplate jdbc) {
+    /**
+     * 数据权限（FR-IAM-04）。
+     *
+     * <p><b>★ 为什么过滤注入在仓储而不是 Controller</b>：分页、详情、导出、
+     * 关联查询、统计聚合是五条不同的取数路径（蓝图 §7.1 的越权矩阵正是这五种）。
+     * 在 Controller 里筛结果只能覆盖前两条，且 {@code total} 会算错。
+     * 把谓词拼进 SQL，出口只有一个（本类），于是"漏改一条路径"这件事不可能发生。
+     */
+    private final com.erp.shared.scope.ScopeContext scope;
+
+    public PurchaseOrderRepository(JdbcTemplate jdbc,
+                                   com.erp.shared.scope.ScopeContext scope) {
         this.jdbc = jdbc;
+        this.scope = scope;
     }
 
     /** 插入主表，返回新 id。 */
+    /**
+     * 插入主表，返回新 id。
+     *
+     * <p>{@code createdBy} 参与数据权限的"按本人"判定（FR-IAM-04），
+     * 因此建单时必须写入真实创建人；{@code null} 仅用于系统任务/历史迁移。
+     */
     public long insertHeader(String orderNo, long supplierId, long warehouseId, LocalDate bizDate,
                              long totalAmount, int totalQty, String period, String remark,
-                             String requestId) {
+                             String requestId, Long createdBy) {
         KeyHolder keys = new GeneratedKeyHolder();
         jdbc.update(con -> {
             var ps = con.prepareStatement("""
                     INSERT INTO purchase_orders
                         (order_no, status, supplier_id, warehouse_id, biz_date,
-                         total_amount, total_qty, period, remark, request_id)
-                    VALUES (?, 'DRAFT', ?, ?, ?, ?, ?, ?, ?, ?)
+                         total_amount, total_qty, period, remark, request_id, created_by)
+                    VALUES (?, 'DRAFT', ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, new String[]{"id"});
             ps.setString(1, orderNo);
             ps.setLong(2, supplierId);
@@ -75,6 +93,11 @@ public class PurchaseOrderRepository {
             ps.setString(7, period);
             ps.setString(8, remark);
             ps.setString(9, requestId);
+            if (createdBy == null) {
+                ps.setNull(10, java.sql.Types.BIGINT);
+            } else {
+                ps.setLong(10, createdBy);
+            }
             return ps;
         }, keys);
         Number id = keys.getKey();
@@ -93,13 +116,25 @@ public class PurchaseOrderRepository {
                 """, orderId, lineNo, skuId, qty, unitPriceAmount, amount);
     }
 
-    /** 查主表（不含明细）。 */
+    /**
+     * 查主表（不含明细），<b>并施加数据权限</b>。
+     *
+     * <p><b>★ 越权直查在此返回"不存在"而不是"无权限"</b>：
+     * 条件拼进 SQL 之后，越权的 id 根本查不出行 → 上层照常抛
+     * {@code PUR_ORDER_NOT_FOUND}（404）。若改成"先查出来再判权限"，
+     * 就必须返回 403，而 403 会告诉攻击者"这个 id 是存在的，只是你没权限"——
+     * 攻击者据此按 id 遍历就能枚举出全部单据 id（蓝图 §7.1 的越权矩阵里
+     * 「跨仓直查 id」这一行的断言必须是 404，理由就在这里）。
+     */
     public Optional<PurchaseOrder> findHeaderById(long id) {
+        java.util.List<Object> args = new java.util.ArrayList<>();
+        args.add(id);
+        String predicate = scope.predicates("warehouse_id", "created_by", args);
         return jdbc.query("""
                 SELECT id, order_no, status, supplier_id, warehouse_id, biz_date,
                        total_amount, total_qty, period, remark, version
                   FROM purchase_orders WHERE id = ?
-                """, ORDER_MAPPER, id).stream().findFirst();
+                """ + predicate, ORDER_MAPPER, args.toArray()).stream().findFirst();
     }
 
     public Optional<PurchaseOrder> findHeaderByNo(String orderNo) {
@@ -186,6 +221,19 @@ public class PurchaseOrderRepository {
                 """, qty, lineId, qty) == 1;
     }
 
+    /**
+     * 分页列表，<b>并施加数据权限</b>。
+     *
+     * <p><b>★ "列表注入"越权方式的防线</b>（蓝图 §7.1 五种越权方式之一）：
+     * 攻击者不会老老实实传 {@code id}，他会塞一个把他仓的仓库 id 写进
+     * 查询参数里、或者在请求里加一个不存在的过滤字段。本方法只认
+     * {@code status / supplierId} 两个<b>白名单</b>参数，用户的仓库参数
+     * 一律走 {@code scope} 解析出来的值 —— 换句话说，<b>仓库过滤不接受外部输入</b>，
+     * 它只接受"当前登录人配置的数据权限"。这是"列表注入"无法绕过的原因。
+     *
+     * <p>{@code total} 用同一个 WHERE 算，所以总条数与可见条数一致，
+     * 不会出现"第 1 页 3 条、第 2 页 0 条"的假象。
+     */
     public PageResult<PurchaseOrder> page(DocumentStatus status, Long supplierId, int page, int size) {
         int p = PageResult.normalizePage(page);
         int s = PageResult.normalizeSize(size);
@@ -199,6 +247,8 @@ public class PurchaseOrderRepository {
             where.append(" AND supplier_id = ?");
             args.add(supplierId);
         }
+        // ★ 数据权限：仓库 + 本人（参数按 SQL 出现顺序追加，紧跟用户过滤条件之后）
+        where.append(scope.predicates("warehouse_id", "created_by", args));
         Long total = jdbc.queryForObject("SELECT COUNT(*) FROM purchase_orders" + where,
                 Long.class, args.toArray());
         List<Object> pageArgs = new ArrayList<>(args);
