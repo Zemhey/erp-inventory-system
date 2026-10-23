@@ -321,6 +321,17 @@ export const rptApi = {
     http.get<never, { items: InventorySummaryRow[] }>('/reports/inventory-summary', { params }),
 }
 
+/**
+ * 自然语言操作（FR-SYS-04）。
+ *
+ * 后端只做"解析 + 调度既有 ApplicationService"，业务规则与权限都在服务端；
+ * 前端不解析指令、不推断意图，只展示 `intent / description / data`。
+ * `X-Request-Id` 由请求拦截器统一注入；写意图时它就是后端建单的幂等键。
+ */
+export const nlApi = {
+  command: (command: string) => http.post<never, NlCommandResult>('/nl/command', { command }),
+}
+
 // ═══════════════════════ 类型定义（与后端 DTO 对齐） ═══════════════════════
 
 export interface Product {
@@ -729,6 +740,27 @@ export interface InventorySummaryRow {
   inboundQty: number
   outboundQty: number
   closingQty: number
+}
+
+/**
+ * 自然语言调度结果（契约 `NlCommandResult`）。
+ *
+ * `data` 的形状由 `intent` 决定，与对应 REST 接口同源；
+ * 前端不做类型收窄推断，展示层按 items / 原始 JSON 两种方式渲染。
+ */
+export interface NlCommandResult {
+  intent:
+    | 'help'
+    | 'query_inventory'
+    | 'list_documents'
+    | 'get_document'
+    | 'inventory_summary'
+    | 'query_master_data'
+    | 'create_purchase_order'
+    | 'create_sales_order'
+  description: string
+  write: boolean
+  data: unknown
 }
 
 // ═══════════════════════ 金额工具（ADR-0005） ═══════════════════════

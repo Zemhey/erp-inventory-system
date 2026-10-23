@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { invApi, mdmApi, purApi, salApi } from '@/api/client'
+import NlCommandBox from '@/components/NlCommandBox.vue'
 import { useSessionStore } from '@/stores/session'
 
 /**
@@ -116,6 +117,9 @@ onMounted(load)
         </el-card>
       </el-col>
     </el-row>
+
+    <!-- 自然语言操作（FR-SYS-04）：解析与调度都在后端，这里只做输入与展示 -->
+    <NlCommandBox />
 
     <!-- 库存一致性 -->
     <el-card shadow="never" class="mb-16">
