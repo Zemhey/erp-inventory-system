@@ -82,7 +82,7 @@
 
 ## 项目状态
 
-**当前阶段：M1 已完成 ✅ · M3 已完成 ✅（7 个业务页面 + 全局打磨 + 14 条 E2E 两遍全绿）· M2 后端与三个业务页面已全部合并进 main ✅ · 下一步 S5c 退货建单接入 → S6 E2E/CI → S7 收尾**
+**当前阶段：M1 已完成 ✅ · M3 已完成 ✅（7 个业务页面 + 全局打磨）· M2 后端 16 个接口 + 三个业务页面 + E2E（19 条 + 登录 setup，连跑两遍全绿）已合并 ✅ · 下一步 S5c 前端接入两个新查询接口 → S7 收尾**
 
 - ✅ 方向与路线确定（行业、技术栈、测试体系）
 - ✅ 规划文档（00~07 + 11 条 ADR）
@@ -116,7 +116,7 @@
 ```powershell
 .\scripts\build-env.ps1          # 创建 D:\erp-build 联接（非破坏、可回滚）
 cd D:\erp-build\backend\server
-.\gradlew.bat test               # 运行测试（216 条，全绿）
+.\gradlew.bat test               # 运行测试（221 条，全绿）
 ```
 
 删除联接：`.\scripts\build-env.ps1 -Remove`
