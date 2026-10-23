@@ -417,6 +417,27 @@ export const rptApi = {
 }
 
 /**
+ * 成本毛利（V2-4，FR-CST-01/02/03）。
+ *
+ * 端点尚未落 openapi.yaml（本泳道只提契约申请），因此路径以申请单为准。
+ * 写接口的 X-Request-Id 由请求拦截器统一注入。
+ *
+ * ★ 毛利数据来自「成本月结」生成的 margin_records：
+ *   未执行月结的期间查询结果为空，页面必须把这一点说清楚，
+ *   否则用户会以为"卖出去的东西没有毛利"。
+ */
+export const cstApi = {
+  recalculate: () =>
+    http.post<never, CostRecalculateResult>('/cost/recalculate'),
+  closeMonthly: (body: CostMonthlyRequest) =>
+    http.post<never, CostMonthlyResult>('/cost/monthly', body),
+  monthly: (period: string) =>
+    http.get<never, { items: CostMonthlyRow[] }>('/cost/monthly', { params: { period } }),
+  profit: (params: { from: string; to: string; groupBy?: MarginGroupBy }) =>
+    http.get<never, { items: MarginSummaryRow[] }>('/reports/profit', { params }),
+}
+
+/**
  * 自然语言操作（FR-SYS-04）。
  *
  * 后端只做"解析 + 调度既有 ApplicationService"，业务规则与权限都在服务端；
@@ -962,6 +983,61 @@ export interface InventorySummaryRow {
   inboundQty: number
   outboundQty: number
   closingQty: number
+}
+
+/** 毛利分析维度（契约申请 `groupBy`）。 */
+export type MarginGroupBy = 'product' | 'customer' | 'period'
+
+/** 成本重算结果（POST /cost/recalculate）。金额单位：分。 */
+export interface CostRecalculateResult {
+  layerCount: number
+  inboundCostAmount: number
+  outboundCostAmount: number
+  endingCostAmount: number
+  balanced: boolean
+}
+
+export interface CostMonthlyRequest {
+  period: string
+}
+
+/** 成本月结行（cost_monthly），金额单位：分。 */
+export interface CostMonthlyRow {
+  skuId: number
+  warehouseId: number
+  openingQty: number
+  openingCostAmount: number
+  inboundQty: number
+  inboundCostAmount: number
+  outboundQty: number
+  outboundCostAmount: number
+  closingQty: number
+  closingCostAmount: number
+}
+
+/** 成本月结结果；`duplicate=true` 表示本次为幂等命中、未改动账目。 */
+export interface CostMonthlyResult {
+  period: string
+  duplicate: boolean
+  items: CostMonthlyRow[]
+  marginRecordCount: number
+}
+
+/**
+ * 毛利分析行（GET /reports/profit）。
+ *
+ * `grossMarginRateBp` 是万分比（6000 = 60%），不是百分比；
+ * 展示时除以 100 并保留两位小数，不要回传后端。
+ */
+export interface MarginSummaryRow {
+  key: string
+  label: string
+  qty: number
+  revenueAmount: number
+  costAmount: number
+  grossProfitAmount: number
+  grossMarginRateBp: number
+  orderCount: number
 }
 
 /**

@@ -24,6 +24,8 @@ reports/
 jacoco/
 *.exec
 *.hprof
+# jqwik 属性测试的失败样本数据库（由测试运行生成，不入库）
+.jqwik-database
 
 # ─────────────────────────── Node / 前端（M3 起使用） ───────────────────────────
 node_modules/

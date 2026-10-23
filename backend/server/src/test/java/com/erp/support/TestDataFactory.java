@@ -84,10 +84,11 @@ public class TestDataFactory {
         //   settlement_periods 也在列 —— 残留一行 CLOSED 会让后续所有进货/出货/退货用例
         //   被 PeriodGuard 拦成 SET_PERIOD_CLOSED（计划书 §6 坑 3 的同一条防线）。
         jdbc.execute("""
-                TRUNCATE inventory_ledger, inventory_reservations, inventory_balances,
+                TRUNCATE margin_records, cost_monthly, cost_layers,
                          transfer_lines, inventory_transfers,
                          stocktake_lines, stocktakes,
                          inventory_adjustments, inventory_freezes,
+                         inventory_ledger, inventory_reservations, inventory_balances,
                          sales_order_line_reservations, return_order_lines,
                          purchase_order_lines, sales_order_lines,
                          return_orders, purchase_orders, sales_orders,
