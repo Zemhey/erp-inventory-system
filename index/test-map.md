@@ -28,6 +28,10 @@
 | `TC-RMA-017` | ★ 分页口径：total 是单据张数、翻页取得后面的单，size 越界只钳制不当全量 | `backend/server/src/test/java/com/erp/api/ReturnableOrderApiIT.java` |
 | `TC-API-016` | ★ 结算 HTTP 端到端：日清 items/totals → 月结 CLOSED → 对账 balanced，字段符合契约 | `backend/server/src/test/java/com/erp/api/SettlementApiIT.java` |
 | `TC-API-017` | ★★ 结算守卫：锁账后开单 409；FINANCE 可结算不可开单；缺幂等键/非法账期是 400 不是 500 | `backend/server/src/test/java/com/erp/api/SettlementApiIT.java` |
+| `TC-SET-015` | ★ 只有 set:read 的临时账号能拿到非空账期列表，且月结结果刷新后逐字段还在；同一账号 POST 日清仍 403 | `backend/server/src/test/java/com/erp/api/SettlementPeriodApiIT.java` |
+| `TC-SET-016` | ★ OPEN 账期的 closedAt/closedBy 为 null；CLOSED 行如实带出 closedBy 与期间汇总，字段名与契约一致 | `backend/server/src/test/java/com/erp/api/SettlementPeriodApiIT.java` |
+| `TC-SET-017` | ★ status 筛选生效：CLOSED 只给已锁账期、OPEN 只给未锁，非法取值是 400 而不是 500 | `backend/server/src/test/java/com/erp/api/SettlementPeriodApiIT.java` |
+| `TC-SET-018` | ★ 分页口径：total 是账期行数、按 period 倒序翻页，size 越界只钳制；GET 无副作用也不要求幂等键 | `backend/server/src/test/java/com/erp/api/SettlementPeriodApiIT.java` |
 | `TC-ARCH-001` | ★ 规则自检：禁止系统时间规则必须能拦住违规代码 | `backend/server/src/test/java/com/erp/arch/ArchitectureTest.java` |
 | `TC-ARCH-002` | ★ 规则自检：禁止裸异常规则必须能拦住违规代码 | `backend/server/src/test/java/com/erp/arch/ArchitectureTest.java` |
 | `TC-ARCH-003` | ★ 规则自检：状态机规则必须拦住不调 requireTransition 的方法 | `backend/server/src/test/java/com/erp/arch/ArchitectureTest.java` |
@@ -44,6 +48,7 @@
 | `TC-IAM-008` | ★ 角色隔离：采购员可建进货单但不能出货；管理员全权 | `backend/server/src/test/java/com/erp/iam/IamIT.java` |
 | `TC-IAM-009` | 权限变更立即生效：撤掉角色后，旧 token 的下一次请求即被拒绝 | `backend/server/src/test/java/com/erp/iam/IamIT.java` |
 | `TC-IAM-010` | 密码只存 BCrypt 哈希，明文绝不出现在库中 | `backend/server/src/test/java/com/erp/iam/IamIT.java` |
+| `TC-IAM-011` | ★ FINANCE 权限面：V7 后可读主数据字典与账期列表，仍不能写主数据、仍读不到单据 | `backend/server/src/test/java/com/erp/iam/IamIT.java` |
 | `TC-INV-012` | 到期 ACTIVE 预占被自动释放：可用量恢复、实存不动、状态置 EXPIRED | `backend/server/src/test/java/com/erp/inv/InventoryReservationExpiryIT.java` |
 | `TC-INV-013` | 未到期预占不动，且边界精确：ttl-1 与 ttl 都不放，ttl+1 才放 | `backend/server/src/test/java/com/erp/inv/InventoryReservationExpiryIT.java` |
 | `TC-INV-014` | 超时释放只影响预占量，一条流水都不写（不变量 INV-2 的前提） | `backend/server/src/test/java/com/erp/inv/InventoryReservationExpiryIT.java` |
@@ -160,4 +165,4 @@
 | `TC-DOC-005` | 未结状态判定：只有终态被视为已结 | `backend/server/src/test/java/com/erp/shared/document/DocumentStatusMachineTest.java` |
 | `TC-DOC-006` | PARTIAL->PARTIAL 自环合法：分批入库/出货可以多次进入部分状态 | `backend/server/src/test/java/com/erp/shared/document/DocumentStatusMachineTest.java` |
 
-共 155 条用例。
+共 160 条用例。

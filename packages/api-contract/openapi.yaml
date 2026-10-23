@@ -927,6 +927,51 @@ paths:
                     message: "对账不平：账期 2025-06 总账 100000 分，明细合计 99990 分，差额 10 分"
                     details: { period: '2025-06', generalTotal: 100000, detailTotal: 99990, diff: 10 }
 
+  /settlements/periods:
+    get:
+      tags: [set]
+      summary: 账期列表查询（set:read，只读）
+      description: |
+        - **存在的理由**（计划书 §6 坑 15）：日清 / 月结是 POST、对账要 `set:reconcile`，
+          所以只有 `set:read` 的账号（VIEWER / FINANCE）进得了结算页却拿不到任何数据，
+          月结结果（`status` / `closedAt`）刷新即失。本接口是 `set:read` 唯一可消费的读出口。
+        - **只读**：直接返回 `settlement_periods` 已落的行，不重算、不写任何表；
+          与对账（`GET /settlements/reconcile`）分工不同 —— 这里回答"每个账期结没结、结出来多少"，
+          对账回答"总账与明细平不平"（后者是财务动作，仍要 `set:reconcile`）。
+        - 分页走通用口径：`total` = 满足条件的**账期行数**，`size` 上限 200；按 `period` 倒序（最新期间在前）。
+        - `closedAt` / `closedBy` 在 `OPEN` 行上是 `null`；账期行不存在时**不补 0 值行**
+          （"没结过账"和"结了账但是 0 元"是两件事，见 §3.4 对账同理）。
+      operationId: listSettlementPeriods
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: 省略 = 全部账期；`CLOSED` 即已锁账（写操作会被 PeriodGuard 拒绝）
+          schema: { type: string, enum: [OPEN, CLOSED] }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: 账期分页列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiPageResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/SettlementPeriodRow' }
+        '400':
+          description: status 取值非法（不是 OPEN / CLOSED）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
   # ─────────────────────────── RPT ───────────────────────────
   /reports/purchase:
     get:
@@ -1581,6 +1626,18 @@ components:
         detailTotal: { type: integer, format: int64, description: 明细实时重算金额（分） }
         diff: { type: integer, format: int64, description: '= generalTotal − detailTotal，必须为 0' }
         balanced: { type: boolean }
+
+    SettlementPeriodRow:
+      allOf:
+        - $ref: '#/components/schemas/SettlementTotals'
+        - type: object
+          required: [period, status]
+          description: 一行账期（`settlement_periods`）：锁账状态 + 已落的期间汇总，全部字段只读
+          properties:
+            period: { type: string, pattern: '^\d{4}-\d{2}$', example: '2025-06' }
+            status: { type: string, enum: [OPEN, CLOSED], description: CLOSED = 已月结锁账（不可逆） }
+            closedAt: { type: string, format: date-time, nullable: true, description: 锁账时间；OPEN 时为 null }
+            closedBy: { type: integer, format: int64, nullable: true, description: 锁账操作人 app_users.id；历史行为 null（月结路径尚未写入该列，属 M3 体验债） }
 
     InventoryBalance:
       type: object

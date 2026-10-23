@@ -34,6 +34,14 @@ if (-not $hashHolder) {
 }
 Write-Host "  哈希前缀: $($hashHolder.Substring(0, 7))..."
 
+# ★ 不走临时文件 + stdin 管道（本机 PS 5.1 实测的两个坑，计划书 §6 坑 17 的同族）：
+#   ① `Set-Content -Encoding UTF8` 会写 BOM，psql 读到「无效的 UTF-8 字节顺序」；
+#      去掉 BOM 后 `Get-Content -Raw` 又按 ANSI 码页解码，中文变成乱码；
+#   ② 更隐蔽的是管道：PowerShell 送进原生进程 stdin 时按 **[Console]::OutputEncoding**
+#      重新编码，中文直接掉成 `???`（实测：display_name 存成 3f3f3f，
+#      脚本报"账号已就绪"却静默把名字写坏 —— 比报错更难发现）。
+#   改成把 SQL 当**单个 -c 参数**传：argv 由 .NET 以 UTF-16 交给 docker CLI，
+#   再到容器里是 UTF-8，全程不经过控制台码页（下面赋角色的语句本来就是这么写的）。
 $sql = @"
 INSERT INTO app_users (username, password_hash, display_name, enabled)
 VALUES ('$Username', '$hashHolder', '$DisplayName', TRUE)
@@ -47,14 +55,8 @@ ON CONFLICT (username) DO UPDATE
 RETURNING id;
 "@
 
-$sqlFile = Join-Path $env:TEMP "seed-user.sql"
-Set-Content -Path $sqlFile -Value $sql -Encoding UTF8
-
-# ★ 不用 `<`：PowerShell 里 `<` 是保留运算符（"reserved for future use"）。
-#   用管道把文件内容送进 `docker exec -i` 的 stdin。
-$out = Get-Content $sqlFile -Raw | docker exec -i erp-postgres psql -U erp -d erp 2>&1
+$out = docker exec erp-postgres psql -U erp -d erp -c $sql 2>&1
 $userId = ($out | Select-String -Pattern '^\s*(\d+)\s*$' | Select-Object -First 1)
-Remove-Item $sqlFile -Force -ErrorAction SilentlyContinue
 
 if (-not $userId) {
     Write-Host '  psql 输出：' -ForegroundColor Yellow

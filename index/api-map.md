@@ -49,6 +49,7 @@
 | POST | `/settlements/daily` | `runDailySettlement` | 日清（每日汇总当日出入库与金额） |
 | POST | `/settlements/monthly` | `runMonthlySettlement` | 月结（期间结账并锁账） |
 | GET | `/settlements/reconcile` | `reconcile` | 总账与明细对账（差额必须为 0） |
+| GET | `/settlements/periods` | `listSettlementPeriods` | 账期列表查询（set:read，只读） |
 | GET | `/reports/purchase` | `purchaseReport` | 进货统计（按供应商/商品/期间） |
 | GET | `/reports/sales` | `salesReport` | 出货统计（按客户/商品/期间） |
 | GET | `/reports/inventory-summary` | `inventorySummaryReport` | 进销存汇总表（期初 + 入 − 出 = 期末） |

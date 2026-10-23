@@ -299,4 +299,48 @@ class IamIT extends PostgresTestBase {
         assertThat(stored).doesNotContain("PlainText1!");
         assertThat(encoder.matches("PlainText1!", stored)).isTrue();
     }
+
+    /**
+     * ★ FINANCE 的权限面（V5 的三组码 + V7 补的 {@code mdm:read}）。
+     *
+     * <p>盯的是计划书 §6 坑 16 的实测症状：结算页与报表页要把仓库/SKU 显示成名字，
+     * 而 V5 只给 FINANCE {@code rma/set/rpt} 三组码 → 每个字典请求都是 403，
+     * 财务一进页面就挂一串红条。V7 只补 {@code ('FINANCE','mdm:read')} 一行，
+     * 所以这条用例同时钉住<b>收益</b>（字典读得到）与<b>边界</b>（读不等于写）。
+     *
+     * <p>最后一段是<b>刻意登记</b>而不是遗漏：FINANCE 读单据仍然是 403，
+     * 那是 M3 工作台在财务登录时报 403 的同一族缺口（坑 16 备注，M3 遗留、本泳道不修）。
+     * 将来谁给财务开了 {@code pur:read}，这条会红 —— 那时请把期望一起改掉，别删用例。
+     */
+    @Test
+    @CaseId("TC-IAM-011")
+    @DisplayName("★ FINANCE 权限面：V7 后可读主数据字典与账期列表，仍不能写主数据、仍读不到单据")
+    void rbac_financePermissionsAfterV7() throws Exception {
+        data.user("finance_v7", "Fin1!", "FINANCE", encoder);
+        String token = authentication.login("finance_v7", "Fin1!").token();
+
+        // 字典三件套：V7 之前每个都是 403（结算页的仓库下拉、报表页的 SKU/商品名）
+        for (String path : new String[] {"/api/v1/warehouses", "/api/v1/products", "/api/v1/skus"}) {
+            mvc.perform(get(path).header("Authorization", "Bearer " + token))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.code").value("OK"));
+        }
+        // 坑 15 的读出口对 FINANCE 同样成立（它有 set:read，本来就该拿得到数据）
+        mvc.perform(get("/api/v1/settlements/periods").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+
+        // 边界：mdm:read 不含任何写权限（V7 的代价只到"能看"为止）
+        mvc.perform(post("/api/v1/products")
+                        .header("Authorization", "Bearer " + token)
+                        .header("X-Request-Id", "req-iam-v7-write")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of("code", "P-FIN", "name", "财务建的商品"))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("IAM_FORBIDDEN"));
+
+        // 登记不修：财务依然读不到单据（M3 工作台的那 4 个 403 属同一族遗留）
+        mvc.perform(get("/api/v1/purchase-orders").header("Authorization", "Bearer " + token))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("IAM_FORBIDDEN"));
+    }
 }
