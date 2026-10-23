@@ -96,6 +96,24 @@ class ApiContractMappingIT extends PostgresTestBase {
         UNDOCUMENTED_DEBT.put("POST /api/v1/sales-orders/{}/submit", "出货工作流，契约待补");
         UNDOCUMENTED_DEBT.put("POST /api/v1/sales-orders/{}/approve", "出货工作流，契约待补");
         UNDOCUMENTED_DEBT.put("POST /api/v1/sales-orders/{}/reject", "出货工作流，契约待补");
+
+        // V2-2 采购闭环（FR-PUR-04~08）：实现先于契约更新，合并时由清场删除本组并存档契约申请
+        UNDOCUMENTED_DEBT.put("POST /api/v1/purchase-requisitions", "V2-2 请购建单，契约待补");
+        UNDOCUMENTED_DEBT.put("GET /api/v1/purchase-requisitions", "V2-2 请购列表，契约待补");
+        UNDOCUMENTED_DEBT.put("GET /api/v1/purchase-requisitions/{}", "V2-2 请购详情，契约待补");
+        UNDOCUMENTED_DEBT.put("POST /api/v1/purchase-requisitions/{}/submit", "V2-2 请购提交，契约待补");
+        UNDOCUMENTED_DEBT.put("POST /api/v1/purchase-requisitions/{}/approve", "V2-2 请购审核，契约待补");
+        UNDOCUMENTED_DEBT.put("POST /api/v1/purchase-requisitions/{}/convert", "V2-2 请购转订单，契约待补");
+        UNDOCUMENTED_DEBT.put("GET /api/v1/purchase-orders/{}/receipts", "V2-2 到货质检记录，契约待补");
+        UNDOCUMENTED_DEBT.put("POST /api/v1/purchase-returns", "V2-2 采购退货建单，契约待补");
+        UNDOCUMENTED_DEBT.put("GET /api/v1/purchase-returns", "V2-2 采购退货列表，契约待补");
+        UNDOCUMENTED_DEBT.put("GET /api/v1/purchase-returns/{}", "V2-2 采购退货详情，契约待补");
+        UNDOCUMENTED_DEBT.put("POST /api/v1/purchase-returns/{}/approve", "V2-2 执行采购退货，契约待补");
+        UNDOCUMENTED_DEBT.put("POST /api/v1/purchase-returns/{}/void", "V2-2 作废采购退货，契约待补");
+        UNDOCUMENTED_DEBT.put("GET /api/v1/supplier-payables", "V2-2 应付列表，契约待补");
+        UNDOCUMENTED_DEBT.put("GET /api/v1/supplier-payables/reconcile", "V2-2 应付余额核对，契约待补");
+        UNDOCUMENTED_DEBT.put("GET /api/v1/supplier-payables/{}", "V2-2 应付详情，契约待补");
+        UNDOCUMENTED_DEBT.put("POST /api/v1/supplier-payments", "V2-2 付款核销，契约待补");
     }
 
     @Autowired
