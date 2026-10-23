@@ -4,9 +4,9 @@
 ![Java](https://img.shields.io/badge/Java-17-007396?logo=openjdk&logoColor=white)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.3-6DB33F?logo=springboot&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-221%20passing-brightgreen)
-![Coverage](https://img.shields.io/badge/line%20coverage-82.6%25-yellowgreen)
-![Branch](https://img.shields.io/badge/branch%20coverage-60.9%25-yellowgreen)
+![Tests](https://img.shields.io/badge/tests-234%20passing-brightgreen)
+![Coverage](https://img.shields.io/badge/line%20coverage-80.5%25-yellowgreen)
+![Branch](https://img.shields.io/badge/branch%20coverage-58.7%25-yellowgreen)
 
 > **多端 B/S 进销存 SaaS 平台 + 配套自动化测试体系**
 > Java 17 · Spring Boot 3 · PostgreSQL 16 · Vue 3 · uni-app
@@ -25,7 +25,7 @@
 | **看后端业务逻辑 / 加接口** | [`backend/`](backend/) | 所有服务端代码 |
 | **想知道整个项目是什么、怎么继续** | [`docs/planning/项目总纲.md`](docs/planning/项目总纲.md) | 一份文件看懂全局 |
 | **看做到哪了、还差什么** | [`docs/00-索引与追踪矩阵.md`](docs/00-索引与追踪矩阵.md) | 进度看板 + 需求↔测试矩阵 |
-| **看某个里程碑怎么做** | [`.plan/`](.plan/) | M1 / M2 / M3 已完成；M4/M6/M7 三泳道并行的编排见 [`批次-2026-10-23-M4-M6-M7-并行.md`](.plan/批次-2026-10-23-M4-M6-M7-并行.md) |
+| **看某个里程碑怎么做** | [`.plan/`](.plan/) | M1 / M2 / M3 已完成；M4 第一批 / M6 制品 / M7 已合并，下一批（M2.5 / M8 / M4 第二批）编排见 [`批次-2026-10-23-M4-M6-M7-并行.md`](.plan/批次-2026-10-23-M4-M6-M7-并行.md) §7 |
 | **看接口契约** | [`packages/api-contract/openapi.yaml`](packages/api-contract/openapi.yaml) | 单一事实源 |
 | **看代码结构 / 接口清单** | [`index/`](index/) | 脚本生成，禁止手写 |
 | **起环境 / 跑构建 / 生成索引** | [`scripts/`](scripts/) | 一键脚本 |
@@ -82,17 +82,17 @@
 
 ## 项目状态
 
-**当前阶段：M0/M1/M2/M3 全部完成 ✅（进销存业务闭环 + Web 端 + 221 条后端用例 + 19 条 E2E）· 下一步：M4/M5 移动端、M6 云部署、M7 NL+MCP 三条泳道并行进行中**
+**当前阶段：M0/M1/M2/M3/M7 完成 ✅，M4 第一批与 M6 制品已合并 🚧（进销存业务闭环 + Web 10 页 + miniapp 3 页 + 234 条后端用例 + 19 条 E2E + MCP 6 工具）· 下一步：M2.5 红冲、M8 单机版、M4 第二批**
 
 - ✅ 方向与路线确定（行业、技术栈、测试体系）
 - ✅ 规划文档（00~07 + 11 条 ADR）
 - ✅ **M0 交付**：OpenAPI 六资源契约 · Spring Boot 3 骨架 · Flyway schema · 库存纵向切片 · compose 一键起环境 · CI 三道门禁
-- ✅ **M1 交付**：主数据（商品/SKU 矩阵/供应商/客户/仓库）· 进货闭环 · 出货闭环（FEFO）· IAM（JWT + RBAC）· 统一状态机 · 原子取号 · M1 基线 156 条测试（**当前累计 221 条全绿**）
+- ✅ **M1 交付**：主数据（商品/SKU 矩阵/供应商/客户/仓库）· 进货闭环 · 出货闭环（FEFO）· IAM（JWT + RBAC）· 统一状态机 · 原子取号 · M1 基线 156 条测试（**当前累计 234 条全绿**）
 - ✅ **M3 交付**：登录 / 布局 / 工作台 + 商品与 SKU + 供应商 / 客户 / 仓库 + 库存查询（实存·预占·可用 + 流水追溯）+ 进货单（状态机 + 分批入库）+ 出货单（建单即预占 + 折扣 + 出货），**7 个业务页面全齐、无占位页**；S7 全局打磨（空状态、错误态、窄屏适配）；**S8 Playwright E2E 14 条关键路径，真实后端 + 真实 PostgreSQL 连续两遍 15/15 全绿**，测试数据清理后开发库回到基线
-- ✅ **M2 交付**：退货 `FR-RMA-01`（9 个接口，含"可退出货单查询"）· 日清 / 月结锁账 / 对账 / 账期查询 `FR-SET-01~03` · 三类报表 `FR-RPT-01~03` · `BR-INV-05` 预占超时自动释放 —— 16 个新接口全部有实现有测试，`CONTRACT_ONLY` 清零；前端 10 个业务页面（退货/结算/报表三页 + 退货建单接入可退查询 + 结算页账期列表）；后端 **221 条用例全绿**、行 **82.6%** / 分支 **60.9%**；E2E **19 条 + 登录 setup** 连跑两遍全绿；红冲（FR-SAL-04 / FR-PUR-03）与 G5~G13 体验债转 M2.5（计划：[`.plan/M2-计划书.md`](.plan/M2-计划书.md)）
-- 🚧 **M4/M5 移动端**：uni-app 小程序 + Android（`feat/m4-miniapp` 泳道进行中，第一批：骨架 + 登录 / 工作台 / 库存查询）
-- 🚧 **M6 云部署**：Docker 制品 + 生产 compose + 部署 Runbook（`feat/m6-deploy` 泳道进行中；服务器已有、备案中）
-- 🚧 **M7 加分项**：自然语言操作 + MCP Server（`feat/m7-ai` 泳道进行中）
+- ✅ **M2 交付**：退货 `FR-RMA-01`（9 个接口，含"可退出货单查询"）· 日清 / 月结锁账 / 对账 / 账期查询 `FR-SET-01~03` · 三类报表 `FR-RPT-01~03` · `BR-INV-05` 预占超时自动释放 —— 16 个新接口全部有实现有测试，`CONTRACT_ONLY` 清零；前端 10 个业务页面（退货/结算/报表三页 + 退货建单接入可退查询 + 结算页账期列表）；M2 验收时后端 **221 条用例全绿**（M2 基线行 **82.6%** / 分支 **60.9%**）；E2E **19 条 + 登录 setup** 连跑两遍全绿；红冲（FR-SAL-04 / FR-PUR-03）与 G5~G13 体验债转 M2.5（计划：[`.plan/M2-计划书.md`](.plan/M2-计划书.md)）
+- 🚧 **M4 第一批已合并**：`frontend/miniapp` uni-app 工程 + 登录 / 工作台 / 库存查询 3 页，H5 真实后端走通，`build:h5` / `build:mp-weixin` / `build:app` 通过；微信开发者工具联调、Android 出包与第二批页面（出货/进货/商品只读）待后续
+- 🚧 **M6 制品已合并**：后端/前端 Dockerfile · 生产 compose · 部署 / 回滚 / 备份脚本 · Runbook · 部署流水线草案；本地 18080 全栈与备份恢复实测通过，**真实上线待服务器凭据与备案**
+- ✅ **M7 完成（stub 验证）**：`POST /nl/command` 自然语言入口（8 意图、意图级权限、建单幂等）+ `packages/mcp-server` 6 个 stdio 工具 + 工作台 NL 输入框；默认 `stub` 解析器离线可复现，**真实 LLM 待用户提供 key**
 - ⬜ M8：单机版（复用 M6 的 Docker 制品做一键包）
 
 ### 工程实践亮点
@@ -117,7 +117,7 @@
 ```powershell
 .\scripts\build-env.ps1          # 创建 D:\erp-build 联接（非破坏、可回滚）
 cd D:\erp-build\backend\server
-.\gradlew.bat test               # 运行测试（221 条，全绿）
+.\gradlew.bat test               # 运行测试（234 条，全绿）
 ```
 
 删除联接：`.\scripts\build-env.ps1 -Remove`
@@ -177,15 +177,16 @@ cd D:\MajorCacheFolder\Company system\自选
 
 ```
 backend/server/  服务端（Java 17 + Spring Boot 3）—— 全部后端代码
-frontend/web/    前端（Vue3 + TypeScript + Element Plus）—— 全部客户端代码
+frontend/web/    前端（Vue3 + TypeScript + Element Plus）—— Web 客户端
+frontend/miniapp/ 移动端（uni-app：H5 / 微信小程序 / Android 资源包）
 docs/            设计与过程文档（00~07 + 11 条 ADR）
   planning/      项目级规划：项目总纲、任务要求、方向建议
 index/           代码索引（生成物，由脚本维护，禁止手写）
-packages/        api-contract（OpenAPI 单一事实源）
-scripts/         dev-up / gen-index / build-env / seed-dev-user / bcrypt-hash
-infra/           compose 本地环境编排
-.plan/           各里程碑执行计划（M1 / M2 / M3 + 批次编排）
-.github/         CI 门禁流水线
+packages/        api-contract（OpenAPI 单一事实源）、mcp-server（MCP stdio 适配器）
+scripts/         dev-up / gen-index / build-env / seed-dev-user / bcrypt-hash / 部署与备份
+infra/           compose 本地环境 + deploy 生产编排
+.plan/           各里程碑执行计划（M1 / M2 / M3 + M4 / M6 / M7 + 批次编排）
+.github/         CI 门禁流水线 + 部署流水线草案
 README.md        唯一根入口（目录导航 + 快速开始）
 ```
 
@@ -193,8 +194,8 @@ README.md        唯一根入口（目录导航 + 快速开始）
 > （[ADR-0011](docs/07-决策记录ADR/ADR-0011-目录调整backend与frontend分区.md)）。
 > 根目录只保留 `README.md`；规划与历史输入统一放在 `docs/planning/`。
 >
-> `frontend/miniapp/`、`frontend/android/`、`tests/e2e-*` 为后续里程碑（M4~M5）预留，
-> 当前尚未创建 —— README 不写不存在的东西。
+> `frontend/android/` 尚未创建（M5 出包仍复用 `frontend/miniapp` 的 `build:app` 资源包）；
+> Web E2E 已落在 `frontend/web/e2e/`。
 
 ### 哪些目录不用看（构建产物 / 缓存）
 

@@ -53,4 +53,5 @@
 | GET | `/reports/purchase` | `purchaseReport` | 进货统计（按供应商/商品/期间） |
 | GET | `/reports/sales` | `salesReport` | 出货统计（按客户/商品/期间） |
 | GET | `/reports/inventory-summary` | `inventorySummaryReport` | 进销存汇总表（期初 + 入 − 出 = 期末） |
+| POST | `/nl/command` | `nlCommand` | 自然语言操作入口（FR-SYS-04） |
 

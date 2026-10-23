@@ -83,7 +83,8 @@ gen_modules() {
         rma) duty="退货入库（逆向）" ;;
         set) duty="日清月结、对账" ;;
         rpt) duty="统计报表（只读）" ;;
-        sys) duty="幂等、审计、测试钩子、NL/MCP" ;;
+        nl) duty="自然语言解析与意图调度（不承载业务规则）" ;;
+        sys) duty="幂等、审计、测试钩子" ;;
         shared) duty="通用：时间、金额、错误码" ;;
         *) duty="（未登记，请补充 docs/03 模块表）" ;;
       esac

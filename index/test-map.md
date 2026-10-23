@@ -17,6 +17,12 @@
 | `TC-API-008` | ★ 客户折扣率：越界 400（契约层校验），合法 9 折成功 | `backend/server/src/test/java/com/erp/api/MasterDataApiIT.java` |
 | `TC-API-009` | 仓库：列表返回数组（非分页）；onlyEnabled 过滤生效 | `backend/server/src/test/java/com/erp/api/MasterDataApiIT.java` |
 | `TC-API-010` | 缺少 X-Request-Id 的写接口 → 400（契约要求写操作必须带幂等键） | `backend/server/src/test/java/com/erp/api/MasterDataApiIT.java` |
+| `TC-NL-006` | ★ 查询库存：三量正确；未登录 401 —— NL 不会成为绕过认证的旁路 | `backend/server/src/test/java/com/erp/api/NlCommandApiIT.java` |
+| `TC-NL-007` | ★ 单据列表/详情：中文状态与分页生效，详情 id 与列表行一致 | `backend/server/src/test/java/com/erp/api/NlCommandApiIT.java` |
+| `TC-NL-008` | ★ 写意图：建进货草稿成功；同 X-Request-Id 重放只有一张单；缺键 400 | `backend/server/src/test/java/com/erp/api/NlCommandApiIT.java` |
+| `TC-NL-009` | ★ 进销存汇总：与 REST 报表逐字段一致；缺省账期=当前月 | `backend/server/src/test/java/com/erp/api/NlCommandApiIT.java` |
+| `TC-NL-010` | ★ 意图级权限：只有 rpt:read 的账号能汇总，读库存/主数据与建单全部 403 | `backend/server/src/test/java/com/erp/api/NlCommandApiIT.java` |
+| `TC-NL-011` | ★ 失败语义：无法识别 422、参数非法 400、空指令 400、业务 404 原样透出 | `backend/server/src/test/java/com/erp/api/NlCommandApiIT.java` |
 | `TC-API-018` | ★ 三个报表接口全部可达且包络符合契约；默认分组是 supplier/customer；报表零写入 | `backend/server/src/test/java/com/erp/api/ReportApiIT.java` |
 | `TC-RPT-009` | 非法参数一律 400：groupBy 取值非法 / 跨报表维度 / from>to / period 格式 / 缺参数 | `backend/server/src/test/java/com/erp/api/ReportApiIT.java` |
 | `TC-API-014` | ★ 退货 HTTP 端到端：建单→提交→审核→入库，响应字段符合契约；出货明细露出 returnedQty | `backend/server/src/test/java/com/erp/api/ReturnOrderApiIT.java` |
@@ -38,6 +44,7 @@
 | `TC-ARCH-004` | ★ 规则自检：单据模块不得依赖 set 的规则必须拦住直接 import 的写法 | `backend/server/src/test/java/com/erp/arch/ArchitectureTest.java` |
 | `TC-ARCH-005` | ★ 规则自检：报表只读规则必须拦住跨模块应用服务依赖 | `backend/server/src/test/java/com/erp/arch/ArchitectureTest.java` |
 | `TC-ARCH-006` | ★ 规则自检：退货模块不得直连 sal.repository 的规则必须拦住违规 import | `backend/server/src/test/java/com/erp/arch/ArchitectureTest.java` |
+| `TC-ARCH-007` | ★ 规则自检：NL 入口不得直连仓储的规则必须拦住违规 import | `backend/server/src/test/java/com/erp/arch/ArchitectureTest.java` |
 | `TC-IAM-001` | 登录成功返回 token 与权限；密码错误返回 401（且不区分用户不存在） | `backend/server/src/test/java/com/erp/iam/IamIT.java` |
 | `TC-IAM-002` | ★ 密码连续错误达到阈值后锁定；到期后自动解锁（锁在数据库，重启不失效） | `backend/server/src/test/java/com/erp/iam/IamIT.java` |
 | `TC-IAM-003` | 停用账号无法登录（IAM_ACCOUNT_DISABLED） | `backend/server/src/test/java/com/erp/iam/IamIT.java` |
@@ -84,6 +91,11 @@
 | `TC-MDM-017` | ★ 折扣率越界（0 / 10001 / 负数）必须被拒绝：0 等于白送，不允许 | `backend/server/src/test/java/com/erp/mdm/MasterDataIT.java` |
 | `TC-MDM-018` | 数据库 CHECK 兜底：即使绕过应用层，折扣率也无法写成 0 或超过 10000 | `backend/server/src/test/java/com/erp/mdm/MasterDataIT.java` |
 | `TC-MDM-019` | 仓库 CRUD + 编码唯一 + onlyEnabled 过滤 | `backend/server/src/test/java/com/erp/mdm/MasterDataIT.java` |
+| `TC-NL-004` | ★ tool_call 映射为意图与参数；请求带 Authorization、tools 与 tool_choice=auto | `backend/server/src/test/java/com/erp/nl/OpenAiNlCommandParserTest.java` |
+| `TC-NL-005` | ★ 无 tool call → 422；上游 500 → 503；缺 key → 503 且提示 ERP_NL_API_KEY | `backend/server/src/test/java/com/erp/nl/OpenAiNlCommandParserTest.java` |
+| `TC-NL-001` | 中文/键值对指令解析为正确意图与参数（库存/列表/详情/主数据/帮助） | `backend/server/src/test/java/com/erp/nl/StubNlCommandParserTest.java` |
+| `TC-NL-002` | 本月/上月由注入时钟决定；建单多行用分号分隔；缺省账期不编造 | `backend/server/src/test/java/com/erp/nl/StubNlCommandParserTest.java` |
+| `TC-NL-003` | 空/无法识别 → NL_COMMAND_UNRECOGNIZED；非法数字 → NL_COMMAND_INVALID_ARGUMENT | `backend/server/src/test/java/com/erp/nl/StubNlCommandParserTest.java` |
 | `TC-PUR-001` | 建单：单号为 PO+日期+流水，总金额由明细汇总（不反算），状态 DRAFT | `backend/server/src/test/java/com/erp/pur/PurchaseOrderIT.java` |
 | `TC-PUR-002` | 建单幂等：相同 requestId 重复提交返回同一张单，不新增记录 | `backend/server/src/test/java/com/erp/pur/PurchaseOrderIT.java` |
 | `TC-PUR-003` | 建单校验：空明细 / 数量为 0 / 单价为负 全部拒绝 | `backend/server/src/test/java/com/erp/pur/PurchaseOrderIT.java` |
@@ -165,4 +177,4 @@
 | `TC-DOC-005` | 未结状态判定：只有终态被视为已结 | `backend/server/src/test/java/com/erp/shared/document/DocumentStatusMachineTest.java` |
 | `TC-DOC-006` | PARTIAL->PARTIAL 自环合法：分批入库/出货可以多次进入部分状态 | `backend/server/src/test/java/com/erp/shared/document/DocumentStatusMachineTest.java` |
 
-共 160 条用例。
+共 172 条用例。
