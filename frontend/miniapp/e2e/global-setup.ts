@@ -18,8 +18,18 @@ export default async function globalSetup(): Promise<void> {
   if (existsSync(runFile)) {
     const previous = JSON.parse(readFileSync(runFile, 'utf8')) as RunInfo
     try {
-      const { summary } = cleanupRun(previous)
+      const { summary, remaining } = cleanupRun(previous)
       console.log(`[e2e] 已清理上一轮残留 ${previous.runId}：${summary}`)
+      // 清不干净就不能取基线：否则上一轮的数据会被算进基线，
+      // teardown 的"回到基线"从这一刻起已经不可能成立。
+      const leftovers = Object.entries(remaining).filter(([, count]) => count > 0)
+      if (leftovers.length) {
+        throw new Error(
+          `上一轮 ${previous.runId} 仍有残留：${leftovers
+            .map(([key, count]) => `${key}=${count}`)
+            .join('，')}`,
+        )
+      }
     } catch (error) {
       throw new Error(
         `清理上一轮 ${previous.runId} 失败，继续运行会污染基线：${(error as Error).message}`,

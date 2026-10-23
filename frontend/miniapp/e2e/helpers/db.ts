@@ -182,6 +182,18 @@ export interface CleanupResult {
   remaining: Record<string, number>
 }
 
+/** 清理后必须逐项归零的表；少一项就说明计数查询本身没跑通，不能当作"没有残留"。 */
+const RESIDUE_KEYS = [
+  'products',
+  'skus',
+  'suppliers',
+  'customers',
+  'warehouses',
+  'ledger',
+  'reservations',
+  'balances',
+] as const
+
 export function cleanupRun(run: RunInfo): CleanupResult {
   assertSafeRun(run)
   const like = `E2B-${run.runId}%`
@@ -275,7 +287,14 @@ COMMIT;
     })
     .join(' ')
 
-  const remaining = parseCounts(countSql(run))
+  // ★ 这里曾经把 SQL 文本本身喂给 parseCounts（少写一次 psql 调用），
+  //   结果是 remaining 恒为 {}、"前缀残留必须为 0"变成一条永远不会红的门禁。
+  //   现在既执行，又要求每一项计数都在，缺项直接报错而不是当作干净。
+  const remaining = parseCounts(psql(countSql(run)))
+  const missing = RESIDUE_KEYS.filter((key) => !(key in remaining))
+  if (missing.length) {
+    throw new Error(`[e2e] 残留计数查询缺少 ${missing.join('、')}，无法判定清理是否干净`)
+  }
   return { summary, remaining }
 }
 

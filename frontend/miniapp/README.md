@@ -319,16 +319,16 @@ npm run build:app
 
 | 项 | 命令 / 结果 |
 |---|---|
-| 类型检查 | `npm run type-check` → 0 错误（含 8 个页面 + 状态镜像 + e2e 依赖） |
+| 类型检查 | `npm run type-check` → 0 错误（`tsconfig.include` 已扩到 `e2e/**/*.ts` + `playwright.config.ts`；Playwright 自身不做类型检查，不收进来等于裸奔） |
 | 三端构建 | `build:h5` 427K、`build:mp-weixin` 309K、`build:app` 1005K（5 个 tabBar 合法） |
-| E2E 第一遍 | `E2E_SKIP_BUILD=1 npx playwright test` → **9 passed (2.0m)** |
-| E2E 第二遍 | `npm run e2e`（含 pree2e 起库 + Gradle 构建）→ **9 passed (2.1m)** |
+| E2E 连跑 | 修掉清理门禁空转（坑 24）之后连跑 4 遍 `npm run e2e`（含 pree2e 起库 + Gradle bootJar）：**9 passed (1.6m) → 9 passed (1.5m) → 9 passed (1.3m，`E2E_KEEP_DATA=1`) → 9 passed (1.5m)** |
 | 造数规模 | 1 商品 / 25 SKU / 2 仓 / 3 进货单（25+2+2 行）/ 1 出货单 → 余额 29 行、流水 31 条、预占 2 段 |
 | 出货动作 | 详情「已审核」→ 确认出货 → 后端返回「已完成」，按钮消失、提示改为不可出货 |
 | 入库动作 | 详情「已审核」→ 确认入库（10 件）→ 「已完成」，已入 10、未入 0 |
 | 幂等键 | `ship` / `receive` 的 `X-Request-Id` 由 `api/client.ts` 注入，页面零手写 |
 | 三态 | 404 单据显示后端消息「出货单不存在」+ 重试；商品搜索与批次筛选无结果给下一步提示 |
-| 清理 | 两轮 teardown 均「前缀残留 0，业务表计数已回到基线」；`cleanup.json` 记录删除行数 |
+| 清理 | 每轮 teardown 与下一轮 setup 都要求 8 项前缀残留计数为 0、业务表计数回到基线（`cleanup.json` 留档删除行数） |
+| 门禁自检 | `E2E_KEEP_DATA=1` 留一轮数据后跑同一条残留查询 → `skus=25 / ledger=31 / balances=29`（8 项全非零）：这条红是能亮的，不是摆设 |
 
 截图（通过态正片）：`frontend/miniapp/.e2e-artifacts/screenshots/`（已 gitignore）：
 `login-inline-error`、`dashboard`、`inventory-balance-filtered`、`ledger-page1/2`、
@@ -365,6 +365,10 @@ npm run build:app
 14. **单据状态按钮是镜像不是判断**（第二批）：按钮显隐只看 `utils/documentStatus.ts` 的
     「状态 → 动作」表 + 权限码，**不看 openQty / 余额 / 日期**；镜像漂移的表现是用户点了收到 409，
     所以这张表要与 Web 的同名文件、后端 `DocumentStatus` 一起改。
+15. **清理门禁会空转**（第二批自查）：`cleanupRun` 一度把残留计数的 **SQL 文本**当成 psql 输出去解析，
+    `remaining` 恒为 `{}`，"前缀残留必须为 0"于是永远不会红 —— 测试全绿但库里一堆垃圾。
+    现在既执行再解析，还要求 8 项计数**一项不缺**（缺项报错，而不是当作干净）；
+    setup 清上一轮残留后同样校验归零，否则基线一开始就是脏的。
 
 ---
 
