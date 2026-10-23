@@ -101,7 +101,8 @@ class ArchitectureTest {
     static final ArchRule 业务代码禁止直接依赖系统时间类型 =
             noClasses()
                     .that().resideInAnyPackage("com.erp.inv..", "com.erp.pur..", "com.erp.sal..",
-                            "com.erp.rma..", "com.erp.set..", "com.erp.mdm..", "com.erp.iam..",
+                            "com.erp.rma..", "com.erp.set..", "com.erp.rpt..",
+                            "com.erp.mdm..", "com.erp.iam..",
                             "com.erp.shared.document..")
                     .and().doNotHaveSimpleName("ClockConfig")
                     .should().dependOnClassesThat().areAssignableTo(java.time.Clock.class)
@@ -130,7 +131,8 @@ class ArchitectureTest {
     static final ArchRule 业务代码禁止调用系统时间静态方法 =
             classes()
                     .that().resideInAnyPackage("com.erp.inv..", "com.erp.pur..", "com.erp.sal..",
-                            "com.erp.rma..", "com.erp.set..", "com.erp.mdm..", "com.erp.iam..",
+                            "com.erp.rma..", "com.erp.set..", "com.erp.rpt..",
+                            "com.erp.mdm..", "com.erp.iam..",
                             "com.erp.shared.document..")
                     .and().doNotHaveSimpleName("ClockConfig")
                     .should(noSystemTimeCalls())
@@ -271,6 +273,33 @@ class ArchitectureTest {
                     .should().dependOnClassesThat().resideInAnyPackage("com.erp.set..")
                     .because("锁账只能经由 shared.period.PeriodGuard 接口注入；"
                             + "直接依赖 com.erp.set 会与「SET 只读三域单据」形成包依赖环（计划书 §3.1）");
+
+    // ─────────────────────── 规则 7：报表模块只读（M2-S3） ───────────────────────
+
+    /**
+     * ★ {@code rpt} 不得依赖<b>其它模块</b>的应用服务。
+     *
+     * <p><b>这条规则守的是"只读"这两个字</b>：计划书 §3.1 规定 RPT 只做跨域只读查询，
+     * 自己的聚合查询仓储不写任何表。但"不写表"这件事光靠"我没写 UPDATE"是守不住的 ——
+     * 只要注入一个 {@code PurchaseOrderApplicationService} 就能顺手改库存，
+     * 而报表接口是 GET，评审时最容易被忽略。
+     *
+     * <p>写法上刻意<b>不枚举</b> {@code pur/sal/rma/inv/set} 的包名：
+     * 用泛化匹配 {@code ..application..} 再排除报表<b>自己</b>的
+     * {@code com.erp.rpt.application..}，这样 M2-S2 的 {@code set.application}
+     * 以及以后任何新模块都自动落进网里。枚举式的规则会随模块增加而悄悄失效。
+     */
+    @ArchTest
+    static final ArchRule 报表模块不得依赖其它模块的应用服务 =
+            noClasses()
+                    .that().resideInAPackage("com.erp.rpt..")
+                    .should().dependOnClassesThat(
+                            com.tngtech.archunit.core.domain.JavaClass.Predicates
+                                    .resideInAPackage("..application..")
+                                    .and(com.tngtech.archunit.core.domain.JavaClass.Predicates
+                                            .resideOutsideOfPackage("com.erp.rpt.application..")))
+                    .because("报表是只读泳道：只允许使用自己的查询仓储，"
+                            + "依赖别人的应用服务等于把写入口递进报表（计划书 §3.1）");
 
     // ─────────────────────── 辅助实现 ───────────────────────
 
@@ -452,6 +481,36 @@ class ArchitectureTest {
         org.assertj.core.api.Assertions.assertThat(rule.evaluate(classes).hasViolation())
                 .as("★ 规则必须能拦住 import com.erp.set 的单据模块代码；"
                         + "若为 false 说明这条锁账依赖倒置规则已失效（假绿）")
+                .isTrue();
+    }
+
+    /**
+     * ★ 自检：报表只读规则必须拦住"报表依赖别模块应用服务"。
+     *
+     * <p>这里直接 evaluate <b>生产规则本身</b>（不是重写一遍形状）：
+     * 一旦有人把规则的包范围改窄，本用例立刻变红。
+     * 探针引用的是真实存在的 {@code pur.application} 服务 —— 违规样本越接近
+     * 真实的犯错方式，自检才越有说服力。
+     */
+    @org.junit.jupiter.api.Test
+    @CaseId("TC-ARCH-005")
+    @org.junit.jupiter.api.DisplayName("★ 规则自检：报表只读规则必须拦住跨模块应用服务依赖")
+    void 规则自检_报表只读规则必须生效() {
+        var classes = compileProbe("com.erp.rpt.probe.BadRptWriteAccessProbe", """
+                package com.erp.rpt.probe;
+
+                public class BadRptWriteAccessProbe {
+                    private final com.erp.pur.application.PurchaseOrderApplicationService svc = null;
+
+                    public Object bad() {
+                        return svc;
+                    }
+                }
+                """);
+        org.assertj.core.api.Assertions.assertThat(
+                报表模块不得依赖其它模块的应用服务.evaluate(classes).hasViolation())
+                .as("★ 规则必须能拦住 rpt -> 其它模块 application 的依赖；"
+                        + "若为 false 说明规则已失效（假绿）")
                 .isTrue();
     }
 

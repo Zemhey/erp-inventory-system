@@ -51,16 +51,15 @@ import org.yaml.snakeyaml.Yaml;
 class ApiContractMappingIT extends PostgresTestBase {
 
     /**
-     * 契约里有、但属后续里程碑（M2-S3）的接口。
+     * 契约里有、但尚未实现的接口。
      * 每一条都是待办，不是永久豁免；实现后必须从清单删除。
      *
-     * <p>M2-S1 已交付 8 个 {@code /return-orders} 接口、M2-S2 已交付 3 个
-     * {@code /settlements} 接口，相应豁免已从本清单移除。
+     * <p>M2 的四批交付已全部清空本清单：S1 交付 8 个 {@code /return-orders}、
+     * S2 交付 3 个 {@code /settlements}、S3 交付 3 个 {@code /reports}。
+     * 保持为空是 M2 的 DoD（计划书 §2.3 / §4.7）；将来若再出现"契约先行、实现后置"，
+     * 新条目必须带上里程碑编号，并且由实现者本人删除。
      */
-    private static final Set<String> CONTRACT_ONLY = Set.of(
-            "GET /api/v1/reports/purchase",
-            "GET /api/v1/reports/sales",
-            "GET /api/v1/reports/inventory-summary");
+    private static final Set<String> CONTRACT_ONLY = Set.of();
 
     /**
      * 已实现、但契约尚未补齐的存量接口（M1 先于契约更新造成）。

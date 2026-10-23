@@ -912,6 +912,10 @@ paths:
         - name: groupBy
           in: query
           schema: { type: string, enum: [supplier, product, sku, day, month], default: supplier }
+        - name: warehouseId
+          in: query
+          description: 可选仓库过滤；省略=全部仓库。口径按单据 biz_date（闭区间）
+          schema: { type: integer, format: int64 }
       responses:
         '200':
           description: 进货统计行（data.items）
@@ -947,6 +951,10 @@ paths:
         - name: groupBy
           in: query
           schema: { type: string, enum: [customer, product, sku, day, month], default: customer }
+        - name: warehouseId
+          in: query
+          description: 可选仓库过滤；省略=全部仓库。口径按单据 biz_date（闭区间），不含退货
+          schema: { type: integer, format: int64 }
       responses:
         '200':
           description: 出货统计行（data.items）
