@@ -6,6 +6,7 @@ import com.erp.sal.repository.SalesOrderRepository;
 import com.erp.shared.document.DocumentStatus;
 import com.erp.shared.error.BusinessException;
 import com.erp.shared.error.ErrorCode;
+import com.erp.shared.web.PageResult;
 import java.time.LocalDate;
 import java.util.List;
 import org.springframework.stereotype.Service;
@@ -65,19 +66,44 @@ public class ReturnableSalesOrderService {
                             .formatted(o.orderNo(), o.status()));
         }
 
-        List<ReturnableLine> returnable = o.lines().stream()
-                .filter(l -> l.returnableQty() > 0)
-                .map(l -> new ReturnableLine(l.id(), l.lineNo(), l.skuId(), l.qty(),
-                        l.shippedQty(), l.returnedQty(), l.returnableQty(),
-                        l.unitPriceAmount(), l.discountRate()))
-                .toList();
-        if (returnable.isEmpty()) {
+        ReturnableOrder view = returnableOf(o);
+        if (view.lines().isEmpty()) {
             int shipped = o.lines().stream().mapToInt(SalesOrderLine::shippedQty).sum();
             int returned = o.lines().stream().mapToInt(SalesOrderLine::returnedQty).sum();
             throw new BusinessException(ErrorCode.RMA_ORIGIN_NOT_SHIPPED,
                     "出货单 %s 没有可退明细：已出货 %d，已退货 %d，可退 0"
                             .formatted(o.orderNo(), shipped, returned));
         }
+        return view;
+    }
+
+    /**
+     * 分页取出<b>还能退货</b>的出货单（退货建单页"选原出货单"的数据源）。
+     *
+     * <p>与 {@link #requireShippedOrder(long)} 共用 {@link #returnableOf}：
+     * "什么算可退"仍然只有出货域这一份定义。列表侧若自己抄一遍筛选与映射，
+     * 出货规则一变（例如将来支持分批出货）就会长成"下拉说能退、建单预检说不能退"的分叉。
+     *
+     * <p>返回的每张单据<b>必定</b>至少有一行可退 —— 条件写在 SQL 的 EXISTS 里，
+     * 因此这里没有"整单退完就跳过"的分支，{@code total} 才是可信的单据张数而不是页内行数。
+     */
+    @Transactional(readOnly = true)
+    public PageResult<ReturnableOrder> pageReturnable(int page, int size) {
+        PageResult<SalesOrder> found = orders.pageReturnable(page, size);
+        List<ReturnableOrder> items = found.items().stream()
+                .map(ReturnableSalesOrderService::returnableOf)
+                .toList();
+        return new PageResult<>(items, found.total(), found.page(), found.size());
+    }
+
+    /** SalesOrder → 可退视图：只留 {@code returnableQty > 0} 的行，单据字段原样带出。 */
+    private static ReturnableOrder returnableOf(SalesOrder o) {
+        List<ReturnableLine> returnable = o.lines().stream()
+                .filter(l -> l.returnableQty() > 0)
+                .map(l -> new ReturnableLine(l.id(), l.lineNo(), l.skuId(), l.qty(),
+                        l.shippedQty(), l.returnedQty(), l.returnableQty(),
+                        l.unitPriceAmount(), l.discountRate()))
+                .toList();
         return new ReturnableOrder(o.id(), o.orderNo(), o.status(), o.customerId(),
                 o.warehouseId(), o.bizDate(), returnable);
     }

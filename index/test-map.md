@@ -21,6 +21,11 @@
 | `TC-RPT-009` | 非法参数一律 400：groupBy 取值非法 / 跨报表维度 / from>to / period 格式 / 缺参数 | `backend/server/src/test/java/com/erp/api/ReportApiIT.java` |
 | `TC-API-014` | ★ 退货 HTTP 端到端：建单→提交→审核→入库，响应字段符合契约；出货明细露出 returnedQty | `backend/server/src/test/java/com/erp/api/ReturnOrderApiIT.java` |
 | `TC-API-015` | 退货接口守卫：缺 X-Request-Id → 400（不是 500）；VIEWER 可查不可建；未登录 401 | `backend/server/src/test/java/com/erp/api/ReturnOrderApiIT.java` |
+| `TC-RMA-013` | ★ 只有 rma:read 的临时账号也能拿到非空可退列表；同一账号读 /sales-orders 仍然 403 | `backend/server/src/test/java/com/erp/api/ReturnableOrderApiIT.java` |
+| `TC-RMA-014` | 已全部退完的出货单不出现在可退列表；未出货的 DRAFT/SUBMITTED/APPROVED 也不出现 | `backend/server/src/test/java/com/erp/api/ReturnableOrderApiIT.java` |
+| `TC-RMA-015` | ★ returnableQty = shippedQty − returnedQty，且与退货建单预检同口径（超 1 件即 409） | `backend/server/src/test/java/com/erp/api/ReturnableOrderApiIT.java` |
+| `TC-RMA-016` | 可退列表是只读接口：GET 不要求 X-Request-Id，也不得留下任何写痕迹 | `backend/server/src/test/java/com/erp/api/ReturnableOrderApiIT.java` |
+| `TC-RMA-017` | ★ 分页口径：total 是单据张数、翻页取得后面的单，size 越界只钳制不当全量 | `backend/server/src/test/java/com/erp/api/ReturnableOrderApiIT.java` |
 | `TC-API-016` | ★ 结算 HTTP 端到端：日清 items/totals → 月结 CLOSED → 对账 balanced，字段符合契约 | `backend/server/src/test/java/com/erp/api/SettlementApiIT.java` |
 | `TC-API-017` | ★★ 结算守卫：锁账后开单 409；FINANCE 可结算不可开单；缺幂等键/非法账期是 400 不是 500 | `backend/server/src/test/java/com/erp/api/SettlementApiIT.java` |
 | `TC-ARCH-001` | ★ 规则自检：禁止系统时间规则必须能拦住违规代码 | `backend/server/src/test/java/com/erp/arch/ArchitectureTest.java` |
@@ -28,6 +33,7 @@
 | `TC-ARCH-003` | ★ 规则自检：状态机规则必须拦住不调 requireTransition 的方法 | `backend/server/src/test/java/com/erp/arch/ArchitectureTest.java` |
 | `TC-ARCH-004` | ★ 规则自检：单据模块不得依赖 set 的规则必须拦住直接 import 的写法 | `backend/server/src/test/java/com/erp/arch/ArchitectureTest.java` |
 | `TC-ARCH-005` | ★ 规则自检：报表只读规则必须拦住跨模块应用服务依赖 | `backend/server/src/test/java/com/erp/arch/ArchitectureTest.java` |
+| `TC-ARCH-006` | ★ 规则自检：退货模块不得直连 sal.repository 的规则必须拦住违规 import | `backend/server/src/test/java/com/erp/arch/ArchitectureTest.java` |
 | `TC-IAM-001` | 登录成功返回 token 与权限；密码错误返回 401（且不区分用户不存在） | `backend/server/src/test/java/com/erp/iam/IamIT.java` |
 | `TC-IAM-002` | ★ 密码连续错误达到阈值后锁定；到期后自动解锁（锁在数据库，重启不失效） | `backend/server/src/test/java/com/erp/iam/IamIT.java` |
 | `TC-IAM-003` | 停用账号无法登录（IAM_ACCOUNT_DISABLED） | `backend/server/src/test/java/com/erp/iam/IamIT.java` |
@@ -154,4 +160,4 @@
 | `TC-DOC-005` | 未结状态判定：只有终态被视为已结 | `backend/server/src/test/java/com/erp/shared/document/DocumentStatusMachineTest.java` |
 | `TC-DOC-006` | PARTIAL->PARTIAL 自环合法：分批入库/出货可以多次进入部分状态 | `backend/server/src/test/java/com/erp/shared/document/DocumentStatusMachineTest.java` |
 
-共 149 条用例。
+共 155 条用例。

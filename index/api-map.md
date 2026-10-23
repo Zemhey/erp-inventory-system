@@ -39,6 +39,7 @@
 | POST | `/sales-orders/{id}/void` | `voidSalesOrder` | 作废/红冲出货单（回补库存） |
 | GET | `/return-orders` | `listReturnOrders` | 查询退货单（rma:read） |
 | POST | `/return-orders` | `createReturnOrder` | 创建退货单（rma:create） |
+| GET | `/return-orders/returnable-orders` | `listReturnableOrders` | 查询可退货的出货单（rma:read） |
 | GET | `/return-orders/{id}` | `getReturnOrder` | 退货单详情（rma:read） |
 | POST | `/return-orders/{id}/submit` | `submitReturnOrder` | 提交退货单（rma:submit） |
 | POST | `/return-orders/{id}/approve` | `approveReturnOrder` | 审核退货单（rma:approve） |

@@ -2,10 +2,12 @@ package com.erp.rma.api;
 
 import com.erp.iam.security.RequirePermission;
 import com.erp.rma.application.ReturnOrderApplicationService;
+import com.erp.rma.application.ReturnableOrderQueryService;
 import com.erp.rma.domain.ReturnOrder;
 import com.erp.rma.domain.ReturnOrderLine;
 import com.erp.shared.document.DocumentStatus;
 import com.erp.shared.web.ApiResponses;
+import com.erp.shared.web.PageResult;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -40,9 +42,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class ReturnOrderController {
 
     private final ReturnOrderApplicationService returnOrders;
+    private final ReturnableOrderQueryService returnableOrders;
 
-    public ReturnOrderController(ReturnOrderApplicationService returnOrders) {
+    public ReturnOrderController(ReturnOrderApplicationService returnOrders,
+                                 ReturnableOrderQueryService returnableOrders) {
         this.returnOrders = returnOrders;
+        this.returnableOrders = returnableOrders;
     }
 
     public record LineRequest(
@@ -70,6 +75,53 @@ public class ReturnOrderController {
             @RequestParam(defaultValue = "20") int size) {
         return ResponseEntity.ok(ApiResponses.page(
                 returnOrders.page(status, customerId, originSalesOrderId, page, size)));
+    }
+
+    /**
+     * 可退货的出货单列表（契约：{@code /return-orders/returnable-orders}）。
+     *
+     * <p>退货建单页选原单的唯一数据源：只要 {@code rma:read}，不要求调用方另有
+     * {@code sal:read}（销售员角色的种子里没有它，跨模块查 {@code /sales-orders}
+     * 只会换来一个空下拉 —— 计划书 §6 坑 13）。
+     *
+     * <p>字面量路径的匹配优先级高于 {@code /{id}} 模板，因此不会被当成 id 走详情。
+     */
+    @GetMapping("/returnable-orders")
+    @RequirePermission("rma:read")
+    public ResponseEntity<Map<String, Object>> returnableOrders(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        PageResult<ReturnableOrderQueryService.ReturnableView> found =
+                returnableOrders.page(page, size);
+        List<Map<String, Object>> items = new ArrayList<>();
+        for (ReturnableOrderQueryService.ReturnableView o : found.items()) {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("orderId", o.orderId());
+            m.put("orderNo", o.orderNo());
+            m.put("status", o.status());
+            m.put("customerId", o.customerId());
+            m.put("customerName", o.customerName());
+            m.put("warehouseId", o.warehouseId());
+            m.put("bizDate", o.bizDate() == null ? null : o.bizDate().toString());
+            List<Map<String, Object>> lines = new ArrayList<>();
+            for (ReturnableOrderQueryService.ReturnableLineView l : o.lines()) {
+                Map<String, Object> lm = new LinkedHashMap<>();
+                lm.put("originLineId", l.originLineId());
+                lm.put("lineNo", l.lineNo());
+                lm.put("skuId", l.skuId());
+                lm.put("skuName", l.skuName());
+                lm.put("shippedQty", l.shippedQty());
+                lm.put("returnedQty", l.returnedQty());
+                lm.put("returnableQty", l.returnableQty());
+                lm.put("unitPriceAmount", l.unitPriceAmount());
+                lm.put("discountRate", l.discountRate());
+                lines.add(lm);
+            }
+            m.put("lines", lines);
+            items.add(m);
+        }
+        return ResponseEntity.ok(ApiResponses.page(
+                new PageResult<>(items, found.total(), found.page(), found.size())));
     }
 
     @GetMapping("/{id}")

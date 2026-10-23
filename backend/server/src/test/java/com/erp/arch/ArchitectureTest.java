@@ -301,6 +301,33 @@ class ArchitectureTest {
                     .because("报表是只读泳道：只允许使用自己的查询仓储，"
                             + "依赖别人的应用服务等于把写入口递进报表（计划书 §3.1）");
 
+    // ─────────────────────── 规则 8：退货只走出货域的只读出口（M2-S5a 接口缺口） ───────────────────────
+
+    /**
+     * ★ {@code rma} 不得依赖 {@code com.erp.sal.repository..}。
+     *
+     * <p><b>这条守的是"可退口径只有一份"</b>：退货要读出货数据，唯一入口是
+     * {@code ReturnableSalesOrderService}。一旦 RMA 注入 {@code SalesOrderRepository}，
+     * 它就会顺手写一份 {@code shipped_qty - returned_qty}（甚至漏成 {@code qty - returned_qty}），
+     * 而 {@code ReturnableSalesOrderService} 的类注释正是为此存在：
+     * 出货规则一变（比如将来支持分批出货），两边静默分叉，表现是"退了多少库存对不上"。
+     *
+     * <p>与新增的 {@code GET /return-orders/returnable-orders} 同时交付：
+     * 那个接口要让只有 {@code rma:*} 的销售员也能选到原出货单（§6 坑 13），
+     * 正确的做法是扩展 SAL 的只读出口，而不是让 RMA 抄近路直连仓储。
+     *
+     * <p><b>不是空规则</b>：{@code com.erp.sal.repository.SalesOrderRepository} 真实存在，
+     * 规则跑在生产代码上；TC-ARCH-006 再现场编译一段违规 import 证明它会变红。
+     */
+    @ArchTest
+    static final ArchRule 退货模块不得直连出货模块仓储 =
+            noClasses()
+                    .that().resideInAPackage("com.erp.rma..")
+                    .should().dependOnClassesThat()
+                    .resideInAnyPackage("com.erp.sal.repository..")
+                    .because("可退口径归出货域：RMA 只能通过 ReturnableSalesOrderService 读出货单，"
+                            + "直连 sal.repository 等于在退货模块抄一份 shipped_qty − returned_qty（§6 坑 13）");
+
     // ─────────────────────── 辅助实现 ───────────────────────
 
     /**
@@ -511,6 +538,34 @@ class ArchitectureTest {
                 报表模块不得依赖其它模块的应用服务.evaluate(classes).hasViolation())
                 .as("★ 规则必须能拦住 rpt -> 其它模块 application 的依赖；"
                         + "若为 false 说明规则已失效（假绿）")
+                .isTrue();
+    }
+
+    /**
+     * ★ 自检：退货只读出口规则必须拦住"RMA 直连 sal.repository"。
+     *
+     * <p>探针放进真实的 {@code com.erp.rma.application} 包，并 evaluate <b>生产规则本身</b>：
+     * 有人把规则里的包名改窄（例如只拦 {@code rma.api}）时，本用例立刻变红。
+     */
+    @org.junit.jupiter.api.Test
+    @CaseId("TC-ARCH-006")
+    @org.junit.jupiter.api.DisplayName("★ 规则自检：退货模块不得直连 sal.repository 的规则必须拦住违规 import")
+    void 规则自检_退货不得直连出货仓储规则必须生效() {
+        var classes = compileProbe("com.erp.rma.application.BadSalRepositoryProbe", """
+                package com.erp.rma.application;
+
+                public class BadSalRepositoryProbe {
+                    private final com.erp.sal.repository.SalesOrderRepository repo = null;
+
+                    public Object bad() {
+                        return repo;
+                    }
+                }
+                """);
+        org.assertj.core.api.Assertions.assertThat(
+                退货模块不得直连出货模块仓储.evaluate(classes).hasViolation())
+                .as("★ 规则必须能拦住 rma -> sal.repository 的直连；"
+                        + "若为 false 说明可退口径已被抄进退货模块而门禁失效（假绿）")
                 .isTrue();
     }
 
