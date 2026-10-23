@@ -4,7 +4,7 @@
 ![Java](https://img.shields.io/badge/Java-17-007396?logo=openjdk&logoColor=white)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.3-6DB33F?logo=springboot&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-459%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-465%20passing-brightgreen)
 ![Coverage](https://img.shields.io/badge/line%20coverage-85.6%25-brightgreen)
 ![Branch](https://img.shields.io/badge/branch%20coverage-64.2%25-yellowgreen)
 
