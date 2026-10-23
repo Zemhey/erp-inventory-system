@@ -6,7 +6,10 @@ import com.erp.mdm.repository.SupplierRepository;
 import com.erp.mdm.repository.WarehouseRepository;
 import com.erp.pur.domain.PurchaseOrder;
 import com.erp.pur.domain.PurchaseOrderLine;
+import com.erp.pur.domain.PurchaseReceipt;
+import com.erp.pur.domain.QcStatus;
 import com.erp.pur.repository.PurchaseOrderRepository;
+import com.erp.pur.repository.PurchaseReceiptRepository;
 import com.erp.shared.document.DocumentNumberGenerator;
 import com.erp.shared.document.DocumentStatus;
 import com.erp.shared.document.DocumentStatusMachine;
@@ -18,8 +21,10 @@ import com.erp.shared.time.ClockProvider;
 import com.erp.shared.web.PageResult;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -41,6 +46,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class PurchaseOrderApplicationService {
 
     private final PurchaseOrderRepository orders;
+    private final PurchaseReceiptRepository receipts;
+    private final SupplierPayableService payables;
     private final SupplierRepository suppliers;
     private final WarehouseRepository warehouses;
     private final SkuRepository skus;
@@ -55,6 +62,8 @@ public class PurchaseOrderApplicationService {
     private final PeriodGuard periodGuard;
 
     public PurchaseOrderApplicationService(PurchaseOrderRepository orders,
+                                           PurchaseReceiptRepository receipts,
+                                           SupplierPayableService payables,
                                            SupplierRepository suppliers,
                                            WarehouseRepository warehouses,
                                            SkuRepository skus,
@@ -63,6 +72,8 @@ public class PurchaseOrderApplicationService {
                                            ClockProvider clock,
                                            PeriodGuard periodGuard) {
         this.orders = orders;
+        this.receipts = receipts;
+        this.payables = payables;
         this.suppliers = suppliers;
         this.warehouses = warehouses;
         this.skus = skus;
@@ -81,12 +92,30 @@ public class PurchaseOrderApplicationService {
                                 String remark, List<CreateLineCommand> lines, String requestId) {
     }
 
-    /** 入库确认的一行：指定明细行与本次实收数量（可选指定批次与效期）。 */
+    /**
+     * 入库确认的一行：指定明细行与本次实收数量（可选指定批次与效期）。
+     *
+     * <p>V2-2 增加 {@code qcQty / qcNote}：{@code qcQty} 是本次到货中的合格数量，
+     * 缺省等于 {@code qty}（兼容 M1 的调用与前端旧版本）。
+     * 不合格量只记到货单，不产生库存与应付。
+     */
     public record ReceiveLineCommand(long lineId, int qty, String batchNo,
-                                     LocalDate productionDate, LocalDate expiryDate) {
+                                     LocalDate productionDate, LocalDate expiryDate,
+                                     Integer qcQty, String qcNote) {
+
+        public ReceiveLineCommand(long lineId, int qty, String batchNo,
+                                  LocalDate productionDate, LocalDate expiryDate) {
+            this(lineId, qty, batchNo, productionDate, expiryDate, null, null);
+        }
     }
 
     public record ReceiveCommand(List<ReceiveLineCommand> lines, String requestId) {
+    }
+
+    /** 预检通过、准备落库的一行。 */
+    private record PreparedReceive(PurchaseOrderLine line, int qty, int qcQty, String qcNote,
+                                   String batchNo, LocalDate productionDate, LocalDate expiryDate,
+                                   long acceptedAmount, QcStatus qcStatus) {
     }
 
     // ─────────────────────────── 建单 ───────────────────────────
@@ -313,6 +342,21 @@ public class PurchaseOrderApplicationService {
     @Transactional
     public PurchaseOrder receive(long id, ReceiveCommand cmd) {
         PurchaseOrder o = require(id);
+        if (cmd.requestId() == null || cmd.requestId().isBlank()) {
+            throw new BusinessException(ErrorCode.SYS_VALIDATION_ERROR,
+                    "入库确认必须提供幂等键 X-Request-Id");
+        }
+
+        // 同键重放：不重复入库、不重复记质检、不重复生成应付。
+        Optional<PurchaseReceipt> replay = receipts.findByRequestId(cmd.requestId());
+        if (replay.isPresent()) {
+            if (replay.get().purchaseOrderId() != o.id()) {
+                throw new BusinessException(ErrorCode.SYS_DUPLICATE_REQUEST,
+                        "重复的入库请求：该幂等键已用于另一张进货单");
+            }
+            return require(id);
+        }
+
         if (!o.status().isExecutable()) {
             throw new BusinessException(ErrorCode.PUR_STATUS_ILLEGAL,
                     "进货单 %s 当前状态 %s 不可入库（仅 APPROVED / PARTIAL 可入库）"
@@ -323,7 +367,11 @@ public class PurchaseOrderApplicationService {
             throw new BusinessException(ErrorCode.SYS_VALIDATION_ERROR, "入库明细不能为空");
         }
 
-        int receivedThisTime = 0;
+        List<PreparedReceive> prepared = new ArrayList<>();
+        Set<Long> seenLines = new HashSet<>();
+        int totalQty = 0;
+        int acceptedQty = 0;
+        long acceptedAmount = 0;
         for (ReceiveLineCommand rc : cmd.lines()) {
             PurchaseOrderLine line = o.lines().stream()
                     .filter(l -> l.id() == rc.lineId())
@@ -331,7 +379,11 @@ public class PurchaseOrderApplicationService {
                     .orElseThrow(() -> new BusinessException(ErrorCode.SYS_NOT_FOUND,
                             "进货单 %s 中不存在明细行 lineId=%d"
                                     .formatted(o.orderNo(), rc.lineId())));
-
+            if (!seenLines.add(line.id())) {
+                throw new BusinessException(ErrorCode.SYS_VALIDATION_ERROR,
+                        "同一明细行在一次入库确认中只能出现一次：lineId=%d"
+                                .formatted(line.id()));
+            }
             if (rc.qty() <= 0) {
                 throw new BusinessException(ErrorCode.SYS_VALIDATION_ERROR,
                         "入库数量必须为正：lineId=%d, qty=%d".formatted(rc.lineId(), rc.qty()));
@@ -346,28 +398,63 @@ public class PurchaseOrderApplicationService {
                                 "ordered", line.qty(), "received", line.receivedQty(),
                                 "requested", rc.qty()));
             }
+            int qcQty = rc.qcQty() == null ? rc.qty() : rc.qcQty();
+            if (qcQty < 0 || qcQty > rc.qty()) {
+                throw new BusinessException(ErrorCode.PUR_QC_QTY_INVALID,
+                        "合格数量越界：lineId=%d 本次到货 %d，合格 %d（必须在 0..到货量之间）"
+                                .formatted(line.id(), rc.qty(), qcQty),
+                        java.util.Map.of("lineId", line.id(), "receivedQty", rc.qty(),
+                                "qcQty", qcQty));
+            }
+            long lineAccepted = Math.multiplyExact((long) qcQty, line.unitPriceAmount());
+            prepared.add(new PreparedReceive(line, rc.qty(), qcQty, trimToNull(rc.qcNote()),
+                    rc.batchNo() == null ? "" : rc.batchNo(), rc.productionDate(),
+                    rc.expiryDate(), lineAccepted, QcStatus.of(rc.qty(), qcQty)));
+            totalQty += rc.qty();
+            acceptedQty += qcQty;
+            acceptedAmount = Math.addExact(acceptedAmount, lineAccepted);
+        }
 
-            // ① 累计入库量（原子守卫，防并发超量）
-            if (!orders.applyReceivedQty(line.id(), rc.qty())) {
+        String receiptNo = numberGenerator.next(DocumentNumberGenerator.DocType.PURCHASE_RECEIPT,
+                o.bizDate());
+        long receiptId = receipts.insertHeader(receiptNo, o.id(), o.supplierId(), o.warehouseId(),
+                o.bizDate(), periodOf(o.bizDate()), totalQty, acceptedQty, totalQty - acceptedQty,
+                acceptedAmount, cmd.requestId(), clock.now());
+
+        int lineNo = 1;
+        for (PreparedReceive p : prepared) {
+            // ① 累计到货量（原子守卫，防并发超量）
+            if (!orders.applyReceivedQty(p.line().id(), p.qty())) {
                 throw new BusinessException(ErrorCode.PUR_OVER_RECEIVE,
                         "超量入库（并发冲突）：进货单 %s 第 %d 行"
-                                .formatted(o.orderNo(), line.lineNo()));
+                                .formatted(o.orderNo(), p.line().lineNo()));
             }
-
-            // ② ★ 唯一库存入口
-            String batchNo = rc.batchNo() == null ? "" : rc.batchNo();
-            inventory.receiveIn(line.skuId(), o.warehouseId(), batchNo,
-                    rc.productionDate(), rc.expiryDate(), rc.qty(),
-                    "PURCHASE_IN", o.orderNo(), o.id(),
-                    line.unitPriceAmount(), receiptRequestId(cmd.requestId(), line.lineNo()));
-
-            receivedThisTime += rc.qty();
+            // ② 累计质检量（状态按累加后的数量推导）
+            if (!orders.applyQc(p.line().id(), p.qcQty(), p.qcNote())) {
+                throw new BusinessException(ErrorCode.PUR_QC_QTY_INVALID,
+                        "质检数量写入冲突：进货单 %s 第 %d 行"
+                                .formatted(o.orderNo(), p.line().lineNo()));
+            }
+            // ③ 只有合格量进库存 —— 不合格量没有流水、没有余额行
+            if (p.qcQty() > 0) {
+                inventory.receiveIn(p.line().skuId(), o.warehouseId(), p.batchNo(),
+                        p.productionDate(), p.expiryDate(), p.qcQty(),
+                        "PURCHASE_IN", o.orderNo(), o.id(), p.line().unitPriceAmount(),
+                        receiptRequestId(cmd.requestId(), p.line().lineNo()));
+            }
+            receipts.insertLine(receiptId, lineNo++, p.line().id(), p.line().skuId(),
+                    p.batchNo(), p.productionDate(), p.expiryDate(), p.qty(), p.qcQty(),
+                    p.qty() - p.qcQty(), p.line().unitPriceAmount(), p.acceptedAmount(),
+                    p.qcStatus(), p.qcNote());
         }
-        if (receivedThisTime == 0) {
-            throw new BusinessException(ErrorCode.SYS_VALIDATION_ERROR, "本次入库数量合计为 0");
+
+        // ④ 应付只按合格金额生成；全部不合格则不生成应付单
+        if (acceptedAmount > 0) {
+            payables.createForReceipt(receiptId, o.supplierId(), o.id(), o.bizDate(),
+                    periodOf(o.bizDate()), acceptedAmount);
         }
 
-        // ③ 状态推进
+        // ⑤ 状态推进以"到货量"为准：不合格数量同样关闭未到货量，避免永远无法完成
         PurchaseOrder refreshed = require(id);
         DocumentStatus target = refreshed.fullyReceived()
                 ? DocumentStatus.COMPLETED
@@ -376,6 +463,13 @@ public class PurchaseOrderApplicationService {
                 ErrorCode.PUR_STATUS_ILLEGAL, refreshed.orderNo());
         transition(refreshed, target);
         return require(id);
+    }
+
+    /** 到货/质检记录（FR-PUR-05）：按到货单顺序返回。 */
+    @Transactional(readOnly = true)
+    public List<PurchaseReceipt> receipts(long orderId) {
+        require(orderId);
+        return receipts.findByOrderId(orderId);
     }
 
     // ─────────────────────────── 查询 ───────────────────────────

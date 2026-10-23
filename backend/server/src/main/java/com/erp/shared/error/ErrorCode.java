@@ -42,6 +42,35 @@ public enum ErrorCode {
     PUR_ORDER_NOT_FOUND(404),
     PUR_STATUS_ILLEGAL(409),
     PUR_OVER_RECEIVE(409),
+
+    // ── 采购闭环 V2-2（FR-PUR-04~08）──
+    /** 请购单不存在。 */
+    PUR_REQ_NOT_FOUND(404),
+    /** 请购单状态不允许提交/审核/转化（含已转化后再次转化）。 */
+    PUR_REQ_STATUS_ILLEGAL(409),
+    /** 转化数量超过请购数量。 */
+    PUR_REQ_CONVERT_EXCEED(409),
+    /** 到货单不存在。 */
+    PUR_RECEIPT_NOT_FOUND(404),
+    /** 合格数量越界：< 0 或 > 本次到货量。 */
+    PUR_QC_QTY_INVALID(400),
+    /** 采购退货单或原收货行不存在。 */
+    PUR_RETURN_NOT_FOUND(404),
+    /** 退货单状态不允许执行/作废。 */
+    PUR_RETURN_STATUS_ILLEGAL(409),
+    /** 退货数量超过可退量（合格量 − 已退货量）。 */
+    PUR_RETURN_QTY_EXCEED(409),
+    /** 退货金额超过该到货单应付余额（已付款部分不能被退货冲掉）。 */
+    PUR_RETURN_EXCEED_PAYABLE(409),
+    /** 应付单不存在。 */
+    PUR_PAYABLE_NOT_FOUND(404),
+    /** 核销明细合计 ≠ 付款单金额，或金额非正/应付重复。 */
+    PUR_PAYMENT_AMOUNT_MISMATCH(400),
+    /** 核销的应付不属于该供应商。 */
+    PUR_PAYMENT_SUPPLIER_MISMATCH(400),
+    /** 核销额超过应付余额（业务冲突，409 —— 不是登录态 401）。 */
+    PUR_PAYMENT_EXCEED_PAYABLE(409),
+
     SAL_ORDER_NOT_FOUND(404),
     SAL_STATUS_ILLEGAL(409),
 
