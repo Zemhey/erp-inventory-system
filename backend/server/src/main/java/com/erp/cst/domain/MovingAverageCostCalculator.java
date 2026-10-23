@@ -22,7 +22,9 @@ import java.util.Map;
  * <ul>
  *   <li>进货红冲流水自带原进价，按原进价出库才能让「进货 + 红冲」净额为 0；</li>
  *   <li>出货红冲流水没有成本，必须配对原 {@code SALES_OUT} 的成本层；</li>
- *   <li>退货回补同理，按原出货成本回补，否则「出货 + 退货」会在成本池里留下差额。</li>
+ *   <li>退货回补同理，按原出货成本回补，否则「出货 + 退货」会在成本池里留下差额；</li>
+ *   <li>仓间调拨（TRANSFER_OUT/TRANSFER_IN）是两段式的仓间移动：调入必须配对同一
+ *       调拨单号 + SKU + 批次的调出成本，不能按目的仓均价重新估值，否则两仓合计成本不守恒。</li>
  * </ul>
  * 配对信息只来自流水本身（单号、SKU、仓库、批次、数量）与退货单的原出货单号，
  * 不依赖内存里"上一次算到哪"的状态，所以重算与增量结果必然一致。
@@ -42,6 +44,7 @@ public final class MovingAverageCostCalculator {
         Map<CostPoolKey, long[]> pools = new HashMap<>();
         Map<OutboundKey, Deque<OutboundCost>> salesOutQueue = new HashMap<>();
         Map<OriginKey, long[]> originOutstanding = new HashMap<>();
+        Map<TransferKey, Deque<OutboundCost>> transferOutQueue = new HashMap<>();
         List<CostLayer> layers = new ArrayList<>(ordered.size());
         long inboundCost = 0;
         long outboundCost = 0;
@@ -62,7 +65,7 @@ public final class MovingAverageCostCalculator {
 
             if (event.inbound()) {
                 InboundCost inbound = resolveInbound(
-                        event, qty, pool, salesOutQueue, originOutstanding);
+                        event, qty, pool, salesOutQueue, originOutstanding, transferOutQueue);
                 pool[0] += qty;
                 pool[1] += inbound.totalCost();
                 inboundCost += inbound.totalCost();
@@ -89,6 +92,9 @@ public final class MovingAverageCostCalculator {
                 if ("SALES_OUT".equals(event.bizType())) {
                     rememberSalesOut(event, qty, total, salesOutQueue, originOutstanding);
                 }
+                if ("TRANSFER_OUT".equals(event.bizType())) {
+                    rememberTransferOut(event, qty, total, transferOutQueue);
+                }
             }
         }
 
@@ -106,7 +112,8 @@ public final class MovingAverageCostCalculator {
 
     private static InboundCost resolveInbound(CostEvent event, int qty, long[] pool,
                                               Map<OutboundKey, Deque<OutboundCost>> salesOutQueue,
-                                              Map<OriginKey, long[]> originOutstanding) {
+                                              Map<OriginKey, long[]> originOutstanding,
+                                              Map<TransferKey, Deque<OutboundCost>> transferOutQueue) {
         if ("SALES_REVERSAL".equals(event.bizType())) {
             OutboundKey key = new OutboundKey(event.bizRefNo(), event.skuId(),
                     event.warehouseId(), event.batchNo());
@@ -144,10 +151,57 @@ public final class MovingAverageCostCalculator {
             return fromUnit(currentUnit(pool), qty);
         }
 
+        if ("TRANSFER_IN".equals(event.bizType())) {
+            InboundCost paired = resolveTransferIn(event, qty, pool, transferOutQueue);
+            if (paired != null) {
+                return paired;
+            }
+        }
+
         if (event.explicitUnitCostAmount() != null) {
             return fromUnit(event.explicitUnitCostAmount(), qty);
         }
         return fromUnit(currentUnit(pool), qty);
+    }
+
+    /**
+     * 调入成本：优先配对同一调拨单（biz_ref_no + sku + 批次）的 {@code TRANSFER_OUT}。
+     *
+     * <p>调拨是仓间移动，不是真正的成本退出：源仓按成本出、目的仓必须按同一成本入，
+     * 否则两仓合计成本会凭空增加/减少。调拨行允许 {@code unitCostAmount} 为空，
+     * 所以不能依赖调用方传成本；配对是主路径，显式成本只在配不上时兜底。
+     */
+    private static InboundCost resolveTransferIn(CostEvent event, int qty, long[] pool,
+                                                 Map<TransferKey, Deque<OutboundCost>> transferOutQueue) {
+        Deque<OutboundCost> queue = transferOutQueue.get(
+                new TransferKey(event.bizRefNo(), event.skuId(), event.batchNo()));
+        if (queue == null || queue.isEmpty()) {
+            return null;
+        }
+        long total = 0;
+        int remaining = qty;
+        while (remaining > 0 && !queue.isEmpty()) {
+            OutboundCost head = queue.peekFirst();
+            int take = Math.min(remaining, head.qty());
+            long takeCost = take == head.qty()
+                    ? head.totalCost()
+                    : MoneyMath.mulDivHalfUp(head.totalCost(), take, head.qty());
+            if (take == head.qty()) {
+                queue.removeFirst();
+            } else {
+                queue.addFirst(new OutboundCost(head.qty() - take, head.totalCost() - takeCost));
+            }
+            total += takeCost;
+            remaining -= take;
+        }
+        if (remaining > 0) {
+            // 调拨单数据不完整（调入多于调出）时，超出部分按显式成本/目的仓均价兜底。
+            long unit = event.explicitUnitCostAmount() != null
+                    ? event.explicitUnitCostAmount()
+                    : currentUnit(pool);
+            total += MoneyMath.mulDivHalfUp(unit, remaining, 1);
+        }
+        return fromTotal(total, qty);
     }
 
     private static OutboundCost takeMatching(Deque<OutboundCost> queue, int qty) {
@@ -194,6 +248,21 @@ public final class MovingAverageCostCalculator {
         }
     }
 
+    /**
+     * 记住调出成本，供稍后到货的 {@code TRANSFER_IN} 配对。
+     *
+     * <p>调拨是两段式的：建单即写出库流水，到货才写入库流水，两者可能相隔数天。
+     * 因此队列必须跨事件保留，不能只在"同一事务"里找。
+     * 键按调拨单号 + SKU + 批次：调拨单号唯一，批次保证多批次不会串成本。
+     */
+    private static void rememberTransferOut(CostEvent event, int qty, long total,
+                                            Map<TransferKey, Deque<OutboundCost>> transferOutQueue) {
+        transferOutQueue.computeIfAbsent(
+                        new TransferKey(event.bizRefNo(), event.skuId(), event.batchNo()),
+                        key -> new ArrayDeque<>())
+                .addLast(new OutboundCost(qty, total));
+    }
+
     // ─────────────────────────── 小工具 ───────────────────────────
 
     private static long currentUnit(long[] pool) {
@@ -223,5 +292,9 @@ public final class MovingAverageCostCalculator {
 
     private record OriginKey(String originSalesOrderNo, long skuId, long warehouseId,
                              String batchNo) {
+    }
+
+    /** 调拨配对键：单号 + SKU + 批次（单号已隐含源/目的仓）。 */
+    private record TransferKey(String bizRefNo, long skuId, String batchNo) {
     }
 }
