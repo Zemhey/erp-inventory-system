@@ -10,7 +10,7 @@
     "skipLibCheck": true,
     "noEmit": true,
     "lib": ["ESNext", "DOM"],
-    "types": ["@dcloudio/types"],
+    "types": ["@dcloudio/types", "node"],
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]

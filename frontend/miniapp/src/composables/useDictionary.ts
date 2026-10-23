@@ -1,5 +1,12 @@
 import { computed, ref } from 'vue'
-import { mdmApi, type Product, type Sku, type Warehouse } from '@/api/client'
+import {
+  mdmApi,
+  type Customer,
+  type Product,
+  type Sku,
+  type Supplier,
+  type Warehouse,
+} from '@/api/client'
 import { hasPermission } from '@/stores/session'
 import { safe } from '@/utils/safe'
 
@@ -19,6 +26,8 @@ const PAGE_LIMIT = 200
 const warehouses = ref<Warehouse[]>([])
 const skus = ref<Sku[]>([])
 const products = ref<Product[]>([])
+const suppliers = ref<Supplier[]>([])
+const customers = ref<Customer[]>([])
 const truncated = ref(false)
 const warning = ref('')
 const loaded = ref(false)
@@ -32,21 +41,27 @@ async function doLoad(): Promise<void> {
     return
   }
 
-  const [wh, sku, prod] = await Promise.all([
+  const [wh, sku, prod, sup, cus] = await Promise.all([
     safe(mdmApi.listWarehouses(false)),
     safe(mdmApi.listSkus({ page: 1, size: PAGE_LIMIT })),
     safe(mdmApi.listProducts({ page: 1, size: PAGE_LIMIT })),
+    safe(mdmApi.listSuppliers({ page: 1, size: PAGE_LIMIT })),
+    safe(mdmApi.listCustomers({ page: 1, size: PAGE_LIMIT })),
   ])
 
   if (wh.ok) warehouses.value = wh.value
   if (sku.ok) skus.value = sku.value.items
   if (prod.ok) products.value = prod.value.items
+  if (sup.ok) suppliers.value = sup.value.items
+  if (cus.ok) customers.value = cus.value.items
 
   truncated.value =
     (sku.ok && sku.value.total > sku.value.items.length) ||
-    (prod.ok && prod.value.total > prod.value.items.length)
+    (prod.ok && prod.value.total > prod.value.items.length) ||
+    (sup.ok && sup.value.total > sup.value.items.length) ||
+    (cus.ok && cus.value.total > cus.value.items.length)
 
-  const failed = !wh.ok || !sku.ok || !prod.ok
+  const failed = !wh.ok || !sku.ok || !prod.ok || !sup.ok || !cus.ok
   warning.value = truncated.value
     ? '主数据超过 200 条，名称字典只覆盖前 200 条'
     : failed
@@ -89,6 +104,21 @@ export function useDictionary() {
     return warehouseNames.value.get(id) ?? `仓库#${id}`
   }
 
+  function productText(id: number): string {
+    const product = products.value.find((item) => item.id === id)
+    return product ? product.name : `商品#${id}`
+  }
+
+  function supplierText(id: number): string {
+    const supplier = suppliers.value.find((item) => item.id === id)
+    return supplier ? supplier.name : `供应商#${id}`
+  }
+
+  function customerText(id: number): string {
+    const customer = customers.value.find((item) => item.id === id)
+    return customer ? customer.name : `客户#${id}`
+  }
+
   function skuText(id: number): string {
     return skuNames.value.get(id) ?? `SKU#${id}`
   }
@@ -97,12 +127,17 @@ export function useDictionary() {
     warehouses,
     skus,
     products,
+    suppliers,
+    customers,
     truncated,
     warning,
     loadDictionary,
     warehouseNames,
     skuNames,
     warehouseText,
+    productText,
+    supplierText,
+    customerText,
     skuText,
   }
 }
