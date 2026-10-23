@@ -1,0 +1,29 @@
+# ════════════════════════════════════════════════════════════════════════════
+# 仅用于本机离线验证的基础镜像（不是生产制品）
+#
+# 背景：本机 Docker Hub / nginx.org / GitHub 均不可达，无法拉取
+#   eclipse-temurin / nginx / node 等官方镜像。为了让「生产 compose」
+#   在本机仍能起整套，这里用**本地已有的 postgres:16-alpine** 作底座，
+#   从可访问的 Alpine 镜像站安装 JRE 17 + nginx。
+#
+# 生产环境请使用 backend/server/Dockerfile 与 frontend/web/Dockerfile 的
+# 官方基础镜像；本文件只在 infra/deploy/offline/README.md 描述的离线场景使用。
+#
+# 已知差异（必须如实记录）：
+#   - nginx 版本为 Alpine 仓库的 1.30.x，而非生产固定的 1.27.x；
+#     但 frontend/web/nginx.conf 是同一份，所以配置语义得到了真实验证。
+#   - 没有构建阶段：JAR 与 dist 在宿主构建好后拷入（宿主机已具备 Gradle/Node）。
+# ════════════════════════════════════════════════════════════════════════════
+FROM postgres:16-alpine
+
+# 默认走华为云镜像；其他网络可覆盖：--build-arg APK_MIRROR=https://mirrors.aliyun.com
+ARG APK_MIRROR=https://repo.huaweicloud.com
+
+RUN sed -i "s#https://dl-cdn.alpinelinux.org#${APK_MIRROR}#g" /etc/apk/repositories \
+    && apk add --no-cache openjdk17-jre-headless nginx tzdata \
+    && java -version 2>&1 | head -1 \
+    && nginx -v 2>&1
+
+# postgres 镜像自带 docker-entrypoint.sh；这里清掉，派生镜像各用各的入口
+ENTRYPOINT []
+STOPSIGNAL SIGTERM

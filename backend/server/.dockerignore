@@ -1,0 +1,14 @@
+# 构建产物与本地状态不进上下文：镜像构建必须从源码重新产出
+build/
+.gradle/
+out/
+.git/
+.idea/
+*.iml
+*.log
+hs_err_pid*
+replay_pid*
+
+# 单元/集成测试不在镜像构建阶段执行（门禁在 CI 与本机 gradlew check 里跑）
+# 排除测试源码可显著减小上下文体积；bootJar 不依赖 test source set
+src/test/

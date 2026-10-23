@@ -1,0 +1,20 @@
+# 依赖与构建产物不进上下文：镜像内重新 npm ci + build
+node_modules/
+dist/
+.vite/
+.tmp/
+*.tsbuildinfo
+npm-debug.log*
+
+# 本地/CI 测试产物
+.e2e-artifacts/
+playwright-report/
+test-results/
+e2e/
+
+# 版本库与 IDE
+.git/
+.idea/
+.vscode/
+*.iml
+*.swp

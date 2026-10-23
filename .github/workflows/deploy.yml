@@ -1,0 +1,154 @@
+# ════════════════════════════════════════════════════════════════════════════
+# 部署流水线 · 草案（未在真实 GitHub runner 上验证）
+#
+# ★ 为什么单独一个文件、且只允许手动触发：
+#   现有 ci.yml 的红绿是主干的硬门禁；未经验证的部署 job 不能混进去。
+#   本工作流只有 workflow_dispatch，不会在 push/PR 上自动运行，
+#   因此不会改变现有 CI 的红绿。
+#
+# 流程：
+#   1. build-and-push：构建 backend/web 镜像并推到 GHCR；
+#   2. deploy（默认关闭）：通过 SSH 到 /opt/erp，拉取镜像、打成本地 tag，
+#      再调用 scripts/deploy.sh --tag <tag> --no-build（复用同一套健康检查/状态/回滚）。
+#
+# 需要配置的仓库 Secrets（deploy=true 时）：
+#   DEPLOY_SSH_KEY       部署私钥（只读/专用，不要复用个人密钥）
+#   DEPLOY_KNOWN_HOSTS   服务器的 known_hosts 行（不要用 ssh-keyscan 裸连）
+#   DEPLOY_HOST          服务器 IP/域名
+#   DEPLOY_USER          部署用户（在 docker 组，能写 /opt/erp）
+#   GHCR_USER / GHCR_READ_TOKEN   服务器拉取 GHCR 镜像用的只读凭据
+#
+# 未验证项（首次真实使用前必须补）：
+#   - GHCR 包可见性与 token 权限；
+#   - 服务器 git 工作区干净、tag 存在；
+#   - 部署后的业务冒烟（登录→库存→进货单）；
+#   - 失败自动回滚在真实网络/磁盘下的表现。
+# ════════════════════════════════════════════════════════════════════════════
+name: deploy-draft
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "镜像 tag（留空 = 当前 commit SHA）"
+        required: false
+        type: string
+      deploy:
+        description: "构建后是否 SSH 部署（默认 false，只构建推送）"
+        required: false
+        default: false
+        type: boolean
+      environment:
+        description: "GitHub Environment（用于审批/密钥隔离）"
+        required: false
+        default: production
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  build-and-push:
+    name: build-and-push
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      image_prefix: ${{ steps.meta.outputs.image_prefix }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute tag and lowercase image prefix
+        id: meta
+        run: |
+          TAG="${{ inputs.tag }}"
+          if [ -z "$TAG" ]; then TAG="${GITHUB_SHA::12}"; fi
+          PREFIX="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "image_prefix=$PREFIX" >> "$GITHUB_OUTPUT"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "IMAGE_PREFIX=$PREFIX" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push backend
+        uses: docker/build-push-action@v6
+        with:
+          context: backend/server
+          push: true
+          tags: ${{ env.IMAGE_PREFIX }}/erp-backend:${{ env.TAG }}
+          cache-from: type=gha,scope=erp-backend
+          cache-to: type=gha,mode=max,scope=erp-backend
+
+      - name: Build and push web
+        uses: docker/build-push-action@v6
+        with:
+          context: frontend/web
+          push: true
+          tags: ${{ env.IMAGE_PREFIX }}/erp-web:${{ env.TAG }}
+          cache-from: type=gha,scope=erp-web
+          cache-to: type=gha,mode=max,scope=erp-web
+
+  deploy:
+    name: deploy-over-ssh
+    needs: build-and-push
+    if: ${{ inputs.deploy == true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: SSH deploy
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          SSH_HOST: ${{ secrets.DEPLOY_HOST }}
+          SSH_USER: ${{ secrets.DEPLOY_USER }}
+          GHCR_USER: ${{ secrets.GHCR_USER }}
+          GHCR_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+          TAG: ${{ needs.build-and-push.outputs.tag }}
+          IMAGE_PREFIX: ${{ needs.build-and-push.outputs.image_prefix }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+          # 通过 stdin 把脚本送到远端：token 不出现在远端进程参数里
+          ssh -i ~/.ssh/id_ed25519 "$SSH_USER@$SSH_HOST" 'bash -s' <<EOF
+          set -euo pipefail
+          cd /opt/erp
+          git fetch --all --tags
+          git checkout "$TAG"
+
+          echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+          docker pull "$IMAGE_PREFIX/erp-backend:$TAG"
+          docker pull "$IMAGE_PREFIX/erp-web:$TAG"
+          docker tag "$IMAGE_PREFIX/erp-backend:$TAG" "erp-backend:$TAG"
+          docker tag "$IMAGE_PREFIX/erp-web:$TAG" "erp-web:$TAG"
+
+          ./scripts/deploy.sh --tag "$TAG" --no-build
+          curl -fsS http://127.0.0.1:18080/readyz
+          EOF
+
+      - name: Smoke test (healthz)
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          SSH_HOST: ${{ secrets.DEPLOY_HOST }}
+          SSH_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh -i ~/.ssh/id_ed25519 "$SSH_USER@$SSH_HOST" \
+            "curl -fsS -o /dev/null -w 'healthz=%{http_code}\\n' http://127.0.0.1:18080/healthz"
