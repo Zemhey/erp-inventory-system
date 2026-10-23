@@ -168,6 +168,68 @@ public class SalesOrderRepository {
     }
 
     /**
+     * 作废/红冲的状态推进（M2.5）：同一语句写入幂等键。
+     *
+     * <p>用「状态 + version」作为并发串行化点：两个作废请求只有一个能更新成功；
+     * 后到者重读后按同键/异键分别做幂等返回或状态非法。
+     */
+    public boolean markVoided(long id, DocumentStatus from, int expectedVersion, String requestId) {
+        return jdbc.update("""
+                UPDATE sales_orders
+                   SET status = 'VOIDED', void_request_id = ?,
+                       version = version + 1, updated_at = now()
+                 WHERE id = ? AND status = ? AND version = ?
+                """, requestId, id, from.name(), expectedVersion) == 1;
+    }
+
+    /**
+     * 出货红冲的状态推进：除状态/版本外，还要求当前没有任何退货数量。
+     *
+     * <p>`NOT EXISTS` 放在 UPDATE 里而不是只在应用层先查：红冲与退货入库并发时，
+     * 退货入库会先锁住同一张出货单头（见 {@code SalesOrderReturnService}），
+     * 两者由这把行锁串行化 —— 退货先提交则本条件为假，红冲先提交则退货入库看到 VOIDED。
+     */
+    public boolean markVoidedWithNoReturns(long id, DocumentStatus from, int expectedVersion,
+                                           String requestId) {
+        return jdbc.update("""
+                UPDATE sales_orders o
+                   SET status = 'VOIDED', void_request_id = ?,
+                       version = version + 1, updated_at = now()
+                 WHERE o.id = ? AND o.status = ? AND o.version = ?
+                   AND NOT EXISTS (SELECT 1 FROM sales_order_lines l
+                                    WHERE l.order_id = o.id AND l.returned_qty > 0)
+                """, requestId, id, from.name(), expectedVersion) == 1;
+    }
+
+    /** 该单是否由指定幂等键作废（同键重放判据）。 */
+    public boolean isVoidedByRequest(long id, String requestId) {
+        Boolean v = jdbc.queryForObject("""
+                SELECT EXISTS (SELECT 1 FROM sales_orders
+                                WHERE id = ? AND status = 'VOIDED' AND void_request_id = ?)
+                """, Boolean.class, id, requestId);
+        return Boolean.TRUE.equals(v);
+    }
+
+    /**
+     * 退货入库前锁定原出货单头并取状态（M2.5）。
+     *
+     * <p>红冲更新的是同一行 `sales_orders`；退货入库先拿这把行锁，
+     * 两边就按同一顺序串行化：要么退货先登记（红冲的条件 UPDATE 随后看到
+     * `returned_qty > 0` 而失败），要么红冲先完成（退货入库看到 VOIDED 而失败）。
+     * 没有这把锁，"红冲 + 并发退货入库"会把同一批货回补两次。
+     */
+    public Optional<DocumentStatus> lockOrderStatusByLineId(long lineId) {
+        return jdbc.query("""
+                SELECT o.status
+                  FROM sales_orders o
+                  JOIN sales_order_lines l ON l.order_id = o.id
+                 WHERE l.id = ?
+                 FOR UPDATE OF o
+                """, (rs, i) -> DocumentStatus.valueOf(rs.getString("status")), lineId)
+                .stream().findFirst();
+    }
+
+    /**
      * 推进单行累计出库量，原子守卫不超量。
      *
      * @return 是否更新成功（false = 超量或并发冲突）

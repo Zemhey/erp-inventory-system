@@ -40,4 +40,9 @@ public record SalesOrder(long id, String orderNo, DocumentStatus status, long cu
     public boolean anyShipped() {
         return lines.stream().anyMatch(l -> l.shippedQty() > 0);
     }
+
+    /** 是否有任何已退货数量（M2.5：有退货的出货单不允许红冲）。 */
+    public boolean anyReturned() {
+        return lines.stream().anyMatch(l -> l.returnedQty() > 0);
+    }
 }

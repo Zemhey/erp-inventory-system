@@ -321,7 +321,7 @@ class SalesOrderIT extends PostgresTestBase {
         SalesOrder o = createOrder("req-sal-void", List.of(new SalesOrderApplicationService.CreateLineCommand(skuA, 7, 1000L, null)));
         assertThat(data.reserved(skuA, warehouseId, "")).isEqualTo(7);
 
-        SalesOrder voided = salesOrders.voidOrder(o.id());
+        SalesOrder voided = salesOrders.voidOrder(o.id(), "req-sal-void-1");
 
         assertThat(voided.status()).isEqualTo(DocumentStatus.VOIDED);
         assertThat(data.reserved(skuA, warehouseId, "")).as("★ 预占必须释放").isZero();
@@ -330,25 +330,29 @@ class SalesOrderIT extends PostgresTestBase {
 
     @Test
     @CaseId("TC-SAL-012")
-    @DisplayName("已出货的单据不能直接作废（需红冲，FR-SAL-04 属 M2）")
-    void void_afterShip_thenRejected() {
+    @DisplayName("★ 已出货单据红冲：按原批次回补实存、写 SALES_REVERSAL、状态 VOIDED")
+    void void_afterShip_shouldReverseStockAndVoid() {
         stock(skuA, 10);
         SalesOrder o = createOrder("req-sal-void2", List.of(new SalesOrderApplicationService.CreateLineCommand(skuA, 5, 1000L, null)));
         salesOrders.submit(o.id());
         salesOrders.approve(o.id());
         salesOrders.ship(o.id(), "req-ship-v2");
         assertThat(salesOrders.require(o.id()).status()).isEqualTo(DocumentStatus.COMPLETED);
+        assertThat(data.onHand(skuA, warehouseId, "")).isEqualTo(5);
 
-        // COMPLETED 是终态，状态机层面就拒绝作废（不会走到"红冲"提示）。
-        // "已部分出货但仍可作废"的情形由 TC-SAL-011 之外的中间态覆盖，
-        // 这里断言的是终态保护本身。
-        assertThatThrownBy(() -> salesOrders.voidOrder(o.id()))
-                .isInstanceOf(BusinessException.class)
-                .hasFieldOrPropertyWithValue("code", ErrorCode.SAL_STATUS_ILLEGAL)
-                .hasMessageContaining("COMPLETED");
+        SalesOrder voided = salesOrders.voidOrder(o.id(), "req-sal-void-reverse");
 
-        assertThat(data.onHand(skuA, warehouseId, "")).as("库存不得变动").isEqualTo(5);
+        assertThat(voided.status()).isEqualTo(DocumentStatus.VOIDED);
+        assertThat(data.onHand(skuA, warehouseId, "")).as("★ 红冲必须回补实存").isEqualTo(10);
         assertThat(data.reserved(skuA, warehouseId, "")).as("预占应已消费，不得复活").isZero();
+        assertThat(inventory.ledgerEntries(o.orderNo(), "SALES_OUT")).hasSize(1);
+        assertThat(inventory.ledgerEntries(o.orderNo(), "SALES_REVERSAL"))
+                .as("红冲必须留下可追溯的反向流水")
+                .singleElement()
+                .satisfies(e -> assertThat(e.changeQty()).isEqualTo(5));
+        assertThat(inventory.checkLedgerConsistency())
+                .as("红冲后全库实存 == 流水净和（INV-2）")
+                .isEmpty();
     }
 
     // ─────────────────────────── 校验 ───────────────────────────
@@ -477,7 +481,7 @@ class SalesOrderIT extends PostgresTestBase {
                 List.of(new SalesOrderApplicationService.CreateLineCommand(skuB, 4, 1000L, null)));
         long reservationId = o.lines().get(0).reservationIds().get(0);
 
-        salesOrders.voidOrder(o.id());
+        salesOrders.voidOrder(o.id(), "req-sal-release");
 
         assertThat(reservationStatus(reservationId)).isEqualTo("RELEASED");
         assertThat(inventory.sumActiveReservedQty(skuB, warehouseId)).isZero();
