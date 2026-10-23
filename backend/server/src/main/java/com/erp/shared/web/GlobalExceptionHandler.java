@@ -4,7 +4,9 @@ import com.erp.shared.error.BusinessException;
 import com.erp.shared.error.ErrorCode;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -16,6 +18,7 @@ import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 /**
@@ -55,6 +58,48 @@ public class GlobalExceptionHandler {
                 .orElse("参数校验失败");
         return ResponseEntity.badRequest().body(body(
                 ErrorCode.SYS_VALIDATION_ERROR.name(), detail, null, traceId));
+    }
+
+    /**
+     * 方法级参数校验失败（Spring 6.1 起的<b>另一条</b> 400 路径）。
+     *
+     * <p><b>为什么必须单独处理</b>（M2-S2 的 TC-API-017 实测撞出来的）：
+     * Spring Framework 6.1 引入了一条新的校验通路 —— 只要被调用的处理方法上
+     * 存在<b>直接带约束注解的参数</b>（本项目所有单据接口都写
+     * {@code @RequestHeader("X-Request-Id") @NotBlank String requestId}），
+     * 整个方法就改由 {@code HandlerMethodValidator} 做参数校验，
+     * 此时连 {@code @Valid @RequestBody} 的请求体违规也会以
+     * {@link HandlerMethodValidationException} 抛出，而<b>不再是</b>
+     * {@link MethodArgumentNotValidException}。
+     *
+     * <p>于是同一件事（客户端漏传 / 传错字段）在主数据接口上是 400，
+     * 在进货 / 出货 / 退货 / 结算接口上却是 500 —— 落到下面那个兜底分支。
+     * 这正是本类上面 {@code MissingRequestHeaderException} 注释里点名要消灭的
+     * "客户端问题被报成服务器坏了"，只是换了个异常名字又出现了一次。
+     *
+     * <p>没有专门 handler 时前端只会看到 {@code SYS_INTERNAL_ERROR}，
+     * 既拿不到"哪个字段不合法"，也会把 5xx 告警污染成噪声。
+     */
+    @ExceptionHandler(HandlerMethodValidationException.class)
+    public ResponseEntity<Map<String, Object>> handleMethodLevelValidation(
+            HandlerMethodValidationException ex, HttpServletRequest request) {
+        String traceId = traceId(request);
+        List<String> parts = new ArrayList<>();
+        for (var result : ex.getAllValidationResults()) {
+            List<String> messages = new ArrayList<>();
+            for (var error : result.getResolvableErrors()) {
+                if (error.getDefaultMessage() != null) {
+                    messages.add(error.getDefaultMessage());
+                }
+            }
+            if (messages.isEmpty()) {
+                continue;
+            }
+            String parameter = result.getMethodParameter().getParameterName();
+            parts.add((parameter == null ? "" : parameter + " ") + String.join("; ", messages));
+        }
+        return ResponseEntity.badRequest().body(body(ErrorCode.SYS_VALIDATION_ERROR.name(),
+                parts.isEmpty() ? "参数校验失败" : String.join("; ", parts), null, traceId));
     }
 
     /**

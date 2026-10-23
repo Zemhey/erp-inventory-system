@@ -12,6 +12,7 @@ import com.erp.shared.document.DocumentStatus;
 import com.erp.shared.document.DocumentStatusMachine;
 import com.erp.shared.error.BusinessException;
 import com.erp.shared.error.ErrorCode;
+import com.erp.shared.period.PeriodGuard;
 import com.erp.shared.time.ClockProvider;
 import com.erp.shared.web.PageResult;
 import java.time.LocalDate;
@@ -44,6 +45,12 @@ public class PurchaseOrderApplicationService {
     private final InventoryApplicationService inventory;
     private final DocumentNumberGenerator numberGenerator;
     private final ClockProvider clock;
+    /**
+     * 账期锁（M2-S2）。只依赖 {@code shared.period} 的接口，实现由 SET 提供 ——
+     * 若这里 import {@code com.erp.set}，就会和"SET 只读进货单据"形成包依赖环，
+     * 这条边界由 ArchUnit 的「单据模块不得依赖 set」规则守住。
+     */
+    private final PeriodGuard periodGuard;
 
     public PurchaseOrderApplicationService(PurchaseOrderRepository orders,
                                            SupplierRepository suppliers,
@@ -51,7 +58,8 @@ public class PurchaseOrderApplicationService {
                                            SkuRepository skus,
                                            InventoryApplicationService inventory,
                                            DocumentNumberGenerator numberGenerator,
-                                           ClockProvider clock) {
+                                           ClockProvider clock,
+                                           PeriodGuard periodGuard) {
         this.orders = orders;
         this.suppliers = suppliers;
         this.warehouses = warehouses;
@@ -59,6 +67,7 @@ public class PurchaseOrderApplicationService {
         this.inventory = inventory;
         this.numberGenerator = numberGenerator;
         this.clock = clock;
+        this.periodGuard = periodGuard;
     }
 
     // ─────────────────────────── 命令 / 结果 ───────────────────────────
@@ -102,6 +111,9 @@ public class PurchaseOrderApplicationService {
             throw new BusinessException(ErrorCode.SYS_VALIDATION_ERROR, "进货单至少需要一行明细");
         }
         LocalDate bizDate = cmd.bizDate() == null ? clock.today() : cmd.bizDate();
+        // 账期锁：放在幂等短路之后 —— 重复提交同一个 requestId 不产生任何改动，
+        // 即便账期已锁也必须原样返回首次结果，否则客户端会误以为建单失败而重做。
+        periodGuard.requireOpen(bizDate);
 
         long totalAmount = 0;
         int totalQty = 0;
@@ -138,6 +150,7 @@ public class PurchaseOrderApplicationService {
     @Transactional
     public PurchaseOrder submit(long id) {
         PurchaseOrder o = require(id);
+        periodGuard.requireOpen(o.bizDate());
         DocumentStatusMachine.requireTransition(o.status(), DocumentStatus.SUBMITTED,
                 ErrorCode.PUR_STATUS_ILLEGAL, o.orderNo());
         transition(o, DocumentStatus.SUBMITTED);
@@ -147,6 +160,7 @@ public class PurchaseOrderApplicationService {
     @Transactional
     public PurchaseOrder approve(long id) {
         PurchaseOrder o = require(id);
+        periodGuard.requireOpen(o.bizDate());
         DocumentStatusMachine.requireTransition(o.status(), DocumentStatus.APPROVED,
                 ErrorCode.PUR_STATUS_ILLEGAL, o.orderNo());
         transition(o, DocumentStatus.APPROVED);
@@ -156,6 +170,7 @@ public class PurchaseOrderApplicationService {
     @Transactional
     public PurchaseOrder reject(long id) {
         PurchaseOrder o = require(id);
+        periodGuard.requireOpen(o.bizDate());
         DocumentStatusMachine.requireTransition(o.status(), DocumentStatus.REJECTED,
                 ErrorCode.PUR_STATUS_ILLEGAL, o.orderNo());
         transition(o, DocumentStatus.REJECTED);
@@ -165,6 +180,7 @@ public class PurchaseOrderApplicationService {
     @Transactional
     public PurchaseOrder voidOrder(long id) {
         PurchaseOrder o = require(id);
+        periodGuard.requireOpen(o.bizDate());
         DocumentStatusMachine.requireTransition(o.status(), DocumentStatus.VOIDED,
                 ErrorCode.PUR_STATUS_ILLEGAL, o.orderNo());
         if (o.anyReceived()) {
@@ -209,6 +225,7 @@ public class PurchaseOrderApplicationService {
                     "进货单 %s 当前状态 %s 不可入库（仅 APPROVED / PARTIAL 可入库）"
                             .formatted(o.orderNo(), o.status()));
         }
+        periodGuard.requireOpen(o.bizDate());
         if (cmd.lines() == null || cmd.lines().isEmpty()) {
             throw new BusinessException(ErrorCode.SYS_VALIDATION_ERROR, "入库明细不能为空");
         }

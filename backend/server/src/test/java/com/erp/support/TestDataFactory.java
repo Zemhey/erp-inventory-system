@@ -81,11 +81,14 @@ public class TestDataFactory {
     public void truncateAll() {
         // ★ M2 新增表必须同时进这条清单：return_order_lines 有指向 sales_order_lines 的外键，
         //   顺序错了会因 CASCADE 之外的约束失败，表现为"第一条用例绿、第二条随机红"。
+        //   settlement_periods 也在列 —— 残留一行 CLOSED 会让后续所有进货/出货/退货用例
+        //   被 PeriodGuard 拦成 SET_PERIOD_CLOSED（计划书 §6 坑 3 的同一条防线）。
         jdbc.execute("""
                 TRUNCATE inventory_ledger, inventory_reservations, inventory_balances,
                          sales_order_line_reservations, return_order_lines,
                          purchase_order_lines, sales_order_lines,
                          return_orders, purchase_orders, sales_orders,
+                         daily_settlements, settlement_periods,
                          document_sequences, idempotency_keys,
                          skus, products, warehouses, suppliers, customers,
                          app_user_roles, app_users
