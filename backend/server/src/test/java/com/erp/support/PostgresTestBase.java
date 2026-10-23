@@ -94,5 +94,20 @@ public abstract class PostgresTestBase {
         registry.add("spring.datasource.password", POSTGRES::getPassword);
         // 让 Flyway 在每个测试类启动时把 V1 迁移跑在干净库上
         registry.add("spring.flyway.clean-disabled", () -> "false");
+        /**
+         * ★ 连接池必须调小（V2-5 实测踩到）。
+         *
+         * <p>Spring 会<b>缓存多个测试上下文</b>（MockMvc 一套、RANDOM_PORT 一套、
+         * 带不同 profile 的又一套），而每个上下文都按 {@code application.yml} 的
+         * {@code maximum-pool-size: 20} 建池。Testcontainers 的 PostgreSQL 默认
+         * {@code max_connections=100}，于是上下文一多就撞上
+         * {@code FATAL: sorry, too many clients already} —— 表现是
+         * "单独跑绿、全量跑红"，报错还停在 Tomcat 启动阶段，极难定位。
+         *
+         * <p>测试并发度低（单 JVM 顺序执行测试类），4 个连接完全够用；
+         * 生产仍用 20，不受这里影响。
+         */
+        registry.add("spring.datasource.hikari.maximum-pool-size", () -> "4");
+        registry.add("spring.datasource.hikari.minimum-idle", () -> "1");
     }
 }

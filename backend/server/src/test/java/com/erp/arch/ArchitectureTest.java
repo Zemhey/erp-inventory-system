@@ -489,6 +489,81 @@ class ArchitectureTest {
         };
     }
 
+    // ─────────────────────── 规则 10：sys 只依赖 shared（V2-5 FR-SYS-06~09） ───────────────────────
+
+    /**
+     * ★ {@code sys} 不得依赖除 {@code shared} 外的<b>任何</b>业务模块。
+     *
+     * <p><b>为什么这条是审计能否成立的前提</b>：审计切面靠"所有 {@code @RestController}
+     * 都住在 {@code com.erp..api..}"这一结构约定工作，它对每个模块一视同仁。
+     * 一旦 {@code sys} 反过来 import 了某个业务模块（比如为了取"进货单的业务单据号"
+     * 而注入 {@code PurchaseOrderApplicationService}），立刻出现三个问题：
+     * <ol>
+     *   <li><b>包依赖环</b>：业务模块的 Controller 被切面织入，切面又依赖业务模块 ——
+     *       编译能过，但模块再也拆不开，单测只能整块起容器；</li>
+     *   <li><b>审计覆盖面悄悄变窄</b>：只在"认识的"模块上留痕，
+     *       新模块被漏掉时没有任何信号（INV-15 的扫描会红，但根因难查）；</li>
+     *   <li><b>下期加租户/数据权限时</b>（V2-6/V2-7）必须回头重做审计链路。</li>
+     * </ol>
+     *
+     * <p>正确做法：审计只认<b>HTTP 语义</b>（方法 + 路径 + 响应体），不认业务类型。
+     * 它需要的资源类型由 Controller 类名推导，业务单据号从响应体里取 ——
+     * 两者都不需要 import 任何业务模块。
+     *
+     * <p>允许依赖 {@code com.erp.shared}（错误码、BusinessException、分页、时钟）：
+     * 那是全项目的公共底座，任何模块都可以用。
+     *
+     * <p>另外单独允许 {@code com.erp.iam}：仅限 {@code sys.api} 使用
+     * {@code @RequirePermission} 注解 —— 权限声明必须贴在接口上，
+     * 这条依赖是"注解"而不是"调用 IAM 的业务能力"，方向是单向的
+     * （IAM 不依赖 SYS）。若把 IAM 也禁掉，唯一后果是审计查询接口变成裸奔。
+     */
+    @ArchTest
+    static final ArchRule 审计模块只依赖shared与IAM注解 =
+            noClasses()
+                    .that().resideInAPackage("com.erp.sys..")
+                    .should().dependOnClassesThat(
+                            com.tngtech.archunit.core.domain.JavaClass.Predicates
+                                    .resideInAPackage("com.erp..")
+                                    .and(com.tngtech.archunit.core.domain.JavaClass.Predicates
+                                            .resideOutsideOfPackage("com.erp.shared.."))
+                                    .and(com.tngtech.archunit.core.domain.JavaClass.Predicates
+                                            .resideOutsideOfPackage("com.erp.sys.."))
+                                    .and(com.tngtech.archunit.core.domain.JavaClass.Predicates
+                                            .resideOutsideOfPackage("com.erp.iam.security..")))
+                    .because("sys 是横切能力：只依赖 shared 与 iam.security 的权限注解。"
+                            + "依赖业务模块会形成包依赖环，并让审计覆盖面随模块增加而悄悄失效"
+                            + "（V2-5 FR-SYS-06）");
+
+    // ─────────────────────── 规则 11：审计仓储不可改（FR-SYS-06 不可篡改） ───────────────────────
+
+    /**
+     * ★ 审计仓储<b>不得存在</b>任何 update / delete / remove / truncate 方法。
+     *
+     * <p><b>这条守的是"审计可信"</b>：审计的全部价值建立在"写了就再也改不了"之上。
+     * 只要仓储里有一个 {@code updateResult()} 或 {@code deleteById()}，
+     * 后改的人就能覆盖前人的痕迹，而这件事<b>不会有任何痕迹</b>。
+     *
+     * <p>与数据库触发器 {@code trg_audit_logs_append_only} 构成两层防线：
+     * <ul>
+     *   <li>代码层（本规则）拦"自己人顺手加了个方法"；</li>
+     *   <li>数据库层拦"绕过代码的手工 SQL / 运维脚本"。</li>
+     * </ul>
+     * 只做其中一层都不够：纯代码约束挡不住 psql，纯触发器挡不住"先查出来改完再插回去"。
+     *
+     * <p><b>不是空规则</b>：{@code AuditLogRepository} 与 {@code AuditLogQueryRepository}
+     * 此刻都真实存在，规则跑在生产代码上；TC-ARCH-011 再现场编译一段带
+     * {@code deleteById} 的违规仓储，证明它会变红。
+     */
+    @ArchTest
+    static final ArchRule 审计仓储不得存在改删方法 =
+            classes()
+                    .that().resideInAPackage("com.erp.sys.repository..")
+                    .and().haveSimpleNameContaining("Audit")
+                    .should(declareNoMutatingMethods())
+                    .because("audit_logs 是追加型表：仓储一旦有 update/delete，"
+                            + "审计就不可信了（V2-5 FR-SYS-06）");
+
     // ─────────────────────── ★ 规则自检：证明规则真的会变红 ───────────────────────
 
     /**
@@ -730,6 +805,162 @@ class ArchitectureTest {
                 .as("★ 规则必须能拦住 cst -> inv.repository 的直连；"
                         + "若为 false 说明成本模块可能绕过只读边界（假绿）")
                 .isTrue();
+    }
+
+    /**
+     * 自定义规则：审计仓储不得声明"改/删"语义的方法。
+     *
+     * <p>按<b>方法名</b>检查而不是按 SQL 文本：方法名是契约面——
+     * 一个叫 {@code archive()} 却写 {@code DELETE} 的实现无法被静态分析识别，
+     * 但"名字里带 update/delete/remove/truncate/purge/clear"的意图足够明显，
+     * 足以在评审与 CI 里被拦住。配合数据库触发器使用：名字骗得过规则，骗不过 trigger。
+     *
+     * <p>覆盖 {@code insert} 是<b>允许</b>的（追加是审计唯一合法的写操作）——
+     * 规则只禁改删，不禁追加。这个边界必须写清楚，否则下一个人会把 insert 也改走。
+     */
+    private static com.tngtech.archunit.lang.ArchCondition<JavaClass>
+            declareNoMutatingMethods() {
+        java.util.List<String> forbiddenPrefixes = java.util.List.of(
+                "update", "delete", "remove", "truncate", "purge", "clear", "modify", "rewrite");
+        return new com.tngtech.archunit.lang.ArchCondition<>(
+                "不得声明 update/delete/remove 等改删方法（审计追加型）") {
+            @Override
+            public void check(JavaClass item, com.tngtech.archunit.lang.ConditionEvents events) {
+                item.getMethods().forEach(method -> {
+                    String lower = method.getName().toLowerCase(java.util.Locale.ROOT);
+                    boolean hit = forbiddenPrefixes.stream().anyMatch(lower::startsWith);
+                    if (hit) {
+                        events.add(com.tngtech.archunit.lang.SimpleConditionEvent.violated(item,
+                                "%s 声明了 %s() —— 审计仓储只允许追加（insert），"
+                                        .formatted(item.getSimpleName(), method.getName())
+                                        + "改/删会让「谁改了什么」可以被后改的人覆盖"));
+                    }
+                });
+            }
+        };
+    }
+
+    /**
+     * ★ 自检：审计模块依赖业务模块必须被拦住。
+     *
+     * <p>探针放进真实的 {@code com.erp.sys.application} 包，并 evaluate <b>生产规则本身</b>：
+     * 一旦有人把规则里的"允许列表"改宽（例如顺手放行 {@code com.erp.pur}），
+     * 本用例立刻变红。这正是我们要防的"越修越松"。
+     *
+     * <p>违规样本刻意选真实存在的类（{@code PurchaseOrderApplicationService}）：
+     * 编造一个不存在的类名会让探针编译失败，测试就以"探针编译不过"的形式红，
+     * 无法区分"规则失效"与"探针写错"。
+     */
+    @org.junit.jupiter.api.Test
+    @CaseId("TC-ARCH-010")
+    @org.junit.jupiter.api.DisplayName("★ 规则自检：sys 只依赖 shared 的规则必须拦住依赖业务模块")
+    void 规则自检_审计模块隔离规则必须生效() {
+        var classes = compileProbe("com.erp.sys.application.BadSysDependencyProbe", """
+                package com.erp.sys.application;
+
+                public class BadSysDependencyProbe {
+                    private final com.erp.pur.application.PurchaseOrderApplicationService svc = null;
+
+                    public Object bad() {
+                        return svc;
+                    }
+                }
+                """);
+        org.assertj.core.api.Assertions.assertThat(
+                审计模块只依赖shared与IAM注解.evaluate(classes).hasViolation())
+                .as("★ 规则必须能拦住 sys -> 业务模块的依赖；若为 false 说明横切能力已与"
+                        + "业务模块形成包依赖环，审计覆盖面会随模块增加悄悄失效（假绿）")
+                .isTrue();
+    }
+
+    /**
+     * ★ 自检：审计仓储"不得改删"规则必须拦住带 delete 方法的仓储。
+     *
+     * <p>探针的包名与类名都命中生产规则的过滤器（{@code com.erp.sys.repository..}
+     * + 类名含 {@code Audit}），因此 evaluate 生产规则就等于 evaluate 探针：
+     * 规则被改窄（例如只查 {@code AuditLogRepository} 一个类名）时，本用例立刻红。
+     */
+    @org.junit.jupiter.api.Test
+    @CaseId("TC-ARCH-011")
+    @org.junit.jupiter.api.DisplayName("★ 规则自检：审计仓储不得存在改删方法的规则必须拦住 deleteById")
+    void 规则自检_审计不可篡改规则必须生效() {
+        var classes = compileProbe("com.erp.sys.repository.BadAuditRepositoryProbe", """
+                package com.erp.sys.repository;
+
+                public class BadAuditRepositoryProbe {
+                    public void deleteById(long id) {
+                        // 违规：审计仓储不允许任何删除能力
+                    }
+
+                    public void updateResult(long id, String result) {
+                        // 违规：审计仓储不允许任何更新能力
+                    }
+                }
+                """);
+        org.assertj.core.api.Assertions.assertThat(
+                审计仓储不得存在改删方法.evaluate(classes).hasViolation())
+                .as("★ 规则必须能拦住审计仓储里的 delete/update 方法；"
+                        + "若为 false 说明「审计不可篡改」这条门禁已失效（假绿）")
+                .isTrue();
+    }
+
+    /**
+     * ★ 自检（反向）：一个<b>只有 insert</b> 的审计仓储必须通过规则。
+     *
+     * <p>为什么需要这条"应该绿"的用例：只写"必须红"的自检，
+     * 很容易在半年后被人为了让它变绿而把规则改宽到"禁止一切方法"。
+     * 配一条"应该通过"的用例，规则的两端都被钉住了 ——
+     * 合法写法不被误伤，非法写法不被放过。
+     */
+    @org.junit.jupiter.api.Test
+    @CaseId("TC-ARCH-012")
+    @org.junit.jupiter.api.DisplayName("★ 规则自检（反向）：只有 insert 的审计仓储必须通过不可篡改规则")
+    void 规则自检_审计不可篡改规则不得误伤纯追加仓储() {
+        var classes = compileProbe("com.erp.sys.repository.GoodAuditRepositoryProbe", """
+                package com.erp.sys.repository;
+
+                public class GoodAuditRepositoryProbe {
+                    public long insert(String action) {
+                        return action == null ? 0L : 1L;
+                    }
+
+                    public long countAll() {
+                        return 1L;
+                    }
+                }
+                """);
+        org.assertj.core.api.Assertions.assertThat(
+                审计仓储不得存在改删方法.evaluate(classes).hasViolation())
+                .as("★ 纯追加仓储（insert + count）不得被误判为违规；"
+                        + "若为 true 说明规则过宽，会把合法实现逼成「绕开规则」的写法")
+                .isFalse();
+    }
+
+    /**
+     * ★ 自检：{@code sys} 依赖 {@code shared} 是<b>合法</b>的，规则不得误伤。
+     *
+     * <p>这条反向用例守的是同一个风险点：审计切面必须能用
+     * {@code BusinessException} / {@code ErrorCode} / {@code PageResult} 这些公共底座。
+     * 若规则把 {@code shared} 也算违规，实现者只能复制一套错误码 —— 那才是灾难。
+     */
+    @org.junit.jupiter.api.Test
+    @CaseId("TC-ARCH-013")
+    @org.junit.jupiter.api.DisplayName("★ 规则自检（反向）：sys 依赖 shared 必须合法")
+    void 规则自检_审计模块隔离规则不得误伤shared依赖() {
+        var classes = compileProbe("com.erp.sys.application.GoodSharedDependencyProbe", """
+                package com.erp.sys.application;
+
+                public class GoodSharedDependencyProbe {
+                    public String bad(com.erp.shared.error.ErrorCode code) {
+                        return code == null ? "null" : code.name();
+                    }
+                }
+                """);
+        org.assertj.core.api.Assertions.assertThat(
+                审计模块只依赖shared与IAM注解.evaluate(classes).hasViolation())
+                .as("★ sys -> shared 必须被允许；若为 true 说明规则过宽，"
+                        + "实现者会被逼着复制一套错误码")
+                .isFalse();
     }
 
     /**

@@ -33,10 +33,16 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics
+        # ★ V2-5 FR-SYS-09：追加 prometheus（Micrometer 指标端点，契约外但对运维可用）。
+        #   health/info/metrics 保持不变，只在此行追加一项，便于多泳道纯追加合并。
+        include: health,info,metrics,prometheus
   endpoint:
     health:
       show-details: when-authorized
+  metrics:
+    tags:
+      # 所有指标自动带 application 标签：同一套 Grafana 面板能区分多实例
+      application: ${spring.application.name}
 
 # 业务参数（禁止硬编码在代码中）
 erp:
