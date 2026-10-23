@@ -4,9 +4,9 @@
 ![Java](https://img.shields.io/badge/Java-17-007396?logo=openjdk&logoColor=white)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.3-6DB33F?logo=springboot&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-234%20passing-brightgreen)
-![Coverage](https://img.shields.io/badge/line%20coverage-80.5%25-yellowgreen)
-![Branch](https://img.shields.io/badge/branch%20coverage-58.7%25-yellowgreen)
+![Tests](https://img.shields.io/badge/tests-251%20passing-brightgreen)
+![Coverage](https://img.shields.io/badge/line%20coverage-81.1%25-brightgreen)
+![Branch](https://img.shields.io/badge/branch%20coverage-59.8%25-yellowgreen)
 
 > **多端 B/S 进销存 SaaS 平台 + 配套自动化测试体系**
 > Java 17 · Spring Boot 3 · PostgreSQL 16 · Vue 3 · uni-app
@@ -28,7 +28,7 @@
 | **想知道"别人怎么做的、我们差在哪"** | [`docs/planning/竞品对标与业务核实.md`](docs/planning/竞品对标与业务核实.md) | 7 个主流 ERP 的功能共识矩阵 + 联网核实清单 |
 | **要开工 V2（下发任务）** | [`.plan/V2-施工指挥台.md`](.plan/V2-施工指挥台.md) | ★ 阶段0清场 · 九条泳道 · 可直接复制的提示词模板 · 合并纪律 |
 | **看做到哪了、还差什么** | [`docs/00-索引与追踪矩阵.md`](docs/00-索引与追踪矩阵.md) | 进度看板 + 需求↔测试矩阵 |
-| **看某个里程碑怎么做** | [`.plan/`](.plan/) | M1 / M2 / M3 已完成；M4 第一批 / M6 制品 / M7 已合并，下一批（M2.5 / M8 / M4 第二批）编排见 [`批次-2026-10-23-M4-M6-M7-并行.md`](.plan/批次-2026-10-23-M4-M6-M7-并行.md) §7 |
+| **看某个里程碑怎么做** | [`.plan/`](.plan/) | M1 / M2 / M3 已完成；M4 两批 / M6 制品 / M7 / M2.5 红冲 / M8 单机版均已合并；V2 批次 2 六条泳道编排见 [`V2-施工指挥台.md`](.plan/V2-施工指挥台.md) §1.5.1 与 §8 |
 | **看接口契约** | [`packages/api-contract/openapi.yaml`](packages/api-contract/openapi.yaml) | 单一事实源 |
 | **看代码结构 / 接口清单** | [`index/`](index/) | 脚本生成，禁止手写 |
 | **起环境 / 跑构建 / 生成索引** | [`scripts/`](scripts/) | 一键脚本 |
@@ -85,18 +85,19 @@
 
 ## 项目状态
 
-**当前阶段：M0/M1/M2/M3/M7 完成 ✅，M4 第一批与 M6 制品已合并 🚧（进销存业务闭环 + Web 10 页 + miniapp 3 页 + 234 条后端用例 + 19 条 E2E + MCP 6 工具）· 下一步：M2.5 红冲、M8 单机版、M4 第二批**
+**当前阶段：M0/M1/M2/M3/M7/M8 完成 ✅，M4 两批、M2.5 红冲与 M6 制品已合并（进销存业务闭环 + 红冲 + Web 10 页 + miniapp 10 页 + 251 条后端用例 + 19 条 Web E2E + miniapp 8 条 H5 E2E + MCP 6 工具 + 单机版一键包）· 下一步：V2 商业化扩展（批次 2 的 V2-1~V2-6 六条泳道）**
 
 - ✅ 方向与路线确定（行业、技术栈、测试体系）
 - ✅ 规划文档（00~07 + 11 条 ADR）
 - ✅ **M0 交付**：OpenAPI 六资源契约 · Spring Boot 3 骨架 · Flyway schema · 库存纵向切片 · compose 一键起环境 · CI 三道门禁
-- ✅ **M1 交付**：主数据（商品/SKU 矩阵/供应商/客户/仓库）· 进货闭环 · 出货闭环（FEFO）· IAM（JWT + RBAC）· 统一状态机 · 原子取号 · M1 基线 156 条测试（**当前累计 234 条全绿**）
+- ✅ **M1 交付**：主数据（商品/SKU 矩阵/供应商/客户/仓库）· 进货闭环 · 出货闭环（FEFO）· IAM（JWT + RBAC）· 统一状态机 · 原子取号 · M1 基线 156 条测试（**当前累计 251 条全绿**）
 - ✅ **M3 交付**：登录 / 布局 / 工作台 + 商品与 SKU + 供应商 / 客户 / 仓库 + 库存查询（实存·预占·可用 + 流水追溯）+ 进货单（状态机 + 分批入库）+ 出货单（建单即预占 + 折扣 + 出货），**7 个业务页面全齐、无占位页**；S7 全局打磨（空状态、错误态、窄屏适配）；**S8 Playwright E2E 14 条关键路径，真实后端 + 真实 PostgreSQL 连续两遍 15/15 全绿**，测试数据清理后开发库回到基线
 - ✅ **M2 交付**：退货 `FR-RMA-01`（9 个接口，含"可退出货单查询"）· 日清 / 月结锁账 / 对账 / 账期查询 `FR-SET-01~03` · 三类报表 `FR-RPT-01~03` · `BR-INV-05` 预占超时自动释放 —— 16 个新接口全部有实现有测试，`CONTRACT_ONLY` 清零；前端 10 个业务页面（退货/结算/报表三页 + 退货建单接入可退查询 + 结算页账期列表）；M2 验收时后端 **221 条用例全绿**（M2 基线行 **82.6%** / 分支 **60.9%**）；E2E **19 条 + 登录 setup** 连跑两遍全绿；红冲（FR-SAL-04 / FR-PUR-03）与 G5~G13 体验债转 M2.5（计划：[`.plan/M2-计划书.md`](.plan/M2-计划书.md)）
-- 🚧 **M4 第一批已合并**：`frontend/miniapp` uni-app 工程 + 登录 / 工作台 / 库存查询 3 页，H5 真实后端走通，`build:h5` / `build:mp-weixin` / `build:app` 通过；微信开发者工具联调、Android 出包与第二批页面（出货/进货/商品只读）待后续
+- 🚧 **M4 两批均已合并**：第一批 `feat/m4-miniapp`（merge `104674e`）—— `frontend/miniapp` uni-app 工程 + 登录 / 工作台 / 库存查询 3 页，`build:h5` / `build:mp-weixin` / `build:app` 通过；第二批 `feat/m4b-pages`（merge `fedca69`）—— 出货 / 进货 / 商品只读共 **7 个新页面**（`pages.json` 实测 **10 页**）+ H5 E2E 工程 **6 spec / 8 test**（唯一前缀造数 + 硬清理）。**未实测**：微信开发者工具联调、Android 打包与真机（需 HBuilderX 与开发者工具）
+- ✅ **M2.5 红冲完成**：`FR-SAL-04` 出货红冲 + `FR-PUR-03` 进货红冲（merge `a4c4149`）—— 已出货/已入库单据可补偿性作废（`PARTIAL`/`COMPLETED` → `VOIDED`），按原流水逐条反向回补实存、写 `SALES_REVERSAL`/`PURCHASE_REVERSAL`；`V8__document_reversal.sql` 迁移；与退货互斥、锁账拒绝、同 `X-Request-Id` 重放幂等、并发安全；新增 17 条用例（TC-DOC-011/012、TC-PUR-016~023、TC-SAL-018~024），`openapi.yaml` 追加 void 语义（**复用既有 `/void` operation，未新增路径**）
 - 🚧 **M6 制品已合并**：后端/前端 Dockerfile · 生产 compose · 部署 / 回滚 / 备份脚本 · Runbook · 部署流水线草案；本地 18080 全栈与备份恢复实测通过，**真实上线待服务器凭据与备案**
 - ✅ **M7 完成（stub 验证）**：`POST /nl/command` 自然语言入口（8 意图、意图级权限、建单幂等）+ `packages/mcp-server` 6 个 stdio 工具 + 工作台 NL 输入框；默认 `stub` 解析器离线可复现，**真实 LLM 待用户提供 key**
-- ⬜ M8：单机版（复用 M6 的 Docker 制品做一键包）
+- ✅ **M8 单机版完成**：`infra/standalone/**` 15 文件（merge `2a48b12`）—— Docker compose 单机编排、`start` / `stop` / `status` / `backup` 的 `.ps1` 与 `.sh` 双份脚本、公共函数库、种子管理员 SQL、`.env.example` 与运行手册（Windows/Linux、离线、备份、升级、排障）。**未实测**：Linux/macOS 真机与真实离线环境
 
 ### 工程实践亮点
 
@@ -120,7 +121,7 @@
 ```powershell
 .\scripts\build-env.ps1          # 创建 D:\erp-build 联接（非破坏、可回滚）
 cd D:\erp-build\backend\server
-.\gradlew.bat test               # 运行测试（234 条，全绿）
+.\gradlew.bat test               # 运行测试（251 条，全绿）
 ```
 
 删除联接：`.\scripts\build-env.ps1 -Remove`
