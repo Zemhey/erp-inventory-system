@@ -6,7 +6,11 @@ import com.erp.shared.error.BusinessException;
 import com.erp.shared.error.ErrorCode;
 import com.erp.shared.web.PageResult;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -100,6 +104,34 @@ public class SkuRepository {
                   FROM skus WHERE product_id = ?
                  ORDER BY color, size
                 """, MAPPER, productId);
+    }
+
+    /**
+     * 按 id 批量取 SKU 展示名：{@code 商品名 · 颜色-尺码}。
+     *
+     * <p>SKU 本身没有独立编码列（V1：SKU = 商品 + 颜色 + 尺码），只给颜色尺码会撞名
+     * （多个商品都有"白色-L"），所以展示名必须带商品名 —— 与主数据页、单据页同一口径。
+     * 组成写在 SQL 里是为了<b>一条查询</b>拿齐：跨模块取名不应把 products 也 N+1 一遍。
+     *
+     * @return {@code skuId -> 展示名}；不存在的 id 不出现在结果里
+     */
+    public Map<Long, String> findDisplayNamesByIds(Collection<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return Map.of();
+        }
+        List<Long> list = new ArrayList<>(ids);
+        String placeholders = String.join(",", Collections.nCopies(list.size(), "?"));
+        Map<Long, String> names = new LinkedHashMap<>();
+        jdbc.query("""
+                SELECT k.id, pr.name || ' · ' || k.color || '-' || k.size AS display_name
+                  FROM skus k
+                  JOIN products pr ON pr.id = k.product_id
+                 WHERE k.id IN (""" + placeholders + ")",
+                rs -> {
+                    names.put(rs.getLong("id"), rs.getString("display_name"));
+                },
+                list.toArray());
+        return names;
     }
 
     public PageResult<Sku> page(Long productId, String color, String skuSize, int page, int sizeRows) {

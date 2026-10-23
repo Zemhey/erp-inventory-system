@@ -7,8 +7,10 @@ import com.erp.shared.error.BusinessException;
 import com.erp.shared.error.ErrorCode;
 import com.erp.shared.web.PageResult;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -114,6 +116,17 @@ public class SkuApplicationService {
     @Transactional(readOnly = true)
     public PageResult<Sku> page(Long productId, String color, String skuSize, int page, int pageSize) {
         return skus.page(productId, color, skuSize, page, pageSize);
+    }
+
+    /**
+     * 按 id 批量取 SKU 展示名（{@code 商品名 · 颜色-尺码}，{@code skuId -> 名称}）。
+     *
+     * <p>单据列表跨模块展示 SKU 时的取名出口：一次查询拿齐，
+     * 调用方不需要再为每个 SKU 反查商品（那会把 products 也 N+1 一遍）。
+     */
+    @Transactional(readOnly = true)
+    public Map<Long, String> findDisplayNamesByIds(Collection<Long> ids) {
+        return skus.findDisplayNamesByIds(ids);
     }
 
     @Transactional

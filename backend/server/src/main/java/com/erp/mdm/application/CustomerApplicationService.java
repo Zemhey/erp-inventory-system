@@ -5,6 +5,8 @@ import com.erp.mdm.repository.CustomerRepository;
 import com.erp.shared.error.BusinessException;
 import com.erp.shared.error.ErrorCode;
 import com.erp.shared.web.PageResult;
+import java.util.Collection;
+import java.util.Map;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -58,6 +60,17 @@ public class CustomerApplicationService {
     @Transactional(readOnly = true)
     public PageResult<Customer> page(String keyword, int page, int size) {
         return customers.page(keyword, page, size);
+    }
+
+    /**
+     * 按 id 批量取客户名（{@code id -> name}）。
+     *
+     * <p>给单据列表用的只读出口：跨模块展示客户名时不要循环 {@link #require(long)}，
+     * 也不要"先拉 200 条客户再自己建字典"（超出 200 条的部分会显示成 {@code 客户#201}）。
+     */
+    @Transactional(readOnly = true)
+    public Map<Long, String> findNamesByIds(Collection<Long> ids) {
+        return customers.findNamesByIds(ids);
     }
 
     @Transactional

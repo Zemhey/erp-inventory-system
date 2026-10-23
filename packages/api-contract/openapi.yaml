@@ -696,6 +696,39 @@ paths:
         '409':
           $ref: '#/components/responses/Conflict'
 
+  # 退货建单页的"选原出货单"数据源。刻意挂在 /return-orders 下、由 RMA 提供：
+  # 只有 rma:* 的销售员没有 sal:read，跨模块调 /sales-orders 会 403（计划书 §6 坑 13）。
+  /return-orders/returnable-orders:
+    get:
+      tags: [rma]
+      summary: 查询可退货的出货单（rma:read）
+      description: |
+        - 只返回 `status IN (PARTIAL, COMPLETED)` **且至少还有一行 `shippedQty − returnedQty > 0`** 的出货单；
+        - 已全部退完的单据不出现（列出来也建不了单）；未出货的 DRAFT / SUBMITTED / APPROVED 同样不出现；
+        - 可退口径由出货域单一定义，本接口只转发，不再算一份"看起来一样"的可退数量；
+        - 分页走通用口径：`total` = 满足条件的出货单**张数**，`size` 上限 200。
+          调用方必须翻页或用 `total > items.length` 判断"可能没列全"，禁止把 200 上限当全量（§6 坑 14）。
+      operationId: listReturnableOrders
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: 可退货出货单分页列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiPageResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/ReturnableOrder' }
+
   /return-orders/{id}:
     get:
       tags: [rma]
@@ -1439,6 +1472,51 @@ components:
         lines:
           type: array
           items: { $ref: '#/components/schemas/ReturnOrderLine' }
+
+    ReturnableOrderLine:
+      type: object
+      description: |
+        可退出货明细 —— 退货建单的行来源。
+        单价与折扣原样带出只为**只读展示**：建单请求体里不接受它们（一律从原行派生，防止改写金额）。
+      required: [originLineId, lineNo, skuId, skuName, shippedQty, returnedQty, returnableQty,
+                 unitPriceAmount, discountRate]
+      properties:
+        originLineId: { type: integer, format: int64, description: 原出货单明细行 id，建单请求的 lines 元素引用它 }
+        lineNo: { type: integer, minimum: 1, description: 原单行号，用于与超退错误消息里的"第 N 行"对上 }
+        skuId: { type: integer, format: int64 }
+        skuName: { type: string, description: 展示名：商品名 · 颜色-尺码（服务端批量取名，前端不必再依赖主数据字典） }
+        shippedQty: { type: integer, minimum: 1, description: 累计已出货数量 }
+        returnedQty: { type: integer, minimum: 0, description: 累计已退货数量 }
+        returnableQty:
+          type: integer
+          minimum: 1
+          description: 剩余可退 = shippedQty − returnedQty；建单超过它会得到 RMA_QTY_EXCEED_ORIGIN
+        unitPriceAmount: { type: integer, format: int64, minimum: 0, description: 原行单价（分） }
+        discountRate: { type: integer, minimum: 1, maximum: 10000, description: 原行折扣（整数万分比） }
+
+    ReturnableOrder:
+      type: object
+      description: 一张还有可退数量的出货单，连同它的可退明细
+      required: [orderId, orderNo, status, customerId, customerName, warehouseId, bizDate, lines]
+      properties:
+        orderId: { type: integer, format: int64, description: 建单请求的 originSalesOrderId }
+        orderNo: { type: string, example: SO20261022-0001 }
+        status:
+          type: string
+          description: 可退来源只会是这两种"已出货"状态之一
+          enum: [PARTIAL, COMPLETED]
+        customerId: { type: integer, format: int64, description: 退货单继承它，不接受前端传入 }
+        customerName: { type: string }
+        warehouseId:
+          type: integer
+          format: int64
+          description: 回补仓库 = 原出货仓库，退货单不可改
+        bizDate: { type: string, format: date }
+        lines:
+          type: array
+          minItems: 1
+          description: 只包含可退的行；整行退完的行不出现
+          items: { $ref: '#/components/schemas/ReturnableOrderLine' }
 
     DailySettlementRequest:
       type: object

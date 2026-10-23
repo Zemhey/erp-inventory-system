@@ -228,4 +228,39 @@ public class SalesOrderRepository {
                 .toList();
         return new PageResult<>(items, total == null ? 0 : total, p, s);
     }
+
+    /**
+     * 分页取出<b>还能退货</b>的出货单（含全部明细行）。
+     *
+     * <p>"可退"的判定刻意放在 SQL 里用 EXISTS 完成，而不是先取一页单据再在内存里筛：
+     * 后者会让 {@code total} 与 items 口径不一致（整单退完的行被筛掉后这一页就不满了），
+     * 调用方只能"多取几条补页"或翻两遍 —— 正是 §6 坑 14 里"拿 200 条上限当全量"的成因。
+     *
+     * <p>谓词 {@code shipped_qty - returned_qty > 0} 与 {@code SalesOrderLine.returnableQty()}
+     * 同源；改口径时两处必须一起改，由 TC-RMA-015 盯住。
+     */
+    public PageResult<SalesOrder> pageReturnable(int page, int size) {
+        int p = PageResult.normalizePage(page);
+        int s = PageResult.normalizeSize(size);
+        String returnable = """
+                 WHERE o.status IN ('PARTIAL', 'COMPLETED')
+                   AND EXISTS (SELECT 1 FROM sales_order_lines l
+                                WHERE l.order_id = o.id
+                                  AND l.shipped_qty - l.returned_qty > 0)
+                """;
+        Long total = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM sales_orders o" + returnable, Long.class);
+        List<SalesOrder> headers = jdbc.query("""
+                SELECT o.id, o.order_no, o.status, o.customer_id, o.warehouse_id, o.biz_date,
+                       o.total_amount, o.total_qty, o.period, o.remark, o.version
+                  FROM sales_orders o
+                """ + returnable + " ORDER BY o.id DESC LIMIT ? OFFSET ?",
+                ORDER_MAPPER, s, PageResult.offset(p, s));
+        List<SalesOrder> items = headers.stream()
+                .map(h -> new SalesOrder(h.id(), h.orderNo(), h.status(), h.customerId(),
+                        h.warehouseId(), h.bizDate(), h.totalAmount(), h.totalQty(),
+                        h.period(), h.remark(), h.version(), findLines(h.id())))
+                .toList();
+        return new PageResult<>(items, total == null ? 0 : total, p, s);
+    }
 }

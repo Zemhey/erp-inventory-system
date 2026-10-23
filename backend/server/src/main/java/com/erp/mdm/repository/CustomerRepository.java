@@ -6,7 +6,11 @@ import com.erp.shared.error.BusinessException;
 import com.erp.shared.error.ErrorCode;
 import com.erp.shared.web.PageResult;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -83,6 +87,31 @@ public class CustomerRepository {
                 SELECT id, code, name, phone, discount_rate, level, enabled
                   FROM customers WHERE code = ?
                 """, MAPPER, code).stream().findFirst();
+    }
+
+    /**
+     * 按 id 批量取客户名。
+     *
+     * <p><b>为什么单独开这个口子</b>：单据列表要显示"是谁的单"时，没有批量取名入口的调用方
+     * 只有两条坏路 —— 循环里逐条查（N+1），或"先把主数据前 200 条拉成前端字典"
+     * （第 201 个客户就显示成 {@code 客户#201}，计划书 §6 坑 14）。
+     * 一条 IN 查询两条都躲开了。
+     *
+     * @return {@code id -> name}；查不到的 id 不会出现在结果里（调用方自行给兜底文案）
+     */
+    public Map<Long, String> findNamesByIds(Collection<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return Map.of();
+        }
+        List<Long> list = new ArrayList<>(ids);
+        String placeholders = String.join(",", Collections.nCopies(list.size(), "?"));
+        Map<Long, String> names = new LinkedHashMap<>();
+        jdbc.query("SELECT id, name FROM customers WHERE id IN (" + placeholders + ")",
+                rs -> {
+                    names.put(rs.getLong("id"), rs.getString("name"));
+                },
+                list.toArray());
+        return names;
     }
 
     public PageResult<Customer> page(String keyword, int page, int size) {
