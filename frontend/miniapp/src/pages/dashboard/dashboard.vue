@@ -126,6 +126,10 @@ function confirmLogout(): void {
     },
   })
 }
+
+function openTab(path: string): void {
+  uni.switchTab({ url: path })
+}
 </script>
 
 <template>
@@ -263,6 +267,21 @@ function confirmLogout(): void {
         <view class="card action" @click="openInventory('ledger')">
           <text class="action-title">库存流水</text>
           <text class="action-sub">按单据号追溯每一笔出入库</text>
+          <text class="action-arrow">›</text>
+        </view>
+        <view class="card action" @click="openTab('/pages/sales/sales')">
+          <text class="action-title">出货单</text>
+          <text class="action-sub">查看单据并在现场确认出货</text>
+          <text class="action-arrow">›</text>
+        </view>
+        <view class="card action" @click="openTab('/pages/purchase/purchase')">
+          <text class="action-title">进货单</text>
+          <text class="action-sub">查看单据并在现场确认入库</text>
+          <text class="action-arrow">›</text>
+        </view>
+        <view class="card action" @click="openTab('/pages/products/products')">
+          <text class="action-title">商品与 SKU</text>
+          <text class="action-sub">查款号、条码与零售价</text>
           <text class="action-arrow">›</text>
         </view>
       </view>

@@ -22,6 +22,62 @@
         "enablePullDownRefresh": true,
         "backgroundTextStyle": "dark"
       }
+    },
+    {
+      "path": "pages/sales/sales",
+      "style": {
+        "navigationBarTitleText": "出货单",
+        "enablePullDownRefresh": true,
+        "backgroundTextStyle": "dark"
+      }
+    },
+    {
+      "path": "pages/sales/detail",
+      "style": {
+        "navigationBarTitleText": "出货单详情",
+        "enablePullDownRefresh": true,
+        "backgroundTextStyle": "dark"
+      }
+    },
+    {
+      "path": "pages/purchase/purchase",
+      "style": {
+        "navigationBarTitleText": "进货单",
+        "enablePullDownRefresh": true,
+        "backgroundTextStyle": "dark"
+      }
+    },
+    {
+      "path": "pages/purchase/detail",
+      "style": {
+        "navigationBarTitleText": "进货单详情",
+        "enablePullDownRefresh": true,
+        "backgroundTextStyle": "dark"
+      }
+    },
+    {
+      "path": "pages/products/products",
+      "style": {
+        "navigationBarTitleText": "商品与 SKU",
+        "enablePullDownRefresh": true,
+        "backgroundTextStyle": "dark"
+      }
+    },
+    {
+      "path": "pages/products/product-detail",
+      "style": {
+        "navigationBarTitleText": "商品详情",
+        "enablePullDownRefresh": true,
+        "backgroundTextStyle": "dark"
+      }
+    },
+    {
+      "path": "pages/products/sku-detail",
+      "style": {
+        "navigationBarTitleText": "SKU 详情",
+        "enablePullDownRefresh": true,
+        "backgroundTextStyle": "dark"
+      }
     }
   ],
   "globalStyle": {
@@ -43,6 +99,18 @@
       {
         "pagePath": "pages/inventory/inventory",
         "text": "库存"
+      },
+      {
+        "pagePath": "pages/sales/sales",
+        "text": "出货"
+      },
+      {
+        "pagePath": "pages/purchase/purchase",
+        "text": "进货"
+      },
+      {
+        "pagePath": "pages/products/products",
+        "text": "商品"
       }
     ]
   }

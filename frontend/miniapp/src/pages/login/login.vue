@@ -102,7 +102,7 @@ async function handleLogin(): Promise<void> {
     </view>
 
     <view class="footer">
-      <text class="footer-main">M4 第一批 · H5 / 微信小程序 / Android</text>
+      <text class="footer-main">M4 第二批 · H5 / 微信小程序 / Android</text>
       <text class="footer-sub">一套 uni-app 代码，多端复用</text>
     </view>
   </view>

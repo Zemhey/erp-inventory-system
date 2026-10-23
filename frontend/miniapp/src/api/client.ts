@@ -327,13 +327,73 @@ export interface Sku {
   enabled: boolean
 }
 
+export interface Supplier {
+  id: number
+  code: string
+  name: string
+  contactName?: string | null
+  contactPhone?: string | null
+  address?: string | null
+  enabled: boolean
+}
+
+export interface Customer {
+  id: number
+  code: string
+  name: string
+  phone?: string | null
+  /** 整数万分比：10000 = 不打折，9000 = 9 折 */
+  discountRate: number
+  level: string
+  enabled: boolean
+}
+
 export const mdmApi = {
   listWarehouses: (onlyEnabled = false) =>
     request<Warehouse[]>('/warehouses', { query: { onlyEnabled } }),
-  listProducts: (params: { page?: number; size?: number } = {}) =>
-    request<PageData<Product>>('/products', { query: { page: params.page ?? 1, size: params.size ?? 200 } }),
-  listSkus: (params: { page?: number; size?: number } = {}) =>
-    request<PageData<Sku>>('/skus', { query: { page: params.page ?? 1, size: params.size ?? 200 } }),
+  listProducts: (params: { keyword?: string; page?: number; size?: number } = {}) =>
+    request<PageData<Product>>('/products', {
+      query: {
+        keyword: params.keyword,
+        page: params.page ?? 1,
+        size: params.size ?? 200,
+      },
+    }),
+  getProduct: (id: number) => request<Product>(`/products/${id}`),
+  listSkus: (params: {
+    productId?: number
+    color?: string
+    /** 尺码筛选必须叫 skuSize：size 是分页条数（与 Web 同一条约定）。 */
+    skuSize?: string
+    page?: number
+    size?: number
+  } = {}) =>
+    request<PageData<Sku>>('/skus', {
+      query: {
+        productId: params.productId,
+        color: params.color,
+        skuSize: params.skuSize,
+        page: params.page ?? 1,
+        size: params.size ?? 200,
+      },
+    }),
+  getSku: (id: number) => request<Sku>(`/skus/${id}`),
+  listSuppliers: (params: { keyword?: string; page?: number; size?: number } = {}) =>
+    request<PageData<Supplier>>('/suppliers', {
+      query: {
+        keyword: params.keyword,
+        page: params.page ?? 1,
+        size: params.size ?? 200,
+      },
+    }),
+  listCustomers: (params: { keyword?: string; page?: number; size?: number } = {}) =>
+    request<PageData<Customer>>('/customers', {
+      query: {
+        keyword: params.keyword,
+        page: params.page ?? 1,
+        size: params.size ?? 200,
+      },
+    }),
 }
 
 export interface InventoryBalance {
@@ -376,4 +436,98 @@ export const invApi = {
   } = {}) => request<PageData<LedgerEntry>>('/inventory/ledger', { query: params }),
   consistencyCheck: () =>
     request<{ consistent: boolean; checked?: boolean }>('/inventory/consistency-check'),
+}
+
+// ─────────────────────────── 单据（移动端只读 + 单动作） ───────────────────────────
+
+export interface OrderLine {
+  id: number
+  lineNo: number
+  skuId: number
+  qty: number
+  unitPriceAmount: number
+  amount: number
+  /** 进货单：累计已入库量（列表序列化自带；详情由后端映射补齐 openQty） */
+  receivedQty?: number
+  /** 出货单：累计已出货 / 已退货量 */
+  shippedQty?: number
+  returnedQty?: number
+  /** 详情接口给出；列表接口的领域记录不一定序列化该派生值 */
+  openQty?: number
+  discountRate?: number
+}
+
+export interface PurchaseOrder {
+  id: number
+  orderNo: string
+  status: string
+  supplierId: number
+  warehouseId: number
+  bizDate: string
+  totalAmount: number
+  totalQty: number
+  period?: string | null
+  remark?: string | null
+  lines: OrderLine[]
+}
+
+export interface SalesOrder {
+  id: number
+  orderNo: string
+  status: string
+  customerId: number
+  warehouseId: number
+  bizDate: string
+  totalAmount: number
+  totalQty: number
+  period?: string | null
+  remark?: string | null
+  lines: OrderLine[]
+}
+
+export interface ReceiveLine {
+  lineId: number
+  qty: number
+  batchNo?: string
+  productionDate?: string
+  expiryDate?: string
+}
+
+/**
+ * 进货单：列表 / 详情 / 入库。
+ *
+ * 建单、审核、作废仍留在 Web；移动端只暴露查看与 `receive`。
+ * 写操作的 `X-Request-Id` 由 request() 统一注入，页面不手写幂等键。
+ */
+export const purApi = {
+  list: (params: {
+    status?: string
+    supplierId?: number
+    page?: number
+    size?: number
+  } = {}) => request<PageData<PurchaseOrder>>('/purchase-orders', { query: params }),
+  get: (id: number) => request<PurchaseOrder>(`/purchase-orders/${id}`),
+  receive: (id: number, body: { lines: ReceiveLine[] }) =>
+    request<PurchaseOrder>(`/purchase-orders/${id}/receive`, {
+      method: 'POST',
+      data: body,
+    }),
+}
+
+/**
+ * 出货单：列表 / 详情 / 出货。
+ *
+ * `ship` 没有请求体：后端按各行未出量整单出货，批次由 FEFO 决定（FR-SAL-02）。
+ * 建单（多行 + 折扣）留在 Web；移动端只做查看与 `ship`。
+ */
+export const salApi = {
+  list: (params: {
+    status?: string
+    customerId?: number
+    page?: number
+    size?: number
+  } = {}) => request<PageData<SalesOrder>>('/sales-orders', { query: params }),
+  get: (id: number) => request<SalesOrder>(`/sales-orders/${id}`),
+  ship: (id: number) =>
+    request<SalesOrder>(`/sales-orders/${id}/ship`, { method: 'POST' }),
 }

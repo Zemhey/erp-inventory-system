@@ -360,6 +360,7 @@ onReachBottom(() => {
             v-for="row in balances"
             :key="`${row.skuId}-${row.warehouseId}-${row.batchNo}`"
             class="card balance-card"
+            :data-balance-key="`${row.skuId}-${row.warehouseId}-${row.batchNo}`"
           >
             <view class="row-between card-head">
               <text class="sku-name">{{ skuText(row.skuId) }}</text>
@@ -414,7 +415,12 @@ onReachBottom(() => {
         </view>
 
         <view v-else class="list">
-          <view v-for="entry in ledgerItems" :key="entry.id" class="card ledger-card">
+          <view
+            v-for="entry in ledgerItems"
+            :key="entry.id"
+            class="card ledger-card"
+            :data-entry-id="entry.id"
+          >
             <view class="row-between card-head">
               <view class="row">
                 <text class="type-badge" :class="entry.changeQty > 0 ? 'badge-in' : 'badge-out'">
@@ -443,15 +449,20 @@ onReachBottom(() => {
           </view>
         </view>
 
-        <view class="ledger-footer">
-          <view v-if="ledgerLoading" class="loading-block">加载中…</view>
+        <view v-if="ledgerLoaded" class="ledger-footer">
+          <!--
+            ★ 加载更多按钮在请求飞行中**不能被 v-if 换掉**：
+              换成"加载中…"会让节点从 DOM detach，连点/自动化都会撞在重新挂载的节点上。
+              这里保持同一节点，只把文案切成"加载中…"并禁用点击。
+          -->
           <button
-            v-else-if="hasMore"
+            v-if="hasMore || ledgerLoading"
             class="btn-ghost load-more"
             hover-class="none"
+            :disabled="ledgerLoading"
             @click="loadLedger(false)"
           >
-            加载更多（{{ ledgerItems.length }} / {{ ledgerTotal }}）
+            {{ ledgerLoading ? '加载中…' : `加载更多（${ledgerItems.length} / ${ledgerTotal}）` }}
           </button>
           <text v-else-if="ledgerItems.length" class="footer-note">
             已全部加载，共 {{ ledgerTotal }} 条

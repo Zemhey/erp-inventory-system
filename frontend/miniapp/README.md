@@ -1,26 +1,32 @@
 # frontend/miniapp · 移动端（uni-app）
 
 > M4 第一批：**登录 → 工作台（简版概览）→ 库存查询（余额 + 流水分页）**。
+> M4 第二批：**出货单（列表/详情/出货）→ 进货单（列表/详情/入库）→ 商品/SKU 只读** + **移动端 E2E**。
 > 一套 Vue3 + TypeScript + Vite 代码，可构建 **H5 / 微信小程序 / Android App 资源包**。
 > 决策与取舍见 [ADR-0004](../../docs/07-决策记录ADR/ADR-0004-移动端用uni-app.md)；
 > 执行计划、页面优先级与验收记录见 [`.plan/M4-计划书.md`](../../.plan/M4-计划书.md)。
 
 ---
 
-## 1. 当前范围（本批已交付）
+## 1. 当前范围（两批已交付）
 
 | 页面 | 能力 | 状态 |
 |---|---|---|
 | 登录 | `/auth/login`；错误密码内联提示；token/权限持久化 | ✅ |
-| 工作台 | 库存行数、有库存 SKU、实存/预占/可用合计、账实一致性、最近 5 条流水 | ✅ |
+| 工作台 | 库存行数、有库存 SKU、实存/预占/可用合计、账实一致性、最近 5 条流水、单据/商品快捷入口 | ✅ |
 | 库存查询 | 余额（仓库/批次/仅可用筛选）+ 流水（分页加载、单据号反查、单位成本分→元） | ✅ |
+| 出货单 | 列表（状态筛选 + 分页）/ 详情（明细、折扣、已出/未出）/ **确认出货**（单动作 ship） | ✅ |
+| 进货单 | 列表（状态筛选 + 分页）/ 详情（明细、已入/未入）/ **确认入库**（单动作 receive，可带统一批次/效期） | ✅ |
+| 商品 / SKU | 商品 keyword 搜索 + 分页；商品详情带 SKU 列表；SKU 本地过滤（条码/款号/颜色/尺码）+ SKU 详情 | ✅ 只读 |
 
 **明确不做**（移动端刻意裁剪，复杂操作留在 Web）：
-建单/审核/入库/出货/退货/结算动作、主数据 CRUD、SKU 矩阵生成、报表下钻与导出、扫码、离线缓存。
-下一批页面（出货/进货/商品只读）的优先级见计划书 §2。
+建单、多行改量、折扣录入、提交/审核/驳回/作废、退货、结算、主数据 CRUD、SKU 矩阵生成、
+报表下钻与导出、扫码、离线缓存。
 
 **前端不实现业务规则**：库存够不够、能不能出货、金额怎么算全部由后端决定；
 前端只做展示、筛选与触发。唯一允许的本地计算是显示换算（分→元、日期格式化）。
+单据按钮的显隐是**后端状态机的镜像**（`src/utils/documentStatus.ts`，与 Web 同名文件同源），
+不按数量、日期或角色自行推断。
 
 ---
 
@@ -46,22 +52,34 @@
 ```
 frontend/miniapp/
 ├── index.html                 # H5 入口
-├── vite.config.ts             # uni() + 3002 + /api → 8082 代理
+├── vite.config.ts             # uni() + 3002 + /api → 8082（端口与目标可用环境变量覆盖）
+├── playwright.config.ts       # 移动端 E2E：3005 + 8085 + 自有 PG 15441
 ├── tsconfig.json
 ├── .env.example               # VITE_API_BASE_URL 示例（小程序/Android 必填绝对地址）
+├── e2e/                       # 移动端 E2E（Playwright 打 H5）
+│   ├── start-db.mjs           # 起/复用自有 PostgreSQL 容器（pree2e 钩子）
+│   ├── start-backend.mjs      # 经 ASCII 联接构建并启动后端 8085
+│   ├── global-setup.ts        # 建 admin、清理上一轮残留、记录业务表基线
+│   ├── seed.setup.ts          # 真实接口造数 + 写 storageState
+│   ├── global-teardown.ts     # 按前缀清理 + 两条硬校验（残留 0 / 回到基线）
+│   ├── 01-login … 06-page-states.spec.ts
+│   └── helpers/               # api / db / seed / paths / shot
 └── src/
     ├── main.ts / App.vue      # createSSRApp；启动时装配路由守卫 + 全局样式
-    ├── pages.json             # 三页注册 + 文字 tabBar + 下拉刷新
+    ├── pages.json             # 8 页注册 + 5 个文字 tabBar + 下拉刷新
     ├── manifest.json          # appid / mp-weixin / app-plus；uniStatistics 已关闭
     ├── config.ts              # API base、H5 判断、非 H5 相对地址的就绪校验
     ├── api/client.ts          # uni.request 封装 + 全部接口与类型
     ├── stores/session.ts      # token / 角色 / 权限持久化（uni storage）
-    ├── composables/useDictionary.ts  # skuId/warehouseId → 名称（仅显示映射）
-    ├── utils/                 # 路由守卫、分→元、日期/类型文案、错误收敛
+    ├── composables/useDictionary.ts  # sku/warehouse/supplier/customer/product → 名称
+    ├── utils/                 # 路由守卫、分→元、日期/类型文案、错误收敛、单据状态镜像
     └── pages/
         ├── login/login.vue
         ├── dashboard/dashboard.vue
-        └── inventory/inventory.vue
+        ├── inventory/inventory.vue
+        ├── sales/{sales,detail}.vue          # 列表 / 详情 / 确认出货
+        ├── purchase/{purchase,detail}.vue    # 列表 / 详情 / 确认入库
+        └── products/{products,product-detail,sku-detail}.vue   # 只读
 ```
 
 ### API 客户端三条纪律（与 Web 对齐）
@@ -80,8 +98,11 @@ frontend/miniapp/
 ### 4.1 前置
 
 - Node.js 20+（本机 v24）；
-- 后端跑在 **8082**（本泳道约定；8080/3000 是用户进程，8081/3001 是 E2E 保留）；
+- 后端跑在 **8082**（第一批泳道约定；8080/3000 是用户进程，8081/3001 是 Web E2E 保留）；
 - PostgreSQL 跑在 **15434**（自有容器 `erp-m4-pg`；共享开发库是 15432，本泳道不动）。
+- 第二批泳道（M4b）端口整体挪到 **8085 / 3005 / 15441**（容器 `erp-m4b-pg`、联接 `D:\erp-build-m4b`），
+  与第一批并行时互不占用；H5 的端口与代理目标已改成环境变量：
+  `MINIAPP_DEV_PORT`、`MINIAPP_API_TARGET`（默认仍是 3002 → 8082）。
 
 ```bash
 # 1) 自有 PostgreSQL（代码库已存在 postgres:16-alpine 镜像）
@@ -147,10 +168,36 @@ docker exec erp-m4-pg psql -U erp -d erp -f /tmp/seed.sql
 cd D:\erp-build-m4\frontend\miniapp
 
 npm run type-check        # vue-tsc，0 错误
-npm run build:h5          # → dist/build/h5（本批实测 312K）
-npm run build:mp-weixin   # → dist/build/mp-weixin（本批实测 178K）
-npm run build:app         # → dist/build/app（App 资源包，本批实测 921K；不是 APK）
+npm run build:h5          # → dist/build/h5（第二批实测 427K）
+npm run build:mp-weixin   # → dist/build/mp-weixin（第二批实测 309K）
+npm run build:app         # → dist/build/app（App 资源包，第二批实测 1005K；不是 APK）
 ```
+
+### 4.5 移动端 E2E（第二批新增）
+
+一条命令跑完「起库 → 起后端 8085 → 起 H5 3005 → 造数 → 9 条用例 → 按前缀清理」：
+
+```bash
+cd D:\erp-build-m4b\frontend\miniapp
+npm install --registry=https://registry.npmmirror.com
+npm run e2e                 # pree2e 钩子会先起 erp-m4b-pg 容器
+npm run e2e:db:stop         # 收尾：删掉自有容器与数据卷
+```
+
+| 环境变量 | 作用 |
+|---|---|
+| `E2E_SKIP_BUILD=1` | 跳过 `gradlew bootJar`（已构建过时加速第二轮） |
+| `E2E_REUSE_SERVERS=1` | 复用已在跑的 8085/3005（人工联调时用；先确认后端是本 worktree 的新代码） |
+| `E2E_KEEP_DATA=1` | 跑完不清理，便于人工点；下一轮开始时 globalSetup 会先清掉上一轮 |
+| `E2E_CHANNEL=chromium` | 不用系统 Edge，改 Playwright 自带浏览器 |
+
+纪律（与 Web E2E 同源）：
+- 只用自有 PG 15441 与 `E2B-<runId>` 唯一前缀造数，**不碰共享库 15432 与 `e2e-reserve-001`**；
+- teardown 两条硬校验：前缀残留必须为 0、业务表计数必须回到基线，否则整次运行判红；
+- 造数全部走真实接口（含 `X-Request-Id`），不手改库；admin 账号的哈希由
+  `scripts/bcrypt-hash.ps1`（后端同一个 `BCryptPasswordEncoder(10)`）现生成；
+- 断言写不变量：流水分页 25 个 `data-entry-id` 不重复、余额三量只做展示断言、
+  出货/入库后状态必须变成后端返回的 `COMPLETED`。
 
 ---
 
@@ -249,7 +296,7 @@ npm run build:app
 
 ---
 
-## 8. 本批实测证据（2026-10-23）
+## 8. 第一批实测证据（2026-10-23）
 
 | 项 | 命令 / 结果 |
 |---|---|
@@ -268,9 +315,29 @@ npm run build:app
 截图与结构化结果：`D:\erp-m4-evidence\`（`01-login.png` … `07-guard-redirect.png`、`evidence.json`），
 为**仓库外**的本机证据，不随代码入库。
 
+### 8.5 M4 第二批实测证据（2026-10-23，泳道 8085 / 3005 / 15441）
+
+| 项 | 命令 / 结果 |
+|---|---|
+| 类型检查 | `npm run type-check` → 0 错误（`tsconfig.include` 已扩到 `e2e/**/*.ts` + `playwright.config.ts`；Playwright 自身不做类型检查，不收进来等于裸奔） |
+| 三端构建 | `build:h5` 427K、`build:mp-weixin` 309K、`build:app` 1005K（5 个 tabBar 合法） |
+| E2E 连跑 | 修掉清理门禁空转（坑 24）之后连跑 4 遍 `npm run e2e`（含 pree2e 起库 + Gradle bootJar）：**9 passed (1.6m) → 9 passed (1.5m) → 9 passed (1.3m，`E2E_KEEP_DATA=1`) → 9 passed (1.5m)** |
+| 造数规模 | 1 商品 / 25 SKU / 2 仓 / 3 进货单（25+2+2 行）/ 1 出货单 → 余额 29 行、流水 31 条、预占 2 段 |
+| 出货动作 | 详情「已审核」→ 确认出货 → 后端返回「已完成」，按钮消失、提示改为不可出货 |
+| 入库动作 | 详情「已审核」→ 确认入库（10 件）→ 「已完成」，已入 10、未入 0 |
+| 幂等键 | `ship` / `receive` 的 `X-Request-Id` 由 `api/client.ts` 注入，页面零手写 |
+| 三态 | 404 单据显示后端消息「出货单不存在」+ 重试；商品搜索与批次筛选无结果给下一步提示 |
+| 清理 | 每轮 teardown 与下一轮 setup 都要求 8 项前缀残留计数为 0、业务表计数回到基线（`cleanup.json` 留档删除行数） |
+| 门禁自检 | `E2E_KEEP_DATA=1` 留一轮数据后跑同一条残留查询 → `skus=25 / ledger=31 / balances=29`（8 项全非零）：这条红是能亮的，不是摆设 |
+
+截图（通过态正片）：`frontend/miniapp/.e2e-artifacts/screenshots/`（已 gitignore）：
+`login-inline-error`、`dashboard`、`inventory-balance-filtered`、`ledger-page1/2`、
+`sales-list-filtered`、`sales-detail-approved/completed`、`purchase-detail-approved/completed`、
+`product-detail`、`sku-detail`、`sku-filtered`、`sales-detail-error`、`products-empty`。
+
 ---
 
-## 9. 已知坑（本批实测）
+## 9. 已知坑（两批实测）
 
 1. **npm 官方源 / GitHub 不可达** → 手工脚手架 + npmmirror；`degit` 拉官方模板会失败。
 2. **vite 版本**：Web 端 vite 6，uni-app 该版本 peer 要求 5.2.8；独立 `package.json` 精确锁定。
@@ -285,12 +352,32 @@ npm run build:app
    本批实测无外部统计请求、无 `__DC_STAT_UUID`。
 9. **名称字典截断**：`/skus`、`/products` 的 `size` 上限 200；超出时页面显示 ID 并在底部提示，
    不假装完整（与 Web 库存页同一条纪律）。
+10. **H5 的 placeholder 不是 input 属性**（第二批实测）：`<uni-input>` 把提示语渲染成**同级占位元素**，
+    `page.getByPlaceholder(...)` 一律找不到 → E2E 用 `.field input` / `.filter-input input` / `.search-input input` 定位。
+11. **「加载更多」按钮不能在用 `v-if` 换掉的节点上**（第二批实测）：请求飞行中把按钮换成
+    "加载中…" 会让节点 detach，Playwright 的点击会反复重试并撞在重新挂载的节点上直到超时 →
+    保持同一节点，只切文案 + `:disabled`（`inventory/sales/purchase/products` 四处一致）。
+12. **`uni.showModal` 在 H5 是 DOM 弹层**：不是原生 dialog，`page.on('dialog')` 收不到；
+    确认按钮是 `.uni-modal__btn_primary`，可以直接点。
+13. **本包不是 ESM**：`package.json` 没有 `"type": "module"`（uni-app 构建按 CJS 解析），
+    Playwright 会把 `e2e/**/*.ts` 与 `playwright.config.ts` 转成 CommonJS →
+    只能用 `__dirname`，写 `import.meta.url` 会直接 `SyntaxError`（`.mjs` 脚本不受影响）。
+14. **单据状态按钮是镜像不是判断**（第二批）：按钮显隐只看 `utils/documentStatus.ts` 的
+    「状态 → 动作」表 + 权限码，**不看 openQty / 余额 / 日期**；镜像漂移的表现是用户点了收到 409，
+    所以这张表要与 Web 的同名文件、后端 `DocumentStatus` 一起改。
+15. **清理门禁会空转**（第二批自查）：`cleanupRun` 一度把残留计数的 **SQL 文本**当成 psql 输出去解析，
+    `remaining` 恒为 `{}`，"前缀残留必须为 0"于是永远不会红 —— 测试全绿但库里一堆垃圾。
+    现在既执行再解析，还要求 8 项计数**一项不缺**（缺项报错，而不是当作干净）；
+    setup 清上一轮残留后同样校验归零，否则基线一开始就是脏的。
 
 ---
 
 ## 10. 与仓库其他部分的关系
 
-- 后端与契约：**本批零改动**；直接消费 `frontend/web/src/api/client.ts` 已在用的接口。
-- Web 端：**只读参考**，未改一行；移动端裁剪原则见 ADR-0004。
-- 端口纪律：本泳道 8082 / 3002 / 15434；不占用户 8080/3000 与 E2E 的 8081/3001。
-- 下一批（S8/S9/S10 与 P1 页面）的开场提示词在 [`.plan/M4-计划书.md`](../../.plan/M4-计划书.md) §8。
+- 后端与契约：**两批都零改动**；直接消费 `frontend/web/src/api/client.ts` 已在用的接口。
+- Web 端：**只读参考**，未改一行；移动端裁剪原则见 ADR-0004，状态镜像参照
+  `frontend/web/src/utils/documentStatus.ts`。
+- 端口纪律：第一批泳道 8082 / 3002 / 15434；第二批泳道与 E2E 8085 / 3005 / 15441；
+  都不占用户 8080/3000 与 Web E2E 的 8081/3001，也不碰共享库 15432。
+- 下一批（S8 微信联调 / S9 Android 出包 / P2 退货·结算·报表）的开场提示词在
+  [`.plan/M4-计划书.md`](../../.plan/M4-计划书.md) §8 与 §10。

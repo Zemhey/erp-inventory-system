@@ -10,11 +10,18 @@
     "skipLibCheck": true,
     "noEmit": true,
     "lib": ["ESNext", "DOM"],
-    "types": ["@dcloudio/types"],
+    "types": ["@dcloudio/types", "node"],
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.vue", "vite.config.ts"]
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.d.ts",
+    "src/**/*.vue",
+    "e2e/**/*.ts",
+    "playwright.config.ts",
+    "vite.config.ts"
+  ]
 }
