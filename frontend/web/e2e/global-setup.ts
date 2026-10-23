@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { artifactsDir, runFile } from './helpers/paths'
 import type { RunInfo } from './helpers/run'
+import { normalizeRun } from './helpers/run'
 import { cleanupRun, createTempUser, readBaseline, resetReservedPeriods } from './helpers/db-ops'
 
 const STALE_AFTER_MS = 30 * 60 * 1000
@@ -16,7 +17,7 @@ export default async function globalSetup(): Promise<void> {
 
   // 上一次运行若被强杀，run.json 会留下；超过 30 分钟视为遗留并清掉。
   if (existsSync(runFile)) {
-    const previous = JSON.parse(readFileSync(runFile, 'utf8')) as RunInfo
+    const previous = normalizeRun(JSON.parse(readFileSync(runFile, 'utf8')) as Partial<RunInfo>)
     const age = Date.now() - Date.parse(previous.startedAt)
     if (Number.isFinite(age) && age > STALE_AFTER_MS) {
       try {
