@@ -80,6 +80,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/sal/SalesOrderView.vue'),
         meta: { title: '出货单', permission: 'sal:read' },
       },
+      {
+        path: 'return-orders',
+        name: 'return-orders',
+        component: () => import('@/views/rma/ReturnOrderView.vue'),
+        meta: { title: '退货单', permission: 'rma:read' },
+      },
     ],
   },
   {

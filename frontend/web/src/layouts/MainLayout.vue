@@ -8,6 +8,7 @@ import {
   House,
   Menu as MenuIcon,
   OfficeBuilding,
+  RefreshLeft,
   Sell,
   ShoppingCart,
   SwitchButton,
@@ -73,6 +74,8 @@ const allMenus: MenuItem[] = [
   { path: '/inventory', title: '库存查询', icon: MenuIcon, permission: 'inv:read' },
   { path: '/purchase-orders', title: '进货单', icon: ShoppingCart, permission: 'pur:read' },
   { path: '/sales-orders', title: '出货单', icon: Sell, permission: 'sal:read' },
+  // 追加式新增：本数组只往后加，不重排（S5b 的结算页 / 报表页接在后面，见 M2 计划书 §5.6）
+  { path: '/return-orders', title: '退货单', icon: RefreshLeft, permission: 'rma:read' },
 ]
 
 const visibleMenus = computed(() =>

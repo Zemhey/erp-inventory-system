@@ -255,6 +255,31 @@ export const salApi = {
   voidOrder: (id: number) => http.post<never, SalesOrder>(`/sales-orders/${id}/void`),
 }
 
+/**
+ * 退货（FR-RMA-01）。
+ *
+ * 入库（receive）**没有请求体**：数量、批次、效期在建单时就已确定，
+ * 整单一次性回补，不支持分批（§7 决策 7）。
+ * X-Request-Id 由请求拦截器统一注入，建单键与入库键在后端分列。
+ */
+export const rmaApi = {
+  list: (params: {
+    status?: string
+    customerId?: number
+    originSalesOrderId?: number
+    page?: number
+    size?: number
+  }) => http.get<never, PageData<ReturnOrder>>('/return-orders', { params }),
+  get: (id: number) => http.get<never, ReturnOrder>(`/return-orders/${id}`),
+  create: (body: ReturnOrderCreate) => http.post<never, ReturnOrder>('/return-orders', body),
+  submit: (id: number) => http.post<never, ReturnOrder>(`/return-orders/${id}/submit`),
+  approve: (id: number) => http.post<never, ReturnOrder>(`/return-orders/${id}/approve`),
+  reject: (id: number) => http.post<never, ReturnOrder>(`/return-orders/${id}/reject`),
+  receive: (id: number) => http.post<never, ReturnOrder>(`/return-orders/${id}/receive`),
+  // COMPLETED 的作废被业务层拒绝（需红冲，属 M2.5），错误消息原样透出
+  voidOrder: (id: number) => http.post<never, ReturnOrder>(`/return-orders/${id}/void`),
+}
+
 // ═══════════════════════ 类型定义（与后端 DTO 对齐） ═══════════════════════
 
 export interface Product {
@@ -423,6 +448,8 @@ export interface OrderLine {
   amount: number
   receivedQty?: number
   shippedQty?: number
+  /** 累计已退货数量；剩余可退 = shippedQty − returnedQty（退货页用） */
+  returnedQty?: number
   openQty?: number
   discountRate?: number
 }
@@ -477,6 +504,56 @@ export interface SalesOrderCreate {
   bizDate?: string
   remark?: string
   lines: { skuId: number; qty: number; unitPriceAmount: number; discountRate?: number }[]
+}
+
+/**
+ * 退货单（契约 `ReturnOrder`）。
+ *
+ * 状态刻意不含 PARTIAL：退货整单一次回补，DB CHECK 与契约 enum 都写死了六态。
+ * 客户 / 仓库 / 单价 / 折扣都是后端从原出货单派生的结果，前端只能读、不能传。
+ */
+export interface ReturnOrder {
+  id: number
+  orderNo: string
+  status: string
+  originSalesOrderId: number
+  customerId: number
+  warehouseId: number
+  bizDate: string
+  totalAmount: number
+  totalQty: number
+  period?: string | null
+  remark?: string | null
+  lines: ReturnOrderLine[]
+}
+
+export interface ReturnOrderLine {
+  id: number
+  lineNo: number
+  /** 原出货单明细行 id；剩余可退的上限来自这一行 */
+  originLineId: number
+  skuId: number
+  qty: number
+  unitPriceAmount: number
+  discountRate: number
+  amount: number
+  batchNo?: string | null
+  productionDate?: string | null
+  expiryDate?: string | null
+}
+
+/** 退货建单：只有原行、数量与批次/效期，没有任何金额字段。 */
+export interface ReturnOrderCreate {
+  originSalesOrderId: number
+  bizDate?: string
+  remark?: string
+  lines: {
+    originLineId: number
+    qty: number
+    batchNo?: string
+    productionDate?: string
+    expiryDate?: string
+  }[]
 }
 
 // ═══════════════════════ 金额工具（ADR-0005） ═══════════════════════
