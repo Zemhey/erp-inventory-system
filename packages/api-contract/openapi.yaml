@@ -37,6 +37,8 @@ tags:
     description: 报表统计
   - name: nl
     description: 自然语言操作（意图解析 + 调度既有业务服务，FR-SYS-04）
+  - name: cst
+    description: 成本与毛利（移动加权成本 / 月结转 / 毛利分析）
 
 paths:
   # ─────────────────────────── MDM ───────────────────────────
@@ -1505,6 +1507,122 @@ paths:
                     code: NL_PARSER_UNAVAILABLE
                     message: "自然语言解析器不可用：未配置 ERP_NL_API_KEY（erp.nl.parser=openai）"
 
+  # ─────────────────────── 成本与毛利（V2-4） ───────────────────────
+  /cost/recalculate:
+    post:
+      tags: [cst]
+      summary: 全量重算成本层（FR-CST-01，INV-11）
+      operationId: recalculateCost
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: 重算结果；balanced=true 表示 INBOUND == OUTBOUND + ENDING
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/CostRecalculateResult' }
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /cost/monthly:
+    post:
+      tags: [cst]
+      summary: 成本月结（FR-CST-02，幂等）
+      operationId: runCostMonthly
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CostMonthlyRequest' }
+      responses:
+        '200':
+          description: 月结结果；同账期无变化时 duplicate=true
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/CostMonthlyResult' }
+        '400':
+          description: period 非法
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '409':
+          $ref: '#/components/responses/Conflict'
+    get:
+      tags: [cst]
+      summary: 查询成本月结（FR-CST-02）
+      operationId: listCostMonthly
+      parameters:
+        - name: period
+          in: query
+          required: true
+          schema: { type: string, pattern: '^\d{4}-\d{2}$', example: '2026-10' }
+      responses:
+        '200':
+          description: 月结明细
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/CostMonthlyListResult' }
+        '400':
+          description: period 非法
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+  /reports/profit:
+    get:
+      tags: [rpt, cst]
+      summary: 毛利分析（FR-CST-03 / FR-RPT-04）
+      operationId: getProfitReport
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, pattern: '^\d{4}-\d{2}$', example: '2026-10' }
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, pattern: '^\d{4}-\d{2}$', example: '2026-12' }
+        - name: groupBy
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [product, customer, period]
+            default: product
+      responses:
+        '200':
+          description: 按维度聚合的毛利；金额单位分，毛利率为万分比
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/ProfitReportResult' }
+        '400':
+          description: 参数非法（from > to / groupBy 非法 / 格式错误）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
 components:
   parameters:
     RequestId:
@@ -2325,3 +2443,76 @@ components:
         data:
           description: 意图对应的业务数据；读意图通常是 items 或分页对象，写意图是建成的单据
           nullable: true
+
+    CostRecalculateResult:
+      type: object
+      required: [layerCount, inboundCostAmount, outboundCostAmount, endingCostAmount, balanced]
+      properties:
+        layerCount: { type: integer, format: int32 }
+        inboundCostAmount: { type: integer, format: int64 }
+        outboundCostAmount: { type: integer, format: int64 }
+        endingCostAmount: { type: integer, format: int64 }
+        balanced: { type: boolean }
+
+    CostMonthlyRequest:
+      type: object
+      required: [period]
+      properties:
+        period: { type: string, pattern: '^\d{4}-\d{2}$', example: '2026-10' }
+
+    CostMonthlyItem:
+      type: object
+      required: [skuId, warehouseId, openingQty, openingCostAmount, inboundQty,
+                 inboundCostAmount, outboundQty, outboundCostAmount, closingQty, closingCostAmount]
+      properties:
+        skuId: { type: integer, format: int64 }
+        warehouseId: { type: integer, format: int64 }
+        openingQty: { type: integer }
+        openingCostAmount: { type: integer, format: int64 }
+        inboundQty: { type: integer }
+        inboundCostAmount: { type: integer, format: int64 }
+        outboundQty: { type: integer }
+        outboundCostAmount: { type: integer, format: int64 }
+        closingQty: { type: integer }
+        closingCostAmount: { type: integer, format: int64 }
+
+    CostMonthlyResult:
+      type: object
+      required: [period, duplicate, items, marginRecordCount]
+      properties:
+        period: { type: string }
+        duplicate: { type: boolean }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/CostMonthlyItem' }
+        marginRecordCount: { type: integer }
+
+    CostMonthlyListResult:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/CostMonthlyItem' }
+
+    ProfitRow:
+      type: object
+      required: [key, label, qty, revenueAmount, costAmount, grossProfitAmount,
+                 grossMarginRateBp, orderCount]
+      properties:
+        key: { type: string }
+        label: { type: string }
+        qty: { type: integer }
+        revenueAmount: { type: integer, format: int64 }
+        costAmount: { type: integer, format: int64 }
+        grossProfitAmount: { type: integer, format: int64 }
+        grossMarginRateBp: { type: integer, description: '万分比，6000 = 60%' }
+        orderCount: { type: integer }
+
+    ProfitReportResult:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/ProfitRow' }

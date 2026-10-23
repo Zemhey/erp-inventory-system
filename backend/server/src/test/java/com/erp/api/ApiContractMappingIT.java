@@ -97,11 +97,7 @@ class ApiContractMappingIT extends PostgresTestBase {
         UNDOCUMENTED_DEBT.put("POST /api/v1/sales-orders/{}/approve", "出货工作流，契约待补");
         UNDOCUMENTED_DEBT.put("POST /api/v1/sales-orders/{}/reject", "出货工作流，契约待补");
 
-        // V2-4 成本毛利：只提申请单，合并时由清场删除 debt 并落契约
-        UNDOCUMENTED_DEBT.put("POST /api/v1/cost/recalculate", "V2-4 成本重算，待落契约");
-        UNDOCUMENTED_DEBT.put("POST /api/v1/cost/monthly", "V2-4 成本月结，待落契约");
-        UNDOCUMENTED_DEBT.put("GET /api/v1/cost/monthly", "V2-4 成本月结查询，待落契约");
-        UNDOCUMENTED_DEBT.put("GET /api/v1/reports/profit", "V2-4 毛利分析（FR-RPT-04），待落契约");
+        // V2-4 成本毛利：4 个端点已落入 openapi.yaml（2026-10-24），debt 已清偿
     }
 
     @Autowired
