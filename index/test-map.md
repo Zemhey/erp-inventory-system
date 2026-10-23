@@ -17,6 +17,8 @@
 | `TC-API-008` | ★ 客户折扣率：越界 400（契约层校验），合法 9 折成功 | `backend/server/src/test/java/com/erp/api/MasterDataApiIT.java` |
 | `TC-API-009` | 仓库：列表返回数组（非分页）；onlyEnabled 过滤生效 | `backend/server/src/test/java/com/erp/api/MasterDataApiIT.java` |
 | `TC-API-010` | 缺少 X-Request-Id 的写接口 → 400（契约要求写操作必须带幂等键） | `backend/server/src/test/java/com/erp/api/MasterDataApiIT.java` |
+| `TC-API-018` | ★ 三个报表接口全部可达且包络符合契约；默认分组是 supplier/customer；报表零写入 | `backend/server/src/test/java/com/erp/api/ReportApiIT.java` |
+| `TC-RPT-009` | 非法参数一律 400：groupBy 取值非法 / 跨报表维度 / from>to / period 格式 / 缺参数 | `backend/server/src/test/java/com/erp/api/ReportApiIT.java` |
 | `TC-API-014` | ★ 退货 HTTP 端到端：建单→提交→审核→入库，响应字段符合契约；出货明细露出 returnedQty | `backend/server/src/test/java/com/erp/api/ReturnOrderApiIT.java` |
 | `TC-API-015` | 退货接口守卫：缺 X-Request-Id → 400（不是 500）；VIEWER 可查不可建；未登录 401 | `backend/server/src/test/java/com/erp/api/ReturnOrderApiIT.java` |
 | `TC-API-016` | ★ 结算 HTTP 端到端：日清 items/totals → 月结 CLOSED → 对账 balanced，字段符合契约 | `backend/server/src/test/java/com/erp/api/SettlementApiIT.java` |
@@ -25,6 +27,7 @@
 | `TC-ARCH-002` | ★ 规则自检：禁止裸异常规则必须能拦住违规代码 | `backend/server/src/test/java/com/erp/arch/ArchitectureTest.java` |
 | `TC-ARCH-003` | ★ 规则自检：状态机规则必须拦住不调 requireTransition 的方法 | `backend/server/src/test/java/com/erp/arch/ArchitectureTest.java` |
 | `TC-ARCH-004` | ★ 规则自检：单据模块不得依赖 set 的规则必须拦住直接 import 的写法 | `backend/server/src/test/java/com/erp/arch/ArchitectureTest.java` |
+| `TC-ARCH-005` | ★ 规则自检：报表只读规则必须拦住跨模块应用服务依赖 | `backend/server/src/test/java/com/erp/arch/ArchitectureTest.java` |
 | `TC-IAM-001` | 登录成功返回 token 与权限；密码错误返回 401（且不区分用户不存在） | `backend/server/src/test/java/com/erp/iam/IamIT.java` |
 | `TC-IAM-002` | ★ 密码连续错误达到阈值后锁定；到期后自动解锁（锁在数据库，重启不失效） | `backend/server/src/test/java/com/erp/iam/IamIT.java` |
 | `TC-IAM-003` | 停用账号无法登录（IAM_ACCOUNT_DISABLED） | `backend/server/src/test/java/com/erp/iam/IamIT.java` |
@@ -35,6 +38,11 @@
 | `TC-IAM-008` | ★ 角色隔离：采购员可建进货单但不能出货；管理员全权 | `backend/server/src/test/java/com/erp/iam/IamIT.java` |
 | `TC-IAM-009` | 权限变更立即生效：撤掉角色后，旧 token 的下一次请求即被拒绝 | `backend/server/src/test/java/com/erp/iam/IamIT.java` |
 | `TC-IAM-010` | 密码只存 BCrypt 哈希，明文绝不出现在库中 | `backend/server/src/test/java/com/erp/iam/IamIT.java` |
+| `TC-INV-012` | 到期 ACTIVE 预占被自动释放：可用量恢复、实存不动、状态置 EXPIRED | `backend/server/src/test/java/com/erp/inv/InventoryReservationExpiryIT.java` |
+| `TC-INV-013` | 未到期预占不动，且边界精确：ttl-1 与 ttl 都不放，ttl+1 才放 | `backend/server/src/test/java/com/erp/inv/InventoryReservationExpiryIT.java` |
+| `TC-INV-014` | 超时释放只影响预占量，一条流水都不写（不变量 INV-2 的前提） | `backend/server/src/test/java/com/erp/inv/InventoryReservationExpiryIT.java` |
+| `TC-INV-015` | 过期任务幂等且定时入口只是转发；测试上下文里调度器根本没装配（坑 9b 开关生效） | `backend/server/src/test/java/com/erp/inv/InventoryReservationExpiryIT.java` |
+| `TC-INV-016` | 过期释放后，余额行 reserved_qty 与 ACTIVE 预占合计逐行一致 | `backend/server/src/test/java/com/erp/inv/InventoryReservationExpiryIT.java` |
 | `TC-INV-001` | 预占成功后：实存不变、预占增加、可用量相应减少（不变量 INV-3） | `backend/server/src/test/java/com/erp/inv/InventoryReserveIT.java` |
 | `TC-INV-002` | 可用量不足必须拒绝，且不产生任何副作用（错误码含定位信息） | `backend/server/src/test/java/com/erp/inv/InventoryReserveIT.java` |
 | `TC-INV-003` | 预占只受可用量约束：实存 10、已预占 8 时，预占 3 必须失败 | `backend/server/src/test/java/com/erp/inv/InventoryReserveIT.java` |
@@ -92,6 +100,18 @@
 | `TC-RMA-010` | 入库后作废必须被拒绝（红冲属 M2.5），且已回补的库存不动 | `backend/server/src/test/java/com/erp/rma/ReturnOrderIT.java` |
 | `TC-RMA-011` | ★ 指定批次与效期回补：货进到新批次，且下一次出货的 FEFO 能看见它 | `backend/server/src/test/java/com/erp/rma/ReturnOrderIT.java` |
 | `TC-RMA-012` | ★ 不变量：余额净和 == 流水净和；退货数量 == RETURN_IN 流水正变动合计 | `backend/server/src/test/java/com/erp/rma/ReturnOrderIT.java` |
+| `TC-RPT-001` | 进货统计按供应商分组：数量/金额与已入库明细一致；未入库与已作废不进统计 | `backend/server/src/test/java/com/erp/rpt/ReportIT.java` |
+| `TC-RPT-002` | 进货统计按 product / sku / day / month 分组：行数与合计全部对得上 | `backend/server/src/test/java/com/erp/rpt/ReportIT.java` |
+| `TC-RPT-003` | 出货统计按客户分组：金额按行折扣公式；.5 尾差与 Java HALF_UP 完全一致 | `backend/server/src/test/java/com/erp/rpt/ReportIT.java` |
+| `TC-RPT-004` | 出货统计按 product / sku / day / month 分组：合计一致，逐行金额等于 SAL 的行金额公式 | `backend/server/src/test/java/com/erp/rpt/ReportIT.java` |
+| `TC-RPT-005` | ★ 日期闭区间 [from, to]：首末日都包含，越界一天也不含 | `backend/server/src/test/java/com/erp/rpt/ReportIT.java` |
+| `TC-RPT-006` | ★ 进销存恒等式：期初+入−出=期末，且期末等于截至期末的流水净和与当前余额 | `backend/server/src/test/java/com/erp/rpt/ReportIT.java` |
+| `TC-RPT-007` | 仓库过滤：只统计指定仓库，跨仓不串数；两仓之和等于不过滤 | `backend/server/src/test/java/com/erp/rpt/ReportIT.java` |
+| `TC-RPT-008` | 空区间返回空 items，不是错误 | `backend/server/src/test/java/com/erp/rpt/ReportIT.java` |
+| `TC-RPT-010` | ★ 与日清口径可对照：同日同仓的采购/销售数量金额，与 §3.4 日清公式重算一致 | `backend/server/src/test/java/com/erp/rpt/ReportIT.java` |
+| `TC-RPT-011` | ★ 无 N+1：分组数从 1 涨到 8，每张报表仍只发一条聚合 SQL | `backend/server/src/test/java/com/erp/rpt/ReportIT.java` |
+| `TC-RPT-012` | ★ 两种口径不许混：单据 biz_date vs 流水 occurred_at，跨天执行各归各的 | `backend/server/src/test/java/com/erp/rpt/ReportIT.java` |
+| `TC-RPT-013` | ★ 三条报表计划：事实表各只扫一次、分组在数据库完成、V6 索引可用 | `backend/server/src/test/java/com/erp/rpt/repository/ReportQueryPlanIT.java` |
 | `TC-SAL-001` | 建单即预占：单据为 DRAFT，但库存已被锁住（实存不变、预占增加） | `backend/server/src/test/java/com/erp/sal/SalesOrderIT.java` |
 | `TC-SAL-002` | 多行建单：每行独立预占（requestId 按行拆分，不会互相幂等吞掉） | `backend/server/src/test/java/com/erp/sal/SalesOrderIT.java` |
 | `TC-SAL-003` | ★★ 库存不足时整单回滚：3 行明细第 3 行不足 → 前 2 行的预占必须一起回滚 | `backend/server/src/test/java/com/erp/sal/SalesOrderIT.java` |
@@ -134,4 +154,4 @@
 | `TC-DOC-005` | 未结状态判定：只有终态被视为已结 | `backend/server/src/test/java/com/erp/shared/document/DocumentStatusMachineTest.java` |
 | `TC-DOC-006` | PARTIAL->PARTIAL 自环合法：分批入库/出货可以多次进入部分状态 | `backend/server/src/test/java/com/erp/shared/document/DocumentStatusMachineTest.java` |
 
-共 129 条用例。
+共 149 条用例。
