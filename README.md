@@ -11,7 +11,7 @@
 > **多端 B/S 进销存 SaaS 平台 + 配套自动化测试体系**
 > Java 17 · Spring Boot 3 · PostgreSQL 16 · Vue 3 · uni-app
 
-**课程要求**：[任务要求](docs/planning/任务要求.md) ｜ **方向与路线**：[方向建议与落地路线](docs/planning/方向建议与落地路线.md) ｜ **全局交接**：[项目总纲](docs/planning/项目总纲.md)
+**课程要求**：[任务要求](docs/planning/任务要求.md) ｜ **方向与路线**：[方向建议与落地路线](docs/planning/方向建议与落地路线.md) ｜ **全局交接**：[项目总纲](docs/planning/项目总纲.md) ｜ **★ 下一步做什么**：[V2 商业化扩展蓝图](docs/planning/V2-商业化扩展蓝图.md)
 
 > **第一次打开这个仓库？** 先看下面的「30 秒目录导航」；想知道全局（大纲/规划/索引/交接），读 [项目总纲](docs/planning/项目总纲.md)。
 
@@ -24,6 +24,9 @@
 | **看前端界面 / 改页面** | [`frontend/`](frontend/) | 所有客户端（Web，未来小程序 / Android） |
 | **看后端业务逻辑 / 加接口** | [`backend/`](backend/) | 所有服务端代码 |
 | **想知道整个项目是什么、怎么继续** | [`docs/planning/项目总纲.md`](docs/planning/项目总纲.md) | 一份文件看懂全局 |
+| **想知道"往哪走、怎么变成商业系统"** | [`docs/planning/V2-商业化扩展蓝图.md`](docs/planning/V2-商业化扩展蓝图.md) | ★ 对标参考系统 + 7 个主流 ERP · 三期九步 · +61 条 FR · **四道防堆功能闸门** |
+| **想知道"别人怎么做的、我们差在哪"** | [`docs/planning/竞品对标与业务核实.md`](docs/planning/竞品对标与业务核实.md) | 7 个主流 ERP 的功能共识矩阵 + 联网核实清单 |
+| **要开工 V2（下发任务）** | [`.plan/V2-施工指挥台.md`](.plan/V2-施工指挥台.md) | ★ 阶段0清场 · 九条泳道 · 可直接复制的提示词模板 · 合并纪律 |
 | **看做到哪了、还差什么** | [`docs/00-索引与追踪矩阵.md`](docs/00-索引与追踪矩阵.md) | 进度看板 + 需求↔测试矩阵 |
 | **看某个里程碑怎么做** | [`.plan/`](.plan/) | M1 / M2 / M3 已完成；M4 第一批 / M6 制品 / M7 已合并，下一批（M2.5 / M8 / M4 第二批）编排见 [`批次-2026-10-23-M4-M6-M7-并行.md`](.plan/批次-2026-10-23-M4-M6-M7-并行.md) §7 |
 | **看接口契约** | [`packages/api-contract/openapi.yaml`](packages/api-contract/openapi.yaml) | 单一事实源 |
