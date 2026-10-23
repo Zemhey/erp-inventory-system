@@ -193,4 +193,30 @@ public class InventoryBalanceRepository {
                 """, qty, qty, skuId, warehouseId, batchNo, qty, qty);
         return updated == 1;
     }
+
+    /**
+     * 回退实存（M2.5 进货红冲）：只减 {@code on_hand_qty}，不动预占。
+     *
+     * <p>两个条件缺一不可：
+     * <ul>
+     *   <li>{@code on_hand_qty >= qty} —— 不把实存减成负数（DB CHECK 是最后兜底）；</li>
+     *   <li>{@code reserved_qty <= on_hand_qty - qty} —— 回退后预占量不得超过实存
+     *       （否则会违反 {@code ck_reserved_le_onhand}，且可用量变负）。</li>
+     * </ul>
+     *
+     * <p>返回 {@code false} 表示该批次当前库存不足以回退（货已卖出或被预占），
+     * 由应用层翻译成 {@code INV_NEGATIVE_NOT_ALLOWED}，不跨批次挪用。
+     */
+    public boolean decreaseOnHand(long skuId, long warehouseId, String batchNo, int qty) {
+        int updated = jdbc.update("""
+                UPDATE inventory_balances
+                   SET on_hand_qty = on_hand_qty - ?,
+                       version     = version + 1,
+                       updated_at  = now()
+                 WHERE sku_id = ? AND warehouse_id = ? AND batch_no = ?
+                   AND on_hand_qty >= ?
+                   AND reserved_qty <= on_hand_qty - ?
+                """, qty, skuId, warehouseId, batchNo, qty, qty);
+        return updated == 1;
+    }
 }
