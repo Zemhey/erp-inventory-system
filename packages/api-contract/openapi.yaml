@@ -533,7 +533,18 @@ paths:
     post:
       tags: [pur]
       summary: 作废/红冲进货单
-      description: 已入库的作废必须先生成反向流水冲减库存（BR-DOC-03）。
+      description: |
+        已入库的作废必须先生成反向流水冲减库存（BR-DOC-03）。
+
+        - 未入库（DRAFT/SUBMITTED/APPROVED/REJECTED）：普通作废，状态 → VOIDED，不动库存、不写流水
+        - 已入库（PARTIAL/COMPLETED）：**红冲** —— 按原 `PURCHASE_IN` 流水逐批次回退实存，
+          逐条写 `PURCHASE_REVERSAL` 负向流水（同批次、数量取反、biz_ref_no 仍是本单号），状态 → VOIDED
+        - 回退要求该批次当前实存足够且回退后不低于已预占量；不足（货已卖出/被预占）
+          → `INV_NEGATIVE_NOT_ALLOWED`，**不跨批次挪用**，且失败零副作用（状态/库存/流水都不动）
+        - 单据业务日期所在账期已月结锁账 → `SET_PERIOD_CLOSED`（同键重放除外）
+        - 幂等：同一 `X-Request-Id` 重放返回首次的 VOIDED 结果，不重复回退库存；
+          已作废后用**新键**再作废 → `PUR_STATUS_ILLEGAL`
+        - 并发异键红冲由「状态 + version 条件 UPDATE」串行化，只有一个成功
       operationId: voidPurchaseOrder
       parameters:
         - $ref: '#/components/parameters/PathId'
@@ -542,7 +553,25 @@ paths:
         '200':
           $ref: '#/components/responses/SingleResponse'
         '409':
-          $ref: '#/components/responses/Conflict'
+          description: 状态非法 / 账期已锁 / 库存不足 / 重复请求
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+              examples:
+                alreadyVoided:
+                  value:
+                    code: PUR_STATUS_ILLEGAL
+                    message: "进货单 PO20250601-0001 已作废（首次作废请求与本次不同），不能再次作废"
+                periodClosed:
+                  value:
+                    code: SET_PERIOD_CLOSED
+                    message: "账期 2025-06 已月结锁账（业务日期 2025-06-01 落在该期间），不允许再新增或变更该期间的单据"
+                    details: { period: '2025-06', bizDate: '2025-06-01' }
+                insufficientStock:
+                  value:
+                    code: INV_NEGATIVE_NOT_ALLOWED
+                    message: "进货红冲失败：SKU 1001 在仓库 1 批次 'B1' 当前实存 2、已预占 0，需要回退 4（回退后会为负或低于预占）"
+                    details: { skuId: 1001, warehouseId: 1, batchNo: 'B1', onHand: 2, reserved: 0, required: 4 }
 
   # ─────────────────────────── SAL ───────────────────────────
   /sales-orders:
@@ -629,6 +658,17 @@ paths:
     post:
       tags: [sal]
       summary: 作废/红冲出货单（回补库存）
+      description: |
+        - 未出货（DRAFT/SUBMITTED/APPROVED/REJECTED）：普通作废，释放本单预占，状态 → VOIDED，不动实存
+        - 已出货（PARTIAL/COMPLETED）：**红冲** —— 按原 `SALES_OUT` 流水逐批次回补实存，
+          逐条写 `SALES_REVERSAL` 正向流水（同批次、数量取反、biz_ref_no 仍是本单号）；
+          `PARTIAL` 上仍未出货的 ACTIVE 预占一并释放，避免库存被永久锁死
+        - 任一明细已有退货数量 → `SAL_STATUS_ILLEGAL`（退货已通过 RETURN_IN 回补过库存，
+          再全额红冲会重复入库）；红冲后原单上待入库的退货单再入库 → `RMA_ORIGIN_NOT_SHIPPED`
+        - 单据业务日期所在账期已月结锁账 → `SET_PERIOD_CLOSED`（同键重放除外）
+        - 幂等：同一 `X-Request-Id` 重放返回首次的 VOIDED 结果，不重复回补库存；
+          已作废后用**新键**再作废 → `SAL_STATUS_ILLEGAL`
+        - 并发异键红冲由「状态 + version 条件 UPDATE」串行化，只有一个成功
       operationId: voidSalesOrder
       parameters:
         - $ref: '#/components/parameters/PathId'
@@ -637,7 +677,24 @@ paths:
         '200':
           $ref: '#/components/responses/SingleResponse'
         '409':
-          $ref: '#/components/responses/Conflict'
+          description: 状态非法 / 有退货不可红冲 / 账期已锁
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+              examples:
+                alreadyVoided:
+                  value:
+                    code: SAL_STATUS_ILLEGAL
+                    message: "出货单 SO20250601-0001 已作废（首次作废请求与本次不同），不能再次作废"
+                hasReturns:
+                  value:
+                    code: SAL_STATUS_ILLEGAL
+                    message: "出货单 SO20250601-0001 已退货 2 件，不能红冲（退货已回补库存，再红冲会重复入库）"
+                periodClosed:
+                  value:
+                    code: SET_PERIOD_CLOSED
+                    message: "账期 2025-06 已月结锁账（业务日期 2025-06-01 落在该期间），不允许再新增或变更该期间的单据"
+                    details: { period: '2025-06', bizDate: '2025-06-01' }
 
   # ─────────────────────────── RMA ───────────────────────────
   /return-orders:
@@ -802,6 +859,8 @@ paths:
         - 只通过库存模块生成 `RETURN_IN` 正向流水，并原子累加原出货行的累计退货量
         - 状态流转 APPROVED → COMPLETED
         - 相同 `X-Request-Id` 重复调用不重复加库存；已完成后换新 requestId 再入库返回 `RMA_STATUS_ILLEGAL`
+        - ★ 入库前会先锁定原出货单：原单已被红冲为 `VOIDED` 时返回 `RMA_ORIGIN_NOT_SHIPPED`
+          （否则会先把货退回来、红冲再回补一次，同一批货入库两遍）
       operationId: receiveReturnOrder
       parameters:
         - $ref: '#/components/parameters/PathId'
@@ -818,7 +877,7 @@ paths:
     post:
       tags: [rma]
       summary: 作废退货单（rma:void）
-      description: 仅入库前可作废（DRAFT / SUBMITTED / APPROVED → VOIDED）；已完成需红冲，M2 不支持。
+      description: 仅入库前可作废（DRAFT / SUBMITTED / APPROVED → VOIDED）；已完成需红冲，M2 不支持，M2.5 的红冲范围只有进货单与出货单（FR-PUR-03 / FR-SAL-04），退货单红冲仍未提供。
       operationId: voidReturnOrder
       parameters:
         - $ref: '#/components/parameters/PathId'

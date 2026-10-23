@@ -233,7 +233,8 @@ export const purApi = {
   approve: (id: number) => http.post<never, PurchaseOrder>(`/purchase-orders/${id}/approve`),
   reject: (id: number) => http.post<never, PurchaseOrder>(`/purchase-orders/${id}/reject`),
   // 后端 PurchaseOrderController 有 @PostMapping("/{id}/void")；
-  // 已入库的单据会被业务层拒绝（需先红冲，FR-PUR-03 属 M2），错误消息原样透出。
+  // 已入库的单据走红冲（FR-PUR-03，M2.5：回退实存 + PURCHASE_REVERSAL 流水），
+  // 库存不足以回退时后端返回 INV_NEGATIVE_NOT_ALLOWED，错误消息原样透出。
   voidOrder: (id: number) => http.post<never, PurchaseOrder>(`/purchase-orders/${id}/void`),
   receive: (id: number, body: { lines: ReceiveLine[] }) =>
     http.post<never, PurchaseOrder>(`/purchase-orders/${id}/receive`, body),
@@ -251,7 +252,8 @@ export const salApi = {
   reject: (id: number) => http.post<never, SalesOrder>(`/sales-orders/${id}/reject`),
   // 出货无参数：后端按各行未出量整行出货，批次由 FEFO 决定（FR-SAL-02）
   ship: (id: number) => http.post<never, SalesOrder>(`/sales-orders/${id}/ship`),
-  // 未出货作废会释放预占；已出货的作废被业务层拒绝（需红冲，FR-SAL-04 属 M2）
+  // 未出货作废会释放预占；已出货走红冲（FR-SAL-04，M2.5：回补实存 + SALES_REVERSAL 流水）。
+  // 有退货数量的单据后端拒绝红冲（SAL_STATUS_ILLEGAL），错误消息原样透出。
   voidOrder: (id: number) => http.post<never, SalesOrder>(`/sales-orders/${id}/void`),
 }
 

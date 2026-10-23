@@ -243,7 +243,7 @@ export const ACTION_META: Record<ActionKey, ActionMeta> = {
     permission: 'pur:void',
     buttonType: 'danger',
     needsConfirm: true,
-    confirmText: '作废是终态，不可撤销。已有入库的单据作废会被后端拒绝（需红冲）。确定作废吗？',
+    confirmText: '作废是终态，不可撤销。已有入库的单据要走红冲（M2.5 仅提供接口，本页按钮只给未入库单据）。确定作废吗？',
     needsInput: false,
   },
   'PURCHASE:receive': {
@@ -287,7 +287,7 @@ export const ACTION_META: Record<ActionKey, ActionMeta> = {
     needsConfirm: true,
     // ★ 这句必须在确认框里出现：作废会释放该单占用的库存，
     //   用户不知道这一点就会以为"作废只是标记一下"。
-    confirmText: '作废会释放本单占用的库存（预占）。已出货的单据作废会被后端拒绝（需红冲）。确定作废吗？',
+    confirmText: '作废会释放本单占用的库存（预占）。已出货的单据要走红冲（M2.5 仅提供接口，本页按钮只给未出货单据）。确定作废吗？',
     needsInput: false,
   },
   'SALES:ship': {

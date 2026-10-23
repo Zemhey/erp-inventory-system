@@ -120,8 +120,10 @@ public class PurchaseOrderController {
 
     @PostMapping("/{id}/void")
     @RequirePermission("pur:void")
-    public ResponseEntity<Map<String, Object>> voidOrder(@PathVariable long id) {
-        return ResponseEntity.ok(ApiResponses.ok(toMap(purchaseOrders.voidOrder(id))));
+    public ResponseEntity<Map<String, Object>> voidOrder(
+            @PathVariable long id,
+            @RequestHeader("X-Request-Id") @NotBlank String requestId) {
+        return ResponseEntity.ok(ApiResponses.ok(toMap(purchaseOrders.voidOrder(id, requestId))));
     }
 
     @PostMapping("/{id}/receive")
