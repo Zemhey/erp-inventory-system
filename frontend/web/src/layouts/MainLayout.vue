@@ -6,6 +6,7 @@ import {
   Box,
   Coin,
   DataAnalysis,
+  Files,
   Goods,
   House,
   Menu as MenuIcon,
@@ -15,6 +16,7 @@ import {
   ShoppingCart,
   SwitchButton,
   User,
+  Van,
 } from '@element-plus/icons-vue'
 import { useSessionStore } from '@/stores/session'
 
@@ -80,6 +82,9 @@ const allMenus: MenuItem[] = [
   { path: '/return-orders', title: '退货单', icon: RefreshLeft, permission: 'rma:read' },
   { path: '/settlements', title: '结算', icon: Coin, permission: 'set:read' },
   { path: '/reports', title: '报表', icon: DataAnalysis, permission: 'rpt:read' },
+  // 追加式新增（V2-1）：库存作业两页，接在报表之后，不重排既有条目
+  { path: '/inventory-transfers', title: '调拨作业', icon: Van, permission: 'inv:read' },
+  { path: '/inventory-stock-ops', title: '盘点与调整', icon: Files, permission: 'inv:read' },
 ]
 
 const visibleMenus = computed(() =>

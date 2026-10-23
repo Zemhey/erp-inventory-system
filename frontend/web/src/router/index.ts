@@ -99,6 +99,19 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/rpt/ReportView.vue'),
         meta: { title: '报表', permission: 'rpt:read' },
       },
+      // V2-1 库存作业：两条路由追加在报表之后，通配兜底路由继续留在数组最后
+      {
+        path: 'inventory-transfers',
+        name: 'inventory-transfers',
+        component: () => import('@/views/inv/TransferView.vue'),
+        meta: { title: '调拨作业', permission: 'inv:read' },
+      },
+      {
+        path: 'inventory-stock-ops',
+        name: 'inventory-stock-ops',
+        component: () => import('@/views/inv/StockOpsView.vue'),
+        meta: { title: '盘点与调整', permission: 'inv:read' },
+      },
     ],
   },
   {

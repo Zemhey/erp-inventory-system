@@ -465,6 +465,287 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  # ─────────────── INV 作业（V2-1：调拨 / 盘点 / 调整 / 冻结 / 洞察） ───────────────
+
+  /inventory/transfers:
+    get:
+      tags: [inv]
+      summary: 调拨单列表（FR-INV-07）
+      operationId: listInventoryTransfers
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [IN_TRANSIT, COMPLETED] }
+        - name: fromWarehouseId
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: toWarehouseId
+          in: query
+          schema: { type: integer, format: int64 }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          $ref: '#/components/responses/PageResponse'
+    post:
+      tags: [inv]
+      summary: 建调拨单并立即调出（两段式第一段）
+      description: |
+        建单即从源仓扣减实存并转入在途；库存不足整单回滚。
+        守恒（INV-7）：源仓流水 + 在途 + 目的仓流水 == 0。
+      operationId: createInventoryTransfer
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InventoryTransferCreate' }
+      responses:
+        '200':
+          description: 调拨单（duplicate=true 表示幂等命中）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/InventoryTransfer' }
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /inventory/transfers/{id}/receive:
+    post:
+      tags: [inv]
+      summary: 调拨到货（两段式第二段）
+      description: 在途量结清、目的仓实存增加；同键重放返回首次结果。
+      operationId: receiveInventoryTransfer
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /inventory/stocktakes:
+    get:
+      tags: [inv]
+      summary: 盘点单列表（FR-INV-08）
+      operationId: listStocktakes
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [DRAFT, POSTED] }
+        - name: warehouseId
+          in: query
+          schema: { type: integer, format: int64 }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          $ref: '#/components/responses/PageResponse'
+    post:
+      tags: [inv]
+      summary: 建盘点单（快照账面量）
+      operationId: createStocktake
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StocktakeCreate' }
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /inventory/stocktakes/{id}/post:
+    post:
+      tags: [inv]
+      summary: 盘点过账（差异生成 ADJUST_IN/OUT 流水）
+      description: |
+        差异为 0 的行不产生调整流水；整单全部为 0 时返回 `INV_STOCKTAKE_NO_DIFFERENCE`。
+      operationId: postStocktake
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /inventory/adjustments:
+    get:
+      tags: [inv]
+      summary: 库存调整列表（FR-INV-09）
+      operationId: listInventoryAdjustments
+      parameters:
+        - name: skuId
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: warehouseId
+          in: query
+          schema: { type: integer, format: int64 }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          $ref: '#/components/responses/PageResponse'
+    post:
+      tags: [inv]
+      summary: 库存调整（原因必填）
+      operationId: createInventoryAdjustment
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InventoryAdjustmentCreate' }
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '400':
+          description: 原因缺失 / 数量为 0
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /inventory/freezes:
+    get:
+      tags: [inv]
+      summary: 冻结记录列表（FR-INV-10）
+      operationId: listInventoryFreezes
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [ACTIVE, RELEASED, EXPIRED] }
+        - name: skuId
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: warehouseId
+          in: query
+          schema: { type: integer, format: int64 }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          $ref: '#/components/responses/PageResponse'
+    post:
+      tags: [inv]
+      summary: 冻结库存（冻结量不进可用量）
+      operationId: createInventoryFreeze
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InventoryFreezeCreate' }
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /inventory/freezes/{id}/release:
+    post:
+      tags: [inv]
+      summary: 解冻库存（人工）
+      operationId: releaseInventoryFreeze
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /inventory/balance-dimensions:
+    get:
+      tags: [inv]
+      summary: 五维结存查询（仓 × SKU × 批次 × 状态 × 权属，FR-INV-11）
+      description: |
+        每条余额按状态拆成 AVAILABLE / RESERVED / FROZEN 三行；
+        对任一 (仓, SKU, 批次, 权属)，Σ各状态 == totals.onHandQty。
+      operationId: queryBalanceDimensions
+      parameters:
+        - name: skuId
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: warehouseId
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: batchNo
+          in: query
+          schema: { type: string }
+        - name: status
+          in: query
+          schema: { type: string, enum: [AVAILABLE, RESERVED, FROZEN] }
+        - name: ownership
+          in: query
+          schema: { type: string, enum: [SELF], default: SELF }
+      responses:
+        '200':
+          $ref: '#/components/responses/ListResponse'
+
+  /inventory/alerts:
+    get:
+      tags: [inv]
+      summary: 库存预警（安全库存 / 滞销 / 临期，FR-INV-12）
+      description: 临期与滞销边界由服务端注入时钟计算，不接受客户端时间。
+      operationId: queryInventoryAlerts
+      parameters:
+        - name: warehouseId
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: type
+          in: query
+          schema: { type: string, enum: [SAFETY, SLOW_MOVING, EXPIRING] }
+        - name: expiringDays
+          in: query
+          description: 临期阈值（天），默认 30
+          schema: { type: integer, minimum: 0, default: 30 }
+        - name: slowMovingDays
+          in: query
+          description: 滞销阈值（天），默认 90
+          schema: { type: integer, minimum: 0, default: 90 }
+      responses:
+        '200':
+          $ref: '#/components/responses/ListResponse'
+
+  /inventory/replenishment:
+    get:
+      tags: [inv]
+      summary: 补货建议（min/max 阈值档，FR-INV-13）
+      description: |
+        可用量低于 min_level 时建议补到 max_level；
+        同仓同 SKU 已有 APPROVED/PARTIAL 未到货进货行时不重复建议。
+        纯查询、不落表，重复调用结果一致。
+      operationId: queryReplenishment
+      parameters:
+        - name: warehouseId
+          in: query
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          $ref: '#/components/responses/ListResponse'
+
   # ─────────────────────────── PUR ───────────────────────────
   /purchase-orders:
     get:
@@ -1493,6 +1774,193 @@ components:
         onHandQty: { type: integer, description: 预占后实存 }
         availableQty: { type: integer, description: 预占后可用量 }
         duplicate: { type: boolean, description: true 表示幂等命中，未产生新变动 }
+
+    InventoryTransferCreate:
+      type: object
+      required: [fromWarehouseId, toWarehouseId, lines]
+      properties:
+        fromWarehouseId: { type: integer, format: int64 }
+        toWarehouseId: { type: integer, format: int64, description: 必须与调出仓不同 }
+        bizDate: { type: string, format: date, description: 省略时取服务端业务日期（ClockProvider） }
+        remark: { type: string, maxLength: 500 }
+        lines:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [skuId, qty]
+            properties:
+              skuId: { type: integer, format: int64 }
+              batchNo: { type: string, maxLength: 64, default: '' }
+              qty: { type: integer, minimum: 1 }
+              unitCostAmount: { type: integer, format: int64, minimum: 0 }
+
+    InventoryTransfer:
+      type: object
+      required: [id, transferNo, fromWarehouseId, toWarehouseId, status, lines]
+      properties:
+        id: { type: integer, format: int64 }
+        transferNo: { type: string, example: TO20261024-0001 }
+        fromWarehouseId: { type: integer, format: int64 }
+        toWarehouseId: { type: integer, format: int64 }
+        status: { type: string, enum: [IN_TRANSIT, COMPLETED] }
+        bizDate: { type: string, format: date }
+        remark: { type: string, nullable: true }
+        inTransitQty: { type: integer, description: 仍在途的数量（INV-7 的在途项） }
+        receivedAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+        lines:
+          type: array
+          items: { $ref: '#/components/schemas/TransferLine' }
+        duplicate: { type: boolean }
+
+    TransferLine:
+      type: object
+      properties:
+        lineNo: { type: integer }
+        skuId: { type: integer, format: int64 }
+        batchNo: { type: string }
+        qty: { type: integer }
+        inTransitQty: { type: integer }
+        productionDate: { type: string, format: date, nullable: true }
+        expiryDate: { type: string, format: date, nullable: true }
+        unitCostAmount: { type: integer, format: int64, nullable: true }
+
+    StocktakeCreate:
+      type: object
+      required: [warehouseId, lines]
+      properties:
+        warehouseId: { type: integer, format: int64 }
+        bizDate: { type: string, format: date }
+        remark: { type: string, maxLength: 500 }
+        lines:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [skuId, countedQty]
+            properties:
+              skuId: { type: integer, format: int64 }
+              batchNo: { type: string, maxLength: 64, default: '' }
+              countedQty: { type: integer, minimum: 0 }
+
+    Stocktake:
+      type: object
+      required: [id, stocktakeNo, warehouseId, status, lines]
+      properties:
+        id: { type: integer, format: int64 }
+        stocktakeNo: { type: string, example: ST20261024-0001 }
+        warehouseId: { type: integer, format: int64 }
+        status: { type: string, enum: [DRAFT, POSTED] }
+        bizDate: { type: string, format: date }
+        remark: { type: string, nullable: true }
+        totalDiffQty: { type: integer, description: 各明细 diff 之和 }
+        postedAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+        lines:
+          type: array
+          items: { $ref: '#/components/schemas/StocktakeLine' }
+        duplicate: { type: boolean }
+
+    StocktakeLine:
+      type: object
+      properties:
+        lineNo: { type: integer }
+        skuId: { type: integer, format: int64 }
+        batchNo: { type: string }
+        bookQty: { type: integer, description: 建单时快照的账面量 }
+        countedQty: { type: integer }
+        diffQty: { type: integer, description: counted - book；0 不产生调整流水 }
+
+    InventoryAdjustmentCreate:
+      type: object
+      required: [skuId, warehouseId, changeQty, reason]
+      properties:
+        skuId: { type: integer, format: int64 }
+        warehouseId: { type: integer, format: int64 }
+        batchNo: { type: string, maxLength: 64, default: '' }
+        changeQty:
+          type: integer
+          description: 有符号数量：正=调增（ADJUST_IN），负=调减（ADJUST_OUT），不得为 0
+        reason: { type: string, minLength: 1, maxLength: 200, description: 必填，审计依据 }
+        unitCostAmount: { type: integer, format: int64, minimum: 0, nullable: true }
+
+    InventoryAdjustment:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        adjustNo: { type: string, example: AJ20261024-0001 }
+        skuId: { type: integer, format: int64 }
+        warehouseId: { type: integer, format: int64 }
+        batchNo: { type: string }
+        changeQty: { type: integer }
+        reason: { type: string }
+        createdAt: { type: string, format: date-time }
+        duplicate: { type: boolean }
+
+    InventoryFreezeCreate:
+      type: object
+      required: [skuId, warehouseId, qty]
+      properties:
+        skuId: { type: integer, format: int64 }
+        warehouseId: { type: integer, format: int64 }
+        batchNo: { type: string, maxLength: 64, default: '' }
+        qty: { type: integer, minimum: 1 }
+        reason: { type: string, maxLength: 200 }
+        expiresAt:
+          type: string
+          format: date-time
+          description: 可选；到期由服务端时钟判断并自动解冻
+
+    InventoryFreeze:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        skuId: { type: integer, format: int64 }
+        warehouseId: { type: integer, format: int64 }
+        batchNo: { type: string }
+        qty: { type: integer }
+        reason: { type: string, nullable: true }
+        status: { type: string, enum: [ACTIVE, RELEASED, EXPIRED] }
+        expiresAt: { type: string, format: date-time, nullable: true }
+        releasedAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+        duplicate: { type: boolean }
+
+    BalanceDimensionRow:
+      type: object
+      properties:
+        warehouseId: { type: integer, format: int64 }
+        skuId: { type: integer, format: int64 }
+        batchNo: { type: string }
+        stockStatus: { type: string, enum: [AVAILABLE, RESERVED, FROZEN] }
+        ownership: { type: string, enum: [SELF] }
+        qty: { type: integer }
+
+    InventoryAlert:
+      type: object
+      properties:
+        type: { type: string, enum: [SAFETY, SLOW_MOVING, EXPIRING] }
+        skuId: { type: integer, format: int64 }
+        warehouseId: { type: integer, format: int64 }
+        batchNo: { type: string, nullable: true }
+        onHandQty: { type: integer }
+        availableQty: { type: integer }
+        threshold: { type: integer, description: 安全库存下限 / 滞销天数 / 临期天数 }
+        expiryDate: { type: string, format: date, nullable: true }
+        lastMovementAt: { type: string, format: date-time, nullable: true }
+        warehousePriority: { type: integer }
+
+    ReplenishmentSuggestion:
+      type: object
+      properties:
+        skuId: { type: integer, format: int64 }
+        warehouseId: { type: integer, format: int64 }
+        availableQty: { type: integer }
+        minLevel: { type: integer }
+        maxLevel: { type: integer }
+        suggestedQty: { type: integer, description: maxLevel - availableQty }
+        warehousePriority: { type: integer }
 
     ReceiveRequest:
       type: object

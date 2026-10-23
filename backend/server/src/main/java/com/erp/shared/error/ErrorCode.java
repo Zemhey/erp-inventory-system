@@ -37,6 +37,24 @@ public enum ErrorCode {
     INV_BALANCE_MISMATCH(409),
     INV_NEGATIVE_NOT_ALLOWED(409),
     INV_RESERVATION_NOT_FOUND(404),
+    /** 调拨单不存在。 */
+    INV_TRANSFER_NOT_FOUND(404),
+    /** 调拨单状态不允许该动作（如非在途单执行到货）。 */
+    INV_TRANSFER_STATUS_ILLEGAL(409),
+    /** 盘点单不存在。 */
+    INV_STOCKTAKE_NOT_FOUND(404),
+    /** 盘点单状态不允许该动作（如已过账再次过账）。 */
+    INV_STOCKTAKE_STATUS_ILLEGAL(409),
+    /** 盘点单全部行差异为 0，没有可过账的调整。 */
+    INV_STOCKTAKE_NO_DIFFERENCE(409),
+    /** 冻结记录不存在。 */
+    INV_FREEZE_NOT_FOUND(404),
+    /** 冻结记录状态不允许该动作（如已解冻再次解冻）。 */
+    INV_FREEZE_STATUS_ILLEGAL(409),
+    /** 冻结量超过可用量（已被预占或冻结）。 */
+    INV_FREEZE_EXCEEDS_AVAILABLE(409),
+    /** 库存调整必须填写原因。 */
+    INV_ADJUST_REASON_REQUIRED(400),
 
     // ── 进货 / 出货 ──
     PUR_ORDER_NOT_FOUND(404),
