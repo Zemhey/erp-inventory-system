@@ -14,6 +14,7 @@ import {
   Sell,
   ShoppingCart,
   SwitchButton,
+  TrendCharts,
   User,
 } from '@element-plus/icons-vue'
 import { useSessionStore } from '@/stores/session'
@@ -80,6 +81,8 @@ const allMenus: MenuItem[] = [
   { path: '/return-orders', title: '退货单', icon: RefreshLeft, permission: 'rma:read' },
   { path: '/settlements', title: '结算', icon: Coin, permission: 'set:read' },
   { path: '/reports', title: '报表', icon: DataAnalysis, permission: 'rpt:read' },
+  // V2-4 追加：只往后加，不重排既有菜单
+  { path: '/margin', title: '毛利分析', icon: TrendCharts, permission: 'cst:read' },
 ]
 
 const visibleMenus = computed(() =>

@@ -99,6 +99,13 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/rpt/ReportView.vue'),
         meta: { title: '报表', permission: 'rpt:read' },
       },
+      // V2-4 追加：毛利分析页；通配兜底路由必须继续留在数组最后
+      {
+        path: 'margin',
+        name: 'margin',
+        component: () => import('@/views/cst/MarginView.vue'),
+        meta: { title: '毛利分析', permission: 'cst:read' },
+      },
     ],
   },
   {
