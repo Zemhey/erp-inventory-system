@@ -99,6 +99,19 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/rpt/ReportView.vue'),
         meta: { title: '报表', permission: 'rpt:read' },
       },
+      // V2-2 采购闭环：只追加，不动上面既有条目；通配兜底仍留在数组最后
+      {
+        path: 'purchase-requisitions',
+        name: 'purchase-requisitions',
+        component: () => import('@/views/pur/PurchaseRequisitionView.vue'),
+        meta: { title: '请购与质检', permission: 'pur:read' },
+      },
+      {
+        path: 'supplier-payables',
+        name: 'supplier-payables',
+        component: () => import('@/views/pur/SupplierPayableView.vue'),
+        meta: { title: '应付与付款', permission: 'pur:payable' },
+      },
       // V2-1 库存作业：两条路由追加在报表之后，通配兜底路由继续留在数组最后
       {
         path: 'inventory-transfers',

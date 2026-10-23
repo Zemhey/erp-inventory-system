@@ -90,6 +90,8 @@ public class TestDataFactory {
                          inventory_adjustments, inventory_freezes,
                          inventory_ledger, inventory_reservations, inventory_balances,
                          sales_order_line_reservations, return_order_lines,
+                         payable_allocations, supplier_payables, purchase_returns,
+                         po_receipt_lines, po_receipts,
                          purchase_order_lines, sales_order_lines,
                          return_orders, purchase_orders, sales_orders,
                          daily_settlements, settlement_periods,

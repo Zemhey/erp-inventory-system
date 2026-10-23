@@ -3,6 +3,8 @@ package com.erp.pur.api;
 import com.erp.pur.application.PurchaseOrderApplicationService;
 import com.erp.pur.domain.PurchaseOrder;
 import com.erp.pur.domain.PurchaseOrderLine;
+import com.erp.pur.domain.PurchaseReceipt;
+import com.erp.pur.domain.PurchaseReceiptLine;
 import com.erp.shared.document.DocumentStatus;
 import com.erp.iam.security.RequirePermission;
 import com.erp.shared.web.ApiResponses;
@@ -64,7 +66,9 @@ public class PurchaseOrderController {
             @NotNull @Min(1) Integer qty,
             @Size(max = 64) String batchNo,
             LocalDate productionDate,
-            LocalDate expiryDate) {
+            LocalDate expiryDate,
+            @Min(0) Integer qcQty,
+            @Size(max = 500) String qcNote) {
     }
 
     public record ReceiveBody(@NotEmpty @Valid List<ReceiveLineRequest> lines) {
@@ -134,11 +138,52 @@ public class PurchaseOrderController {
             @Valid @RequestBody ReceiveBody body) {
         List<PurchaseOrderApplicationService.ReceiveLineCommand> lines = body.lines().stream()
                 .map(l -> new PurchaseOrderApplicationService.ReceiveLineCommand(
-                        l.lineId(), l.qty(), l.batchNo(), l.productionDate(), l.expiryDate()))
+                        l.lineId(), l.qty(), l.batchNo(), l.productionDate(), l.expiryDate(),
+                        l.qcQty(), l.qcNote()))
                 .toList();
         PurchaseOrder o = purchaseOrders.receive(id,
                 new PurchaseOrderApplicationService.ReceiveCommand(lines, requestId));
         return ResponseEntity.ok(ApiResponses.ok(toMap(o)));
+    }
+
+    /** 到货/质检记录（FR-PUR-05）：前端"到货质检"页展开单据时使用。 */
+    @GetMapping("/{id}/receipts")
+    @RequirePermission("pur:read")
+    public ResponseEntity<Map<String, Object>> receipts(@PathVariable long id) {
+        List<Map<String, Object>> items = new ArrayList<>();
+        for (PurchaseReceipt r : purchaseOrders.receipts(id)) {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", r.id());
+            m.put("receiptNo", r.receiptNo());
+            m.put("purchaseOrderId", r.purchaseOrderId());
+            m.put("supplierId", r.supplierId());
+            m.put("warehouseId", r.warehouseId());
+            m.put("bizDate", r.bizDate() == null ? null : r.bizDate().toString());
+            m.put("totalQty", r.totalQty());
+            m.put("acceptedQty", r.acceptedQty());
+            m.put("rejectedQty", r.rejectedQty());
+            m.put("acceptedAmount", r.acceptedAmount());
+            List<Map<String, Object>> lines = new ArrayList<>();
+            for (PurchaseReceiptLine l : r.lines()) {
+                Map<String, Object> lm = new LinkedHashMap<>();
+                lm.put("id", l.id());
+                lm.put("lineNo", l.lineNo());
+                lm.put("purchaseOrderLineId", l.purchaseOrderLineId());
+                lm.put("skuId", l.skuId());
+                lm.put("batchNo", l.batchNo());
+                lm.put("receivedQty", l.receivedQty());
+                lm.put("qcQty", l.qcQty());
+                lm.put("rejectedQty", l.rejectedQty());
+                lm.put("qcStatus", l.qcStatus().name());
+                lm.put("qcNote", l.qcNote());
+                lm.put("unitPriceAmount", l.unitPriceAmount());
+                lm.put("acceptedAmount", l.acceptedAmount());
+                lines.add(lm);
+            }
+            m.put("lines", lines);
+            items.add(m);
+        }
+        return ResponseEntity.ok(ApiResponses.ok(items));
     }
 
     private static Map<String, Object> toMap(PurchaseOrder o) {
@@ -161,6 +206,10 @@ public class PurchaseOrderController {
             lm.put("skuId", l.skuId());
             lm.put("qty", l.qty());
             lm.put("receivedQty", l.receivedQty());
+            lm.put("qcQty", l.qcQty());
+            lm.put("qcStatus", l.qcStatus().name());
+            lm.put("qcNote", l.qcNote());
+            lm.put("rejectedQty", l.rejectedQty());
             lm.put("openQty", l.openQty());
             lm.put("unitPriceAmount", l.unitPriceAmount());
             lm.put("amount", l.amount());
