@@ -66,6 +66,8 @@ export interface OrderLineDto {
   amount: number
   receivedQty?: number
   shippedQty?: number
+  /** 累计已退货数量：超退上限的数据基础（V4 加的列） */
+  returnedQty?: number
   openQty?: number
   discountRate?: number
   reservationIds?: number[]
@@ -93,8 +95,7 @@ export interface SalesOrderDto {
   lines: OrderLineDto[]
 }
 
-export interface InventoryBalanceDto {
-  skuId: number
+export interface InventoryBalanceDto {  skuId: number
   warehouseId: number
   batchNo: string
   onHandQty: number
@@ -114,7 +115,98 @@ export interface LedgerEntryDto {
   occurredAt: string
 }
 
+export interface ReturnOrderLineDto {
+  id: number
+  lineNo: number
+  originLineId: number
+  skuId: number
+  qty: number
+  unitPriceAmount: number
+  discountRate: number
+  amount: number
+  batchNo?: string | null
+}
+
+export interface ReturnOrderDto {
+  id: number
+  orderNo: string
+  status: string
+  originSalesOrderId: number
+  customerId: number
+  warehouseId: number
+  bizDate: string
+  totalAmount: number
+  totalQty: number
+  period?: string | null
+  remark?: string | null
+  lines: ReturnOrderLineDto[]
+}
+
+/** 契约 SettlementTotals：金额一律整数分，netAmount 由后端派生（页面不重算）。 */
+export interface SettlementTotalsDto {
+  purchaseQty: number
+  purchaseAmount: number
+  salesQty: number
+  salesAmount: number
+  returnQty: number
+  returnAmount: number
+  netAmount: number
+}
+
+export interface DailySettlementResultDto {
+  bizDate: string
+  items: (SettlementTotalsDto & { warehouseId: number })[]
+  totals: SettlementTotalsDto
+}
+
+export interface MonthlySettlementResultDto extends SettlementTotalsDto {
+  period: string
+  status: 'OPEN' | 'CLOSED'
+  closedAt?: string | null
+  duplicate: boolean
+}
+
+export interface ReconcileResultDto {
+  period: string
+  generalTotal: number
+  detailTotal: number
+  diff: number
+  balanced: boolean
+}
+
+export interface ReportRowDto {
+  key: string
+  label: string
+  qty: number
+  amount: number
+  orderCount: number
+}
+
+export interface InventorySummaryRowDto {
+  skuId: number
+  warehouseId: number
+  openingQty: number
+  inboundQty: number
+  outboundQty: number
+  closingQty: number
+}
+
 type Query = Record<string, string | number | boolean | undefined>
+
+/**
+ * `call` 抛出的错误对象：用于断言"这个写操作确实被后端以某个错误码拒绝"，
+ * 而不是只断"页面出现了一行红字"。文案归页面断，错误码归这里断。
+ */
+export interface ApiFailure {
+  status: number
+  code: string
+  message: string
+}
+
+export function asApiFailure(error: unknown): ApiFailure {
+  const e = error as { status?: number; code?: string; message?: string }
+  return { status: e?.status ?? 0, code: e?.code ?? '', message: e?.message ?? String(error) }
+}
 
 function today(): string {
   const now = new Date()
@@ -208,10 +300,11 @@ export class ApiClient {
     supplierId: number
     warehouseId: number
     remark?: string
+    bizDate?: string
     lines: { skuId: number; qty: number; unitPriceAmount: number }[]
   }): Promise<PurchaseOrderDto> {
     return this.call('POST', '/purchase-orders', {
-      body: { ...body, bizDate: today() },
+      body: { ...body, bizDate: body.bizDate ?? today() },
     })
   }
 
@@ -245,6 +338,7 @@ export class ApiClient {
     customerId: number
     warehouseId: number
     remark?: string
+    bizDate?: string
     lines: {
       skuId: number
       qty: number
@@ -253,7 +347,7 @@ export class ApiClient {
     }[]
   }): Promise<SalesOrderDto> {
     return this.call('POST', '/sales-orders', {
-      body: { ...body, bizDate: today() },
+      body: { ...body, bizDate: body.bizDate ?? today() },
     })
   }
 
@@ -273,6 +367,90 @@ export class ApiClient {
 
   approveSales(id: number): Promise<SalesOrderDto> {
     return this.call('POST', `/sales-orders/${id}/approve`)
+  }
+
+  /** 整单按 FEFO 出货（与 UI 的「出货」按钮同一个入口）。 */
+  shipSales(id: number): Promise<SalesOrderDto> {
+    return this.call('POST', `/sales-orders/${id}/ship`)
+  }
+
+  // ── 退货单 ──
+  createReturnOrder(body: {
+    originSalesOrderId: number
+    bizDate?: string
+    remark?: string
+    lines: {
+      originLineId: number
+      qty: number
+      batchNo?: string
+      productionDate?: string
+      expiryDate?: string
+    }[]
+  }): Promise<ReturnOrderDto> {
+    return this.call('POST', '/return-orders', { body })
+  }
+
+  getReturn(id: number): Promise<ReturnOrderDto> {
+    return this.call('GET', `/return-orders/${id}`)
+  }
+
+  listReturns(query: {
+    status?: string
+    customerId?: number
+    originSalesOrderId?: number
+  } = {}): Promise<PageData<ReturnOrderDto>> {
+    return this.call('GET', '/return-orders', { query: { page: 1, size: 100, ...query } })
+  }
+
+  submitReturn(id: number): Promise<ReturnOrderDto> {
+    return this.call('POST', `/return-orders/${id}/submit`)
+  }
+
+  approveReturn(id: number): Promise<ReturnOrderDto> {
+    return this.call('POST', `/return-orders/${id}/approve`)
+  }
+
+  receiveReturn(id: number): Promise<ReturnOrderDto> {
+    return this.call('POST', `/return-orders/${id}/receive`)
+  }
+
+  // ── 结算（造数与断言用；被验收的动作走浏览器） ──
+  settleDaily(body: { bizDate: string; warehouseId?: number }): Promise<DailySettlementResultDto> {
+    return this.call('POST', '/settlements/daily', { body })
+  }
+
+  settleMonthly(period: string): Promise<MonthlySettlementResultDto> {
+    return this.call('POST', '/settlements/monthly', { body: { period } })
+  }
+
+  reconcile(period: string): Promise<ReconcileResultDto> {
+    return this.call('GET', '/settlements/reconcile', { query: { period } })
+  }
+
+  // ── 报表 ──
+  reportPurchase(query: {
+    from: string
+    to: string
+    groupBy?: string
+    warehouseId?: number
+  }): Promise<{ items: ReportRowDto[] }> {
+    return this.call('GET', '/reports/purchase', { query })
+  }
+
+  reportSales(query: {
+    from: string
+    to: string
+    groupBy?: string
+    warehouseId?: number
+  }): Promise<{ items: ReportRowDto[] }> {
+    return this.call('GET', '/reports/sales', { query })
+  }
+
+  reportInventorySummary(query: {
+    period: string
+    warehouseId?: number
+  }): Promise<{ items: InventorySummaryRowDto[] }> {
+    return this.call('GET', '/reports/inventory-summary', { query })
   }
 
   // ── 库存 ──

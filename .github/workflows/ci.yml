@@ -17,9 +17,11 @@ name: CI
 #
 # 后续里程碑接入（见 docs/00 进度看板）：
 #   ⬜ 契约 diff（实现导出的 OpenAPI 与契约源比对）
-#   ⏸ Playwright Web E2E（M3-S8 已在本地落地 `npm run e2e`，连续两遍 15/15；
-#      当前 workflow 没有可复用的长驻 PG service 与可登录的种子账号，
-#      暂不接入，避免未验证 job 把主 CI 搞红。接入方案见 .plan/M3-计划书.md §5.9）
+#   ✅ Playwright Web E2E（M2-S6 起为 `web-e2e` job：PG service + 真后端 + 随机口令种子账号，
+#      19 条用例 + 登录 setup 全真跑、零 mock。它**不在 `gate` 的 needs 里，且不在 push 事件上运行**——
+#      这个 job 从未在真实 runner 上验证过（本泳道不能 push），所以先让它只在 PR / 手动触发时跑：
+#      main 的 CI 徽章不会因为一个未验证的 E2E 而变红，PR 上又能拿到真实反馈。
+#      连续绿若干轮后，由 S7/M6 决定要不要把它并进 `gate`。）
 #   ⬜ Android E2E（reactivecircus/android-emulator-runner）
 #   ⬜ 小程序 E2E（需 Windows self-hosted runner，因微信开发者工具依赖 GUI）
 #   ⬜ SonarQube / Trivy
@@ -203,6 +205,216 @@ jobs:
         env:
           # 明确不依赖 JDK：若脚本想调用 gradle 会自行跳过并打印 ⊘
           SKIP_DEPS_INDEX: '1'
+
+  # ─────────────────────────── Web E2E ───────────────────────────
+  #
+  # ★ 与本地 `npm run e2e` 完全同一条路径：Playwright 自己起 8081 后端 + 3001 Vite，
+  #   连的是 services 里的真 PostgreSQL，Flyway 在空库上跑 V1~V6，**没有任何 mock**。
+  #   用例的造数/清理走 psql（e2e/helpers/db.ts 见到 E2E_DATABASE_URL 就从
+  #   `docker exec` 换成本机 psql），所以这里要装 postgresql-client。
+  #
+  # ★ 种子账号是本 job 唯一的"新发明"，也是 M3 当年没接入的原因：
+  #   迁移里从不建账号（V1~V5 只种角色与权限），而 `scripts/seed-dev-user.ps1` 是 Windows 脚本。
+  #   这里的做法是**用后端自己的编码器**生成哈希：从 bootJar 里抽出
+  #   spring-security-crypto + spring-jcl，用 `java Seed.java`（JEP 330 单文件源码模式）
+  #   跑 `new BCryptPasswordEncoder(10)` —— 与 PasswordEncoderConfig 逐字相同，
+  #   不存在"第三方 bcrypt 与 Spring 是否兼容"这种要靠猜的问题。
+  #   口令每次运行随机生成，只写进 $GITHUB_ENV，不落盘、不打印。
+  #   （本机已实测：这样生成的哈希登录后返回 roles=[ADMIN]，错误密码仍被拒。）
+  web-e2e:
+    name: Web E2E（Playwright · 真后端 · PostgreSQL service）
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # 见文件头：不进 gate，也不在 push 上跑，避免未验证的 job 把 main 弄红
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+
+    # 后端与用例都按东八区算"今天"（本地开发机就是 Asia/Shanghai），
+    # 而 runner 默认 UTC；跨日界会让按当天日期造的数与页面默认区间落在不同天上。
+    env:
+      TZ: Asia/Shanghai
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: erp
+          POSTGRES_USER: erp
+          POSTGRES_PASSWORD: erp
+          # 与 infra/compose/docker-compose.yml 保持一致：显式指定编码与 locale
+          POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U erp -d erp"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 20
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: 缓存 Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('backend/server/**/*.gradle.kts', 'backend/server/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: 赋予 gradlew 执行权限
+        working-directory: backend/server
+        run: chmod +x ./gradlew
+
+      - name: 构建可执行 jar
+        working-directory: backend/server
+        run: ./gradlew bootJar --no-daemon
+
+      - name: 安装 psql 客户端（E2E 的建账号与清理要用）
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends postgresql-client
+
+      - name: 安装 Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/web/package-lock.json
+
+      - name: 安装前端依赖与 Playwright 浏览器
+        working-directory: frontend/web
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      # ── 数据库与种子账号 ────────────────────────────────────────────────
+      # Playwright 的 webServer 会自己 `java -jar` 起后端，Flyway 在这时建表；
+      # 所以这里**先启动一次后端把迁移跑完**，再插账号 —— 否则 app_users 还不存在。
+      - name: 先跑迁移（空库启动一次后端后立即关闭）
+        working-directory: backend/server
+        env:
+          DB_URL: jdbc:postgresql://127.0.0.1:5432/erp
+          DB_USER: erp
+          DB_PASSWORD: erp
+          SERVER_PORT: '8089'
+        run: |
+          set -euo pipefail
+          JAR=''
+          for f in build/libs/*.jar; do
+            case "$f" in *-plain.jar) continue ;; esac
+            JAR="$f"
+          done
+          [ -n "$JAR" ] || { echo '✗ 找不到 bootJar'; exit 1; }
+          java -jar "$JAR" > /tmp/e2e-migrate.log 2>&1 &
+          PID=$!
+          trap 'kill $PID 2>/dev/null || true' EXIT
+          for i in $(seq 1 60); do
+            if curl -fs -m 2 http://127.0.0.1:8089/actuator/health | grep -q '"UP"'; then
+              echo "✓ 迁移完成（schema 已建好，Flyway 到 V6）"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo '✗ 后端 120s 内没有就绪，日志：'
+          tail -n 80 /tmp/e2e-migrate.log
+          exit 1
+
+      - name: 生成随机口令并用后端自己的编码器写入种子账号
+        env:
+          DATABASE_URL: postgresql://erp:erp@127.0.0.1:5432/erp
+        run: |
+          set -euo pipefail
+          WORK="$(mktemp -d)"
+          # 只有一份 bootJar（-plain.jar 是 Gradle 默认附带的不含依赖产物），排除后取第一个
+          JAR=''
+          for f in backend/server/build/libs/*.jar; do
+            case "$f" in *-plain.jar) continue ;; esac
+            JAR="$f"
+          done
+          [ -n "$JAR" ] || { echo "✗ 找不到 bootJar：backend/server/build/libs 是空的"; exit 1; }
+          unzip -j -o -q "$JAR" 'BOOT-INF/lib/spring-security-crypto-*.jar' -d "$WORK"
+          unzip -j -o -q "$JAR" 'BOOT-INF/lib/spring-jcl-*.jar' -d "$WORK"
+          # Linux 的 classpath 分隔符是冒号（这里别照抄 Windows 的分号）
+          CP="$(find "$WORK" -name '*.jar' -print | paste -sd:)"
+
+          cat > "$WORK/Seed.java" <<'JAVA'
+          import java.io.InputStream;
+          import java.nio.charset.StandardCharsets;
+          import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+
+          /**
+           * 与 PasswordEncoderConfig 完全相同的编码器（BCryptPasswordEncoder, strength 10）。
+           * 口令从 **stdin** 读，不从 argv 读：进程列表 / shell 历史都可能把它露出来。
+           * 只输出哈希，绝不回显口令。
+           */
+          public class Seed {
+              public static void main(String[] args) throws Exception {
+                  String password = new String(
+                          System.in.readAllBytes(), StandardCharsets.UTF_8).trim();
+                  if (password.isEmpty()) {
+                      throw new IllegalStateException("no password on stdin");
+                  }
+                  BCryptPasswordEncoder encoder = new BCryptPasswordEncoder(10);
+                  String hash = encoder.encode(password);
+                  if (!encoder.matches(password, hash)) {
+                      throw new IllegalStateException("self-check failed: matches() returned false");
+                  }
+                  System.out.println(hash);
+              }
+          }
+          JAVA
+
+          PASSWORD="E2e-ci-$(openssl rand -hex 12)"
+          HASH="$(printf '%s' "$PASSWORD" | java -cp "$CP" "$WORK/Seed.java")"
+          # 形态校验用真正的 BCrypt 正则。**不要写成 `case "$HASH" in '$2'[aby]*'$'`**：
+          # 合法哈希的结尾是哈希字符而不是 `$`，那条判断会把每一个正常哈希都判成失败
+          # （本泳道在本地实跑这段脚本时才暴露出来）。
+          if [[ ! "$HASH" =~ ^\$2[aby]\$[0-9]{2}\$[./A-Za-z0-9]{53}$ ]]; then
+            echo "✗ 未能生成合法的 BCrypt 哈希（长度 ${#HASH}）"
+            exit 1
+          fi
+          echo "✓ 种子账号哈希：${HASH:0:7}…（长度 ${#HASH}；口令本次运行随机生成，不入库、不打印）"
+
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -c \
+            "INSERT INTO app_users (username, password_hash, display_name)
+             VALUES ('admin', '$HASH', 'CI Admin')
+             ON CONFLICT (username) DO UPDATE SET password_hash = EXCLUDED.password_hash;"
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -c \
+            "INSERT INTO app_user_roles (user_id, role_id)
+             SELECT u.id, r.id FROM app_users u, app_roles r
+              WHERE u.username = 'admin' AND r.code = 'ADMIN'
+             ON CONFLICT DO NOTHING;"
+          echo "✓ app_users=$(psql "$DATABASE_URL" -tAc 'SELECT count(*) FROM app_users') admin_roles=$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM app_user_roles ur JOIN app_users u ON u.id=ur.user_id JOIN app_roles r ON r.id=ur.role_id WHERE u.username='admin' AND r.code='ADMIN'")"
+
+          echo "E2E_USERNAME=admin" >> "$GITHUB_ENV"
+          echo "E2E_PASSWORD=$PASSWORD" >> "$GITHUB_ENV"
+
+      - name: Playwright E2E（真后端 · 真库 · 零 mock）
+        working-directory: frontend/web
+        env:
+          DB_URL: jdbc:postgresql://127.0.0.1:5432/erp
+          DB_USER: erp
+          DB_PASSWORD: erp
+          # e2e/helpers/db.ts：有 E2E_DATABASE_URL 就改用本机 psql（否则它会 docker exec erp-postgres）
+          E2E_DATABASE_URL: postgresql://erp:erp@127.0.0.1:5432/erp
+        # 与本地验收同一条命令；配置里的 reporter 是 list + html（html 供失败时上传）
+        run: npm run e2e
+
+      - name: 失败时保留 trace / 截图 / HTML 报告
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-e2e-artifacts
+          path: frontend/web/.e2e-artifacts/
+          retention-days: 7
 
   # ─────────────────────────── 汇总门禁 ───────────────────────────
   gate:

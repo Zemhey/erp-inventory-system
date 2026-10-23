@@ -4,8 +4,10 @@ import { runFile } from './paths'
 export interface RunInfo {
   runId: string
   viewerUsername: string
+  /** FINANCE 临时账号（结算/报表的权限边界用例需要"能结算但不能开单"的账号） */
+  financeUsername: string
   startedAt: string
-  baseline: Record<string, number>
+  baseline: Record<string, string>
 }
 
 let cached: RunInfo | null = null

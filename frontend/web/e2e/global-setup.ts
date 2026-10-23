@@ -2,13 +2,14 @@ import { randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { artifactsDir, runFile } from './helpers/paths'
 import type { RunInfo } from './helpers/run'
-import { cleanupRun, createViewerUser, readBaseline } from './helpers/db-ops'
+import { cleanupRun, createTempUser, readBaseline, resetReservedPeriods } from './helpers/db-ops'
 
 const STALE_AFTER_MS = 30 * 60 * 1000
 
 /**
- * 生成一次运行的唯一前缀，并创建一个临时 VIEWER 账号（密码哈希复制自管理员）。
- * 所有造数都带 runId 前缀，teardown 只按这个前缀清理。
+ * 生成一次运行的唯一前缀，并创建两个临时账号（密码哈希复制自管理员）：
+ * VIEWER 用于"只能看"，FINANCE 用于"能结算但不能开单"。所有造数都带 runId 前缀，
+ * teardown 只按这个前缀清理（保留账期除外，见 helpers/sql.ts 顶部说明）。
  */
 export default async function globalSetup(): Promise<void> {
   mkdirSync(artifactsDir, { recursive: true })
@@ -30,20 +31,31 @@ export default async function globalSetup(): Promise<void> {
     }
   }
 
+  // 先清保留账期再取基线：上一轮（或别的泳道）残留在 2031 的锁账记录如果进基线，
+  // 会让"计数回到基线"这条硬校验变成"必须留下别人的垃圾"。
+  const wiped = resetReservedPeriods()
+  console.log(
+    `[e2e] 保留账期已清空：日清行 ${wiped.daily ?? 0} 条、账期行 ${wiped.periods ?? 0} 个`,
+  )
+
   const runId = `E2E-${Date.now().toString(36).toUpperCase()}-${randomBytes(2).toString('hex').toUpperCase()}`
   const viewerUsername = `viewer-${runId.toLowerCase()}`
+  const financeUsername = `finance-${runId.toLowerCase()}`
   const baseline = readBaseline()
   const info: RunInfo = {
     runId,
     viewerUsername,
+    financeUsername,
     startedAt: new Date().toISOString(),
     baseline,
   }
-  // 先落盘再建账号：即使建账号中途失败，teardown 也知道要清理哪个用户名。
+  // 先落盘再建账号：即使建账号中途失败，teardown 也知道要清理哪些用户名。
   writeFileSync(runFile, JSON.stringify(info, null, 2), 'utf8')
 
+  const admin = process.env.E2E_USERNAME ?? 'admin'
   try {
-    createViewerUser(viewerUsername, process.env.E2E_USERNAME ?? 'admin')
+    createTempUser(viewerUsername, 'VIEWER', admin)
+    createTempUser(financeUsername, 'FINANCE', admin)
   } catch (error) {
     try {
       cleanupRun(info)
@@ -53,5 +65,5 @@ export default async function globalSetup(): Promise<void> {
     throw error
   }
 
-  console.log(`[e2e] runId=${runId}  VIEWER=${viewerUsername}`)
+  console.log(`[e2e] runId=${runId}  VIEWER=${viewerUsername}  FINANCE=${financeUsername}`)
 }
