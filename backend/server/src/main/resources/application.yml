@@ -18,7 +18,8 @@ spring:
     baseline-on-migrate: false
 
 server:
-  port: 8080
+  # 部署时用 SERVER_PORT 覆盖；默认保持本地开发的 8080
+  port: ${SERVER_PORT:8080}
   servlet:
     context-path: /
 

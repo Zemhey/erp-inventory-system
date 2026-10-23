@@ -89,10 +89,19 @@ logs/
 secrets/
 application-local.yml
 application-prod.yml
+# 例外：生产 profile 只含 ${ENV} 占位符、不含任何真实凭据，随部署制品一起入库。
+# 个人覆盖仍走 application-prod.local.yml（被下面的 **/application-*.local.yml 忽略）。
+!backend/server/src/main/resources/application-prod.yml
 
 # ─────────────────────────── 本地环境覆盖 ───────────────────────────
 # 开发者个人配置覆盖，因人而异，不入库
 **/application-*.local.yml
+
+# ─────────────────────────── M6 部署本地产物 ───────────────────────────
+# 部署状态（当前/上一版 tag）、数据库备份、离线镜像构建上下文
+infra/deploy/.deploy-state
+infra/deploy/backups/
+infra/deploy/offline/.context/
 
 # ─────────────────────────── 本机构建环境（工作区内的 Gradle 主目录） ───────────────────────────
 # 背景：本机沙箱不允许写工作区之外的路径（默认 GRADLE_USER_HOME 在 D:\Major_Software\Gradle\home），

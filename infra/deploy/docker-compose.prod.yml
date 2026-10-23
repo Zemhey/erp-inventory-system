@@ -1,0 +1,113 @@
+# ════════════════════════════════════════════════════════════════════════════
+# 生产编排：PostgreSQL 16 + Spring Boot + nginx（前端静态资源与 /api 反代）
+#
+# 用法：
+#   cp infra/deploy/.env.example infra/deploy/.env   # 改密码与 JWT 密钥
+#   ./scripts/deploy.sh                               # Linux / Git Bash
+#   .\scripts\deploy.ps1                              # Windows PowerShell
+#
+# 设计取舍：
+#   - 只有三个服务。Redis / RabbitMQ 后端零引用（已 grep 核实），不放；
+#     Prometheus/Grafana 没有指标端点与资源预算，不放。
+#   - backend 不 publish 端口：唯一入口是 web 的 /api 反代，减少攻击面。
+#   - PG 只绑 127.0.0.1：本机 psql / 备份 / 排障用，公网不可达。
+#   - 所有镜像带 tag；deploy 脚本负责记录上一版 tag 以便回滚。
+#   - 日志走 json-file 并限制大小；宿主机不会被容器日志写满。
+# ════════════════════════════════════════════════════════════════════════════
+name: erp-prod
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: erp-prod-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-erp}
+      POSTGRES_USER: ${POSTGRES_USER:-erp}
+      # :? = 未设置直接拒绝启动，避免空密码/默认密码进生产
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required (copy .env.example to .env)}"
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+      TZ: ${TZ:-Asia/Shanghai}
+    ports:
+      # 只绑回环；不要改成 0.0.0.0
+      - "127.0.0.1:${PG_HOST_PORT:-15435}:5432"
+    volumes:
+      - erp-pgdata:/var/lib/postgresql/data
+    shm_size: 256mb
+    healthcheck:
+      # $$ 交给容器内 shell 展开，避免 Compose 在宿主侧提前替换
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+    logging: *default-logging
+
+  backend:
+    image: erp-backend:${IMAGE_TAG:-latest}
+    container_name: erp-prod-backend
+    build:
+      context: ../../backend/server
+      dockerfile: Dockerfile
+      args:
+        BUILD_IMAGE: ${BACKEND_BUILD_IMAGE:-eclipse-temurin:17-jdk-alpine}
+        RUNTIME_IMAGE: ${BACKEND_RUNTIME_IMAGE:-eclipse-temurin:17-jre-alpine}
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 40s
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-erp}
+      DB_USER: ${POSTGRES_USER:-erp}
+      DB_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
+      ERP_JWT_SECRET: "${ERP_JWT_SECRET:?ERP_JWT_SECRET is required (openssl rand -base64 48)}"
+      SERVER_PORT: "8080"
+      TZ: ${TZ:-Asia/Shanghai}
+      # 默认值在 Dockerfile 里也有一份；这里显式给出便于 .env 覆盖
+      JAVA_OPTS: "${JAVA_OPTS:--XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError -Duser.timezone=Asia/Shanghai -Dfile.encoding=UTF-8}"
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    logging: *default-logging
+
+  web:
+    image: erp-web:${IMAGE_TAG:-latest}
+    container_name: erp-prod-web
+    build:
+      context: ../../frontend/web
+      dockerfile: Dockerfile
+      args:
+        NODE_IMAGE: ${WEB_BUILD_IMAGE:-node:22-alpine}
+        NGINX_IMAGE: ${WEB_RUNTIME_IMAGE:-nginx:1.27-alpine}
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      # 本地/未备案：0.0.0.0:18080；接宿主 nginx 做 TLS 时改成 127.0.0.1:18080
+      - "${WEB_BIND_IP:-0.0.0.0}:${WEB_PORT:-18080}:80"
+    healthcheck:
+      # 只检查 web 自身；backend 是否可用由 /readyz 表达
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging: *default-logging
+
+volumes:
+  erp-pgdata:
