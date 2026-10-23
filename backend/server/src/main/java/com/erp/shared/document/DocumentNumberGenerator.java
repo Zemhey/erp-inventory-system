@@ -49,7 +49,9 @@ public class DocumentNumberGenerator {
         /** 调拨单 TRANSFER ORDER（P1 使用）。 */
         TRANSFER_ORDER("TO"),
         /** 盘点单 STOCKTAKE ORDER（P2 使用）。 */
-        STOCKTAKE_ORDER("ST");
+        STOCKTAKE_ORDER("ST"),
+        /** 库存调整单 ADJUSTMENT（V2-1 FR-INV-09）。 */
+        ADJUSTMENT("AJ");
 
         private final String prefix;
 

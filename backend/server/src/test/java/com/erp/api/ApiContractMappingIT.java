@@ -114,6 +114,8 @@ class ApiContractMappingIT extends PostgresTestBase {
         UNDOCUMENTED_DEBT.put("GET /api/v1/supplier-payables/reconcile", "V2-2 应付余额核对，契约待补");
         UNDOCUMENTED_DEBT.put("GET /api/v1/supplier-payables/{}", "V2-2 应付详情，契约待补");
         UNDOCUMENTED_DEBT.put("POST /api/v1/supplier-payments", "V2-2 付款核销，契约待补");
+
+        // V2-4 成本毛利：4 个端点已落入 openapi.yaml（2026-10-24），debt 已清偿
     }
 
     @Autowired

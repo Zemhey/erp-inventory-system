@@ -32,6 +32,8 @@
 | `TC-RMA-015` | ★ returnableQty = shippedQty − returnedQty，且与退货建单预检同口径（超 1 件即 409） | `backend/server/src/test/java/com/erp/api/ReturnableOrderApiIT.java` |
 | `TC-RMA-016` | 可退列表是只读接口：GET 不要求 X-Request-Id，也不得留下任何写痕迹 | `backend/server/src/test/java/com/erp/api/ReturnableOrderApiIT.java` |
 | `TC-RMA-017` | ★ 分页口径：total 是单据张数、翻页取得后面的单，size 越界只钳制不当全量 | `backend/server/src/test/java/com/erp/api/ReturnableOrderApiIT.java` |
+| `TC-SAL-024` | ★ 出货 void：缺幂等键 400；红冲 200 + 库存回补；同键重放 200；新键 409 | `backend/server/src/test/java/com/erp/api/ReversalApiIT.java` |
+| `TC-PUR-023` | ★ 进货 void：缺幂等键 400；红冲 200 + 库存回退；同键重放 200；新键 409 | `backend/server/src/test/java/com/erp/api/ReversalApiIT.java` |
 | `TC-API-016` | ★ 结算 HTTP 端到端：日清 items/totals → 月结 CLOSED → 对账 balanced，字段符合契约 | `backend/server/src/test/java/com/erp/api/SettlementApiIT.java` |
 | `TC-API-017` | ★★ 结算守卫：锁账后开单 409；FINANCE 可结算不可开单；缺幂等键/非法账期是 400 不是 500 | `backend/server/src/test/java/com/erp/api/SettlementApiIT.java` |
 | `TC-SET-015` | ★ 只有 set:read 的临时账号能拿到非空账期列表，且月结结果刷新后逐字段还在；同一账号 POST 日清仍 403 | `backend/server/src/test/java/com/erp/api/SettlementPeriodApiIT.java` |
@@ -109,8 +111,15 @@
 | `TC-PUR-011` | 同一进货单多行入库不产生流水唯一键冲突（requestId 按行拆分） | `backend/server/src/test/java/com/erp/pur/PurchaseOrderIT.java` |
 | `TC-PUR-012` | 已完成的进货单不允许再入库（终态保护） | `backend/server/src/test/java/com/erp/pur/PurchaseOrderIT.java` |
 | `TC-PUR-013` | 入库时指定不存在的明细行：404 语义，不产生库存变动 | `backend/server/src/test/java/com/erp/pur/PurchaseOrderIT.java` |
-| `TC-PUR-014` | ★ 已入库的单据不能直接作废：必须提示先红冲（FR-PUR-03 属 P1） | `backend/server/src/test/java/com/erp/pur/PurchaseOrderIT.java` |
+| `TC-PUR-014` | ★ 已入库单据红冲：回退实存、写 PURCHASE_REVERSAL、状态 VOIDED | `backend/server/src/test/java/com/erp/pur/PurchaseOrderIT.java` |
 | `TC-PUR-015` | 草稿作废成功；作废后不能再提交 | `backend/server/src/test/java/com/erp/pur/PurchaseOrderIT.java` |
+| `TC-PUR-016` | ★ COMPLETED 红冲（多次入库、多批次）：逐条反向流水，两个批次各自回退 | `backend/server/src/test/java/com/erp/pur/PurchaseOrderReversalIT.java` |
+| `TC-PUR-017` | ★ 红冲幂等：同 X-Request-Id 重放不产生第二套流水；已作废后换新键被拒 | `backend/server/src/test/java/com/erp/pur/PurchaseOrderReversalIT.java` |
+| `TC-PUR-018` | ★ 锁账期拒绝红冲：SET_PERIOD_CLOSED，状态/库存/流水全部不动 | `backend/server/src/test/java/com/erp/pur/PurchaseOrderReversalIT.java` |
+| `TC-PUR-019` | ★ 货已被下游出货消耗：红冲被 INV_NEGATIVE_NOT_ALLOWED 拒绝，且零副作用 | `backend/server/src/test/java/com/erp/pur/PurchaseOrderReversalIT.java` |
+| `TC-PUR-020` | ★ 货已被出货单预占：红冲会跌破预占线，拒绝且不动库存 | `backend/server/src/test/java/com/erp/pur/PurchaseOrderReversalIT.java` |
+| `TC-PUR-021` | ★ 退货回补到别的批次不算：红冲不跨批次挪用库存 | `backend/server/src/test/java/com/erp/pur/PurchaseOrderReversalIT.java` |
+| `TC-PUR-022` | ★ 并发红冲（异键）：只有一个成功，库存只回退一次 | `backend/server/src/test/java/com/erp/pur/PurchaseOrderReversalIT.java` |
 | `TC-RMA-001` | ★ 建单：金额由原出货行单价与折扣派生，客户/仓库继承原单，状态 DRAFT 且库存不变 | `backend/server/src/test/java/com/erp/rma/ReturnOrderIT.java` |
 | `TC-RMA-002` | 原出货单还没出货（DRAFT / SUBMITTED / APPROVED）→ RMA_ORIGIN_NOT_SHIPPED，且不建单 | `backend/server/src/test/java/com/erp/rma/ReturnOrderIT.java` |
 | `TC-RMA-003` | 明细行不属于原出货单 → 404，整单不建、库存不动 | `backend/server/src/test/java/com/erp/rma/ReturnOrderIT.java` |
@@ -146,12 +155,18 @@
 | `TC-SAL-009` | ★★ FEFO 拆批次端到端：库存全部带批次时建单自动分段预占，出货按效期扣减并拆多条流水 | `backend/server/src/test/java/com/erp/sal/SalesOrderIT.java` |
 | `TC-SAL-010` | ★ 跳过审核直接出货（DRAFT）必须被拒绝，库存不动 | `backend/server/src/test/java/com/erp/sal/SalesOrderIT.java` |
 | `TC-SAL-011` | ★ 作废未出货单据必须释放预占（否则库存被永久锁死） | `backend/server/src/test/java/com/erp/sal/SalesOrderIT.java` |
-| `TC-SAL-012` | 已出货的单据不能直接作废（需红冲，FR-SAL-04 属 M2） | `backend/server/src/test/java/com/erp/sal/SalesOrderIT.java` |
+| `TC-SAL-012` | ★ 已出货单据红冲：按原批次回补实存、写 SALES_REVERSAL、状态 VOIDED | `backend/server/src/test/java/com/erp/sal/SalesOrderIT.java` |
 | `TC-SAL-013` | 客户或仓库停用后不能再建出货单 | `backend/server/src/test/java/com/erp/sal/SalesOrderIT.java` |
 | `TC-SAL-014` | 出货单不存在：404 语义 | `backend/server/src/test/java/com/erp/sal/SalesOrderIT.java` |
 | `TC-SAL-015` | ★ 端到端：进货入库 → 出货 → 两单流水可各自反查，且全库 INV-2 成立 | `backend/server/src/test/java/com/erp/sal/SalesOrderIT.java` |
 | `TC-SAL-016` | ★★ 出货后预占记录必须转为 CONSUMED：不允许永远停在 ACTIVE（M1 真实捕获的缺陷） | `backend/server/src/test/java/com/erp/sal/SalesOrderIT.java` |
 | `TC-SAL-017` | 作废后预占记录转为 RELEASED，且 ACTIVE 合计归零（与余额行一致） | `backend/server/src/test/java/com/erp/sal/SalesOrderIT.java` |
+| `TC-SAL-018` | ★ 红冲幂等：同 X-Request-Id 重放不产生第二套流水；已作废后换新键被拒 | `backend/server/src/test/java/com/erp/sal/SalesOrderReversalIT.java` |
+| `TC-SAL-019` | ★ 锁账期拒绝红冲：SET_PERIOD_CLOSED，单据状态/库存/流水全部不动 | `backend/server/src/test/java/com/erp/sal/SalesOrderReversalIT.java` |
+| `TC-SAL-020` | ★ 有退货的出货单不能红冲（退货已回补过库存，再全额红冲会双补） | `backend/server/src/test/java/com/erp/sal/SalesOrderReversalIT.java` |
+| `TC-SAL-021` | ★ 红冲后原单上待入库的退货单不能再入库（否则会二次回补库存） | `backend/server/src/test/java/com/erp/sal/SalesOrderReversalIT.java` |
+| `TC-SAL-022` | ★ PARTIAL 红冲：已出货行回补实存，未出货行的 ACTIVE 预占必须一起释放 | `backend/server/src/test/java/com/erp/sal/SalesOrderReversalIT.java` |
+| `TC-SAL-023` | ★ 并发红冲（异键）：只有一个成功，库存只回补一次 | `backend/server/src/test/java/com/erp/sal/SalesOrderReversalIT.java` |
 | `TC-SET-001` | ★ 日清（单仓）：采购/销售/退货的数量与金额按单据 biz_date 正确汇总 | `backend/server/src/test/java/com/erp/set/SettlementIT.java` |
 | `TC-SET-002` | 日清省略 warehouseId：按仓库返回 items，再给出跨仓 totals，跨仓不串数 | `backend/server/src/test/java/com/erp/set/SettlementIT.java` |
 | `TC-SET-003` | ★ 日清幂等：同日重复执行结果一致且仍只有一行；重跑是覆盖而不是累加 | `backend/server/src/test/java/com/erp/set/SettlementIT.java` |
@@ -176,5 +191,7 @@
 | `TC-DOC-004` | 可执行状态只有 APPROVED / PARTIAL：DRAFT 与 SUBMITTED 不得触碰库存 | `backend/server/src/test/java/com/erp/shared/document/DocumentStatusMachineTest.java` |
 | `TC-DOC-005` | 未结状态判定：只有终态被视为已结 | `backend/server/src/test/java/com/erp/shared/document/DocumentStatusMachineTest.java` |
 | `TC-DOC-006` | PARTIAL->PARTIAL 自环合法：分批入库/出货可以多次进入部分状态 | `backend/server/src/test/java/com/erp/shared/document/DocumentStatusMachineTest.java` |
+| `TC-DOC-011` | ★ 红冲白名单：仅 PARTIAL / COMPLETED 可补偿作废，目标恒为 VOIDED | `backend/server/src/test/java/com/erp/shared/document/DocumentStatusMachineTest.java` |
+| `TC-DOC-012` | ★ 红冲不改常规状态机：COMPLETED 在 7×7 表里仍是终态（月结 isOpen 口径不被污染） | `backend/server/src/test/java/com/erp/shared/document/DocumentStatusMachineTest.java` |
 
-共 172 条用例。
+共 189 条用例。

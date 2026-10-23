@@ -499,7 +499,7 @@ public class InventoryApplicationService {
         return b + suffix;
     }
 
-    /**
+/**
      * 采购退货出库（FR-PUR-06）：按原收货批次扣减实存并写 {@code PURCHASE_RETURN} 负向流水。
      *
      * <p>与进货红冲共用 {@code decreaseOnHand} 的两条守卫：
@@ -532,6 +532,122 @@ public class InventoryApplicationService {
                 unitCostAmount, requestId, clock.now());
     }
 
+    // ───────────────────────────── 库存作业（V2-1：调拨 / 盘点 / 调整 / 冻结） ─────────────────────────────
+
+    /**
+     * 调出：源仓实存减少，写 `TRANSFER_OUT` 负向流水。
+     *
+     * <p>货离开源仓、但尚未进入目的仓，这段"在途"由调拨单明细的
+     * {@code in_transit_qty} 承载，因此这里<b>不</b>写任何正向流水。
+     * 守恒式（INV-7）：源仓流水 + 在途量 + 目的仓流水 == 0。
+     */
+    @Transactional
+    public void transferOut(long skuId, long warehouseId, String batchNo, int qty,
+                            String transferNo, Long transferId, String requestId) {
+        if (!balances.decreaseOnHand(skuId, warehouseId, batchNo, qty)) {
+            InventoryBalance b = balances.find(skuId, warehouseId, batchNo).orElse(null);
+            int onHand = b == null ? 0 : b.onHandQty();
+            int reserved = b == null ? 0 : b.reservedQty();
+            int frozen = b == null ? 0 : b.frozenQty();
+            throw new BusinessException(ErrorCode.INV_INSUFFICIENT_STOCK,
+                    "调拨调出失败：SKU %d 在仓库 %d 批次 '%s' 实存 %d、预占 %d、冻结 %d，需要调出 %d"
+                            .formatted(skuId, warehouseId, batchNo, onHand, reserved, frozen, qty),
+                    java.util.Map.of("skuId", skuId, "warehouseId", warehouseId,
+                            "batchNo", batchNo, "onHand", onHand, "reserved", reserved,
+                            "frozen", frozen, "required", qty));
+        }
+        ledger.insert(skuId, warehouseId, batchNo, -qty, "TRANSFER_OUT", transferNo, transferId,
+                null, requestId, clock.now());
+    }
+
+    /**
+     * 调入：目的仓实存增加，写 `TRANSFER_IN` 正向流水。
+     *
+     * <p>批次的生产日期/效期从源仓余额带过来，否则目的仓的 FEFO 会丢掉效期。
+     * 目的仓已有同批次余额行时，{@code increaseOnHand} 只加数量、不覆盖效期。
+     */
+    @Transactional
+    public void transferIn(long skuId, long warehouseId, String batchNo,
+                           LocalDate productionDate, LocalDate expiryDate, int qty,
+                           String transferNo, Long transferId, Long unitCostAmount,
+                           String requestId) {
+        balances.increaseOnHand(skuId, warehouseId, batchNo, productionDate, expiryDate, qty);
+        ledger.insert(skuId, warehouseId, batchNo, qty, "TRANSFER_IN", transferNo, transferId,
+                unitCostAmount, requestId, clock.now());
+    }
+
+    /**
+     * 库存调整：正数=调增（ADJUST_IN），负数=调减（ADJUST_OUT）。
+     *
+     * <p>调减走与调拨相同的条件扣减（不能扣到预占/冻结以下）；
+     * 调增允许凭空建行 —— 盘盈、初始化建账都属正常业务。
+     */
+    @Transactional
+    public void adjust(long skuId, long warehouseId, String batchNo, int changeQty,
+                       String adjustNo, Long adjustId, Long unitCostAmount, String requestId) {
+        if (changeQty == 0) {
+            throw new BusinessException(ErrorCode.SYS_VALIDATION_ERROR,
+                    "调整数量不能为 0：skuId=%d, warehouseId=%d".formatted(skuId, warehouseId));
+        }
+        if (changeQty > 0) {
+            balances.increaseOnHand(skuId, warehouseId, batchNo, null, null, changeQty);
+            ledger.insert(skuId, warehouseId, batchNo, changeQty, "ADJUST_IN", adjustNo, adjustId,
+                    unitCostAmount, requestId, clock.now());
+            return;
+        }
+        int qty = -changeQty;
+        if (!balances.decreaseOnHand(skuId, warehouseId, batchNo, qty)) {
+            InventoryBalance b = balances.find(skuId, warehouseId, batchNo).orElse(null);
+            int onHand = b == null ? 0 : b.onHandQty();
+            int reserved = b == null ? 0 : b.reservedQty();
+            int frozen = b == null ? 0 : b.frozenQty();
+            throw new BusinessException(ErrorCode.INV_NEGATIVE_NOT_ALLOWED,
+                    "调减失败：SKU %d 在仓库 %d 批次 '%s' 实存 %d、预占 %d、冻结 %d，需要调减 %d"
+                            .formatted(skuId, warehouseId, batchNo, onHand, reserved, frozen, qty),
+                    java.util.Map.of("skuId", skuId, "warehouseId", warehouseId,
+                            "batchNo", batchNo, "onHand", onHand, "reserved", reserved,
+                            "frozen", frozen, "required", qty));
+        }
+        ledger.insert(skuId, warehouseId, batchNo, -qty, "ADJUST_OUT", adjustNo, adjustId,
+                unitCostAmount, requestId, clock.now());
+    }
+
+    /**
+     * 冻结：只增加 {@code frozen_qty}，实存与流水都不动。
+     *
+     * <p>不写流水是刻意的：INV-2 只约束实存与流水的关系，
+     * 冻结只是把可用量"藏起来"，不产生库存移动。若在这里补流水，
+     * 对账会把冻结误算成一次出库。
+     *
+     * @throws BusinessException 可用量不足以冻结（已被预占/冻结）
+     */
+    @Transactional
+    public void freeze(long skuId, long warehouseId, String batchNo, int qty) {
+        if (!balances.freeze(skuId, warehouseId, batchNo, qty)) {
+            InventoryBalance b = balances.find(skuId, warehouseId, batchNo).orElse(null);
+            int available = b == null ? 0 : b.availableQty();
+            throw new BusinessException(ErrorCode.INV_FREEZE_EXCEEDS_AVAILABLE,
+                    "冻结失败：SKU %d 在仓库 %d 批次 '%s' 可用量 %d，冻结 %d"
+                            .formatted(skuId, warehouseId, batchNo, available, qty),
+                    java.util.Map.of("skuId", skuId, "warehouseId", warehouseId,
+                            "batchNo", batchNo, "available", available, "required", qty));
+        }
+    }
+
+    /** 解冻：只减少 {@code frozen_qty}，实存与流水都不动。 */
+    @Transactional
+    public void unfreeze(long skuId, long warehouseId, String batchNo, int qty) {
+        if (!balances.releaseFrozen(skuId, warehouseId, batchNo, qty)) {
+            throw new BusinessException(ErrorCode.INV_FREEZE_NOT_FOUND,
+                    "解冻失败（冻结量不足或并发冲突）：skuId=%d, warehouseId=%d, batchNo='%s', qty=%d"
+                            .formatted(skuId, warehouseId, batchNo, qty));
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public int frozenQty(long skuId, long warehouseId, String batchNo) {
+        return balances.frozenQty(skuId, warehouseId, batchNo);
+    }
     // ───────────────────────────── 不变量校验（对账，不变量 INV-2） ─────────────────────────────
 
     public record InvariantViolation(long skuId, long warehouseId, String batchNo,

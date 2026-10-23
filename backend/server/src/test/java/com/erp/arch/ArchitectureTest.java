@@ -349,6 +349,64 @@ class ArchitectureTest {
                     .because("NL 层只做解析与调度：业务规则必须调用既有 ApplicationService，"
                             + "直连仓储等于在自然语言入口复制第二套规则（FR-SYS-04）");
 
+    // ─────────────────────── 规则 10：成本模块只读（V2-4） ───────────────────────
+
+    /**
+     * ★ {@code cst} 不得依赖其它模块的应用服务。
+     *
+     * <p>成本引擎的全部输入是库存流水（ADR-0007），它的职责是"从事实源派生成本"，
+     * 不是"顺手改库存/单据"。一旦注入 {@code InventoryApplicationService} 或
+     * {@code PurchaseOrderApplicationService}，成本模块就获得了写入口，
+     * 与 V2-1 正在改的库存写入路径产生第二套并发语义。
+     *
+     * <p>与报表规则同样用泛化匹配 + 排除自己：以后新增模块自动落网，不需要维护清单。
+     */
+    @ArchTest
+    static final ArchRule 成本模块不得依赖其它模块的应用服务 =
+            noClasses()
+                    .that().resideInAPackage("com.erp.cst..")
+                    .should().dependOnClassesThat(
+                            com.tngtech.archunit.core.domain.JavaClass.Predicates
+                                    .resideInAPackage("..application..")
+                                    .and(com.tngtech.archunit.core.domain.JavaClass.Predicates
+                                            .resideOutsideOfPackage("com.erp.cst.application..")))
+                    .because("成本模块只从流水派生成本；写入口必须留在各自模块"
+                            + "（V2-4 并行边界：不改库存写入语义）");
+
+    /**
+     * ★ {@code cst} 不得直连 INV 的仓储。
+     *
+     * <p>成本需要读流水，但 INV 的仓储不对外暴露（见规则 1/2）。
+     * 正确做法是 cst 自己的只读查询仓储直接读 {@code inventory_ledger}；
+     * 直连 {@code InventoryLedgerRepository} 意味着成本会随 INV 的内部重构而漂移，
+     * 也给了成本模块接触库存写入口的机会。
+     */
+    @ArchTest
+    static final ArchRule 成本模块不得直连库存仓储 =
+            noClasses()
+                    .that().resideInAPackage("com.erp.cst..")
+                    .should().dependOnClassesThat().resideInAnyPackage("com.erp.inv.repository..")
+                    .because("成本引擎用 cst 自有只读 SQL 读流水，不依赖 INV 内部仓储");
+
+    /**
+     * ★ {@code cst} 禁止依赖 {@code java.math.BigDecimal}。
+     *
+     * <p>ADR-0005 要求金额以整数分运算、舍入集中在一处。成本引擎里只要出现
+     * BigDecimal，就会长出一套与 {@code MoneyMath} 并行的舍入规则；
+     * 两套规则差一分钱，INV-11 的守恒断言就会在某个随机序列上随机变红。
+     *
+     * <p>这条规则把"除法只在 MoneyMath"从代码评审口径变成 CI 门禁。
+     * 下面的 TC-ARCH-008 现场编译违规探针，证明规则真的会红。
+     */
+    @ArchTest
+    static final ArchRule 成本模块禁止使用BigDecimal做金额运算 =
+            noClasses()
+                    .that().resideInAPackage("com.erp.cst..")
+                    .and().haveSimpleNameNotEndingWith("Test")
+                    .should().dependOnClassesThat()
+                    .haveFullyQualifiedName("java.math.BigDecimal")
+                    .because("金额一律整数分；除法与 HALF_UP 只允许在 MoneyMath（ADR-0005）");
+
     // ─────────────────────── 辅助实现 ───────────────────────
 
     /**
@@ -615,6 +673,62 @@ class ArchitectureTest {
                 自然语言入口不得直连仓储.evaluate(classes).hasViolation())
                 .as("★ 规则必须能拦住 nl -> repository 的直连；"
                         + "若为 false 说明 NL 已可能在解析层复制业务规则（假绿）")
+                .isTrue();
+    }
+
+    /**
+     * ★ 自检：成本模块 BigDecimal 禁令必须拦住违规代码。
+     *
+     * <p>探针放进真实的 {@code com.erp.cst.probe} 包并 evaluate 生产规则本身；
+     * 规则被改窄或删除时，本用例立刻红。
+     */
+    @org.junit.jupiter.api.Test
+    @CaseId("TC-ARCH-008")
+    @org.junit.jupiter.api.DisplayName("★ 规则自检：成本模块禁止 BigDecimal 的规则必须拦住违规依赖")
+    void 规则自检_成本模块禁止BigDecimal规则必须生效() {
+        var classes = compileProbe("com.erp.cst.probe.BadCostDecimalProbe", """
+                package com.erp.cst.probe;
+
+                public class BadCostDecimalProbe {
+                    private final java.math.BigDecimal amount = null;
+
+                    public Object bad() {
+                        return amount;
+                    }
+                }
+                """);
+        org.assertj.core.api.Assertions.assertThat(
+                成本模块禁止使用BigDecimal做金额运算.evaluate(classes).hasViolation())
+                .as("★ 规则必须能拦住 cst 对 BigDecimal 的依赖；"
+                        + "若为 false 说明金额舍入已可能在 MoneyMath 之外分叉（假绿）")
+                .isTrue();
+    }
+
+    /**
+     * ★ 自检：成本模块直连 INV 仓储必须被拦住。
+     *
+     * <p>探针引用真实存在的 {@code InventoryLedgerRepository}；
+     * 这条规则守的是 V2-4 与 V2-1 的并行边界 —— 成本只能读流水，不能碰库存写入口。
+     */
+    @org.junit.jupiter.api.Test
+    @CaseId("TC-ARCH-009")
+    @org.junit.jupiter.api.DisplayName("★ 规则自检：成本模块不得直连库存仓储的规则必须拦住违规 import")
+    void 规则自检_成本模块不得直连库存仓储规则必须生效() {
+        var classes = compileProbe("com.erp.cst.probe.BadInvRepositoryProbe", """
+                package com.erp.cst.probe;
+
+                public class BadInvRepositoryProbe {
+                    private final com.erp.inv.repository.InventoryLedgerRepository repo = null;
+
+                    public Object bad() {
+                        return repo;
+                    }
+                }
+                """);
+        org.assertj.core.api.Assertions.assertThat(
+                成本模块不得直连库存仓储.evaluate(classes).hasViolation())
+                .as("★ 规则必须能拦住 cst -> inv.repository 的直连；"
+                        + "若为 false 说明成本模块可能绕过只读边界（假绿）")
                 .isTrue();
     }
 
