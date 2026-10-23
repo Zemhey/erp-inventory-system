@@ -499,7 +499,7 @@ class ReportIT extends PostgresTestBase {
     private PurchaseOrder purchaseVoidedDraft(String req, long supplierId, long warehouseId,
                                               LocalDate bizDate, Line... lines) {
         var created = createPurchase(req, supplierId, warehouseId, bizDate, lines);
-        var voided = purchaseOrders.voidOrder(created.id());
+        var voided = purchaseOrders.voidOrder(created.id(), req + "-void");
         purchases.add(voided);
         return voided;
     }

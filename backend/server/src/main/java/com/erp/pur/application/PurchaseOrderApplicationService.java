@@ -10,6 +10,7 @@ import com.erp.pur.repository.PurchaseOrderRepository;
 import com.erp.shared.document.DocumentNumberGenerator;
 import com.erp.shared.document.DocumentStatus;
 import com.erp.shared.document.DocumentStatusMachine;
+import com.erp.shared.db.DbErrors;
 import com.erp.shared.error.BusinessException;
 import com.erp.shared.error.ErrorCode;
 import com.erp.shared.period.PeriodGuard;
@@ -19,6 +20,7 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -177,19 +179,110 @@ public class PurchaseOrderApplicationService {
         return require(id);
     }
 
+    /**
+     * 作废进货单（FR-PUR-03，M2.5 补全红冲闭环）。
+     *
+     * <p><b>未入库</b>：状态 → VOIDED，不动库存。
+     *
+     * <p><b>已入库（PARTIAL/COMPLETED）</b>：红冲 —— 按原 `PURCHASE_IN` 流水逐批次回退实存，
+     * 写 `PURCHASE_REVERSAL` 负向流水。每个批次都要求当前实存足够且回退后不低于预占，
+     * 否则 `INV_NEGATIVE_NOT_ALLOWED`（不跨批次挪用）。
+     *
+     * <p>账期已锁 → `SET_PERIOD_CLOSED`；同 `X-Request-Id` 重放幂等；
+     * 新键重复作废报 `PUR_STATUS_ILLEGAL`。
+     */
     @Transactional
-    public PurchaseOrder voidOrder(long id) {
+    public PurchaseOrder voidOrder(long id, String requestId) {
+        if (requestId == null || requestId.isBlank()) {
+            throw new BusinessException(ErrorCode.SYS_VALIDATION_ERROR,
+                    "作废进货单必须提供幂等键 X-Request-Id");
+        }
         PurchaseOrder o = require(id);
+
+        if (o.status() == DocumentStatus.VOIDED) {
+            if (orders.isVoidedByRequest(o.id(), requestId)) {
+                return o;
+            }
+            throw new BusinessException(ErrorCode.PUR_STATUS_ILLEGAL,
+                    "进货单 %s 已作废（首次作废请求与本次不同），不能再次作废"
+                            .formatted(o.orderNo()));
+        }
+
         periodGuard.requireOpen(o.bizDate());
+
+        if (o.anyReceived()) {
+            return reverseReceivedOrder(o, requestId);
+        }
+
         DocumentStatusMachine.requireTransition(o.status(), DocumentStatus.VOIDED,
                 ErrorCode.PUR_STATUS_ILLEGAL, o.orderNo());
-        if (o.anyReceived()) {
-            // 已入库就作废必须先生成反向流水冲减库存（BR-DOC-03），属 P1（FR-PUR-03）
-            throw new BusinessException(ErrorCode.PUR_STATUS_ILLEGAL,
-                    "进货单 %s 已有入库，作废需先红冲（FR-PUR-03，M2 实现）".formatted(o.orderNo()));
-        }
-        transition(o, DocumentStatus.VOIDED);
+        markVoided(o, requestId);
         return require(id);
+    }
+
+    /** 已入库单据的红冲：校验 → 状态串行化 → 库存逐批次回退。 */
+    private PurchaseOrder reverseReceivedOrder(PurchaseOrder o, String requestId) {
+        DocumentStatusMachine.requireRedReversal(o.status(), ErrorCode.PUR_STATUS_ILLEGAL,
+                o.orderNo());
+
+        int received = o.lines().stream().mapToInt(PurchaseOrderLine::receivedQty).sum();
+        int ledgerIn = inventory.ledgerEntries(o.orderNo(), "PURCHASE_IN").stream()
+                .mapToInt(com.erp.inv.domain.InventoryLedgerEntry::changeQty).sum();
+        if (received != ledgerIn) {
+            throw new BusinessException(ErrorCode.PUR_STATUS_ILLEGAL,
+                    "进货单 %s 的累计入库量 %d 与 PURCHASE_IN 流水净额 %d 不一致，拒绝红冲"
+                            .formatted(o.orderNo(), received, ledgerIn),
+                    java.util.Map.of("orderNo", o.orderNo(), "receivedQty", received,
+                            "ledgerQty", ledgerIn));
+        }
+
+        if (!markVoided(o, requestId)) {
+            return require(o.id());   // 并发同键：另一个请求已完成红冲，本请求幂等收口
+        }
+
+        int reversed = inventory.reversePurchaseIn(o.orderNo(), o.id(), requestId);
+        if (reversed != received) {
+            throw new BusinessException(ErrorCode.PUR_STATUS_ILLEGAL,
+                    "进货单 %s 红冲数量 %d 与累计入库量 %d 不一致，已回滚"
+                            .formatted(o.orderNo(), reversed, received));
+        }
+        return require(o.id());
+    }
+
+    /**
+     * 状态条件更新 + 幂等键；失败时按「同键重放 / 已作废 / 并发冲突」分流。
+     *
+     * @return true = 本次请求完成了状态翻转；false = 并发同键的另一请求已完成
+     */
+    private boolean markVoided(PurchaseOrder o, String requestId) {
+        boolean updated;
+        try {
+            updated = orders.markVoided(o.id(), o.status(), o.version(), requestId);
+        } catch (DataIntegrityViolationException ex) {
+            BusinessException duplicate = DbErrors.translate(ex, "uq_po_void_request",
+                    ErrorCode.SYS_DUPLICATE_REQUEST,
+                    "重复的作废请求：该幂等键已经用于另一张进货单");
+            if (duplicate != null) {
+                throw duplicate;
+            }
+            throw ex;
+        }
+        if (updated) {
+            return true;
+        }
+        PurchaseOrder latest = require(o.id());
+        if (latest.status() == DocumentStatus.VOIDED
+                && orders.isVoidedByRequest(latest.id(), requestId)) {
+            return false;
+        }
+        if (latest.status() == DocumentStatus.VOIDED) {
+            throw new BusinessException(ErrorCode.PUR_STATUS_ILLEGAL,
+                    "进货单 %s 已作废（首次作废请求与本次不同），不能再次作废"
+                            .formatted(latest.orderNo()));
+        }
+        throw new BusinessException(ErrorCode.PUR_STATUS_ILLEGAL,
+                "进货单 %s 状态推进冲突（并发修改），请刷新后重试：期望 %s -> VOIDED"
+                        .formatted(latest.orderNo(), o.status()));
     }
 
     // ─────────────────────────── 入库确认（★ 调 INV） ───────────────────────────

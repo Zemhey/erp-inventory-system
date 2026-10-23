@@ -146,6 +146,30 @@ public class PurchaseOrderRepository {
     }
 
     /**
+     * 作废/红冲的状态推进（M2.5）：同一语句写入幂等键。
+     *
+     * <p>「状态 + version」是并发串行化点：两个作废请求只有一个能成功；
+     * 后到者重读后按同键/异键分别做幂等返回或状态非法。
+     */
+    public boolean markVoided(long id, DocumentStatus from, int expectedVersion, String requestId) {
+        return jdbc.update("""
+                UPDATE purchase_orders
+                   SET status = 'VOIDED', void_request_id = ?,
+                       version = version + 1, updated_at = now()
+                 WHERE id = ? AND status = ? AND version = ?
+                """, requestId, id, from.name(), expectedVersion) == 1;
+    }
+
+    /** 该单是否由指定幂等键作废（同键重放判据）。 */
+    public boolean isVoidedByRequest(long id, String requestId) {
+        Boolean v = jdbc.queryForObject("""
+                SELECT EXISTS (SELECT 1 FROM purchase_orders
+                                WHERE id = ? AND status = 'VOIDED' AND void_request_id = ?)
+                """, Boolean.class, id, requestId);
+        return Boolean.TRUE.equals(v);
+    }
+
+    /**
      * 推进单行累计入库量，并<b>原子地</b>保证不超量（BR-DOC-04）。
      *
      * <p>条件 {@code received_qty + ? <= qty} 在数据库行锁下求值：

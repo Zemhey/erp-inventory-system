@@ -2,7 +2,9 @@ package com.erp.shared.document;
 
 import com.erp.shared.error.BusinessException;
 import com.erp.shared.error.ErrorCode;
+import java.util.EnumSet;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * 状态转移校验器 —— 单据状态机的唯一执行点（BR-DOC-01）。
@@ -19,6 +21,41 @@ import java.util.Objects;
 public final class DocumentStatusMachine {
 
     private DocumentStatusMachine() {
+    }
+
+    /**
+     * 可红冲（补偿性作废）的状态白名单（M2.5，FR-SAL-04 / FR-PUR-03）。
+     *
+     * <p><b>为什么不把 COMPLETED -> VOIDED 加进 {@link DocumentStatus#allowedNext()}</b>：
+     * `isTerminal()` 同时是 `isOpen()` 的唯一实现，而 `isOpen()` 决定月结时
+     * "哪些单据还算未结"。把已完成单据改成常规可流转，会让月结把它们重新算成未结 ——
+     * 红冲是**例外补偿**，不是常规状态推进。
+     *
+     * <p>白名单只允许 {@code PARTIAL/COMPLETED -> VOIDED}；调用方仍必须先冲减库存
+     * （BR-DOC-03），本方法只做状态合法性校验。
+     */
+    private static final Set<DocumentStatus> RED_REVERSIBLE =
+            EnumSet.of(DocumentStatus.PARTIAL, DocumentStatus.COMPLETED);
+
+    /**
+     * 校验"红冲"这一补偿性转移是否合法，非法则抛业务异常。
+     *
+     * @param from        当前状态
+     * @param errorCode   非法时使用的单据状态码（PUR_STATUS_ILLEGAL / SAL_STATUS_ILLEGAL）
+     * @param documentRef 单据标识（单号或 id），进错误消息便于排障
+     * @return 目标状态 {@link DocumentStatus#VOIDED}
+     * @throws BusinessException 当前状态不可红冲
+     */
+    public static DocumentStatus requireRedReversal(DocumentStatus from, ErrorCode errorCode,
+                                                    Object documentRef) {
+        Objects.requireNonNull(from, "from 状态不能为空");
+        Objects.requireNonNull(errorCode, "errorCode 不能为空");
+        if (!RED_REVERSIBLE.contains(from)) {
+            throw new BusinessException(errorCode,
+                    "单据状态不允许红冲：单据 %s 当前状态 %s（仅 PARTIAL / COMPLETED 可红冲）"
+                            .formatted(documentRef, from));
+        }
+        return DocumentStatus.VOIDED;
     }
 
     /**

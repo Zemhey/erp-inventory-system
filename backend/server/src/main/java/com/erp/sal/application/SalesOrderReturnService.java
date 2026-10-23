@@ -2,6 +2,7 @@ package com.erp.sal.application;
 
 import com.erp.sal.domain.SalesOrderLine;
 import com.erp.sal.repository.SalesOrderRepository;
+import com.erp.shared.document.DocumentStatus;
 import com.erp.shared.error.BusinessException;
 import com.erp.shared.error.ErrorCode;
 import org.springframework.stereotype.Service;
@@ -43,6 +44,19 @@ public class SalesOrderReturnService {
             throw new BusinessException(ErrorCode.SYS_VALIDATION_ERROR,
                     "退货数量必须为正：originLineId=%d, qty=%d".formatted(originLineId, qty));
         }
+
+        // ★ M2.5：先锁原出货单头。红冲更新的是同一行，两边的锁顺序一致
+        //   （单头 → 明细/库存），避免「红冲 + 并发退货入库」把同一批货回补两次。
+        DocumentStatus status = orders.lockOrderStatusByLineId(originLineId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.SYS_NOT_FOUND,
+                        "原出货明细行不存在：originLineId=%d".formatted(originLineId)));
+        if (status != DocumentStatus.PARTIAL && status != DocumentStatus.COMPLETED) {
+            throw new BusinessException(ErrorCode.RMA_ORIGIN_NOT_SHIPPED,
+                    "原出货单已不可退货（当前状态 %s）：红冲后不能再入库退货"
+                            .formatted(status),
+                    java.util.Map.of("originLineId", originLineId, "originStatus", status.name()));
+        }
+
         if (orders.applyReturnedQty(originLineId, qty)) {
             return;
         }

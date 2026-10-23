@@ -127,6 +127,22 @@ public class InventoryLedgerRepository {
         return v == null ? 0 : v;
     }
 
+    /**
+     * 按来源单号 + 业务类型取原始流水（M2.5 红冲专用）。
+     *
+     * <p>红冲必须知道"当初扣/入了哪些批次、各多少"，否则无法逐批次反向。
+     * 按 id 升序返回，保证同一单多次入库/出货时反向顺序稳定、可复现。
+     */
+    public List<InventoryLedgerEntry> findByBizRefAndBizType(String bizRefNo, String bizType) {
+        return jdbc.query("""
+                SELECT id, sku_id, warehouse_id, batch_no, change_qty, biz_type,
+                       biz_ref_no, unit_cost_amount, occurred_at
+                  FROM inventory_ledger
+                 WHERE biz_ref_no = ? AND biz_type = ?
+                 ORDER BY id
+                """, MAPPER, bizRefNo, bizType);
+    }
+
     public List<String> bizTypesByRequestId(String requestId) {
         return jdbc.queryForList(
                 "SELECT biz_type FROM inventory_ledger WHERE request_id = ? ORDER BY id",

@@ -223,8 +223,9 @@ public class ReturnOrderApplicationService {
     /**
      * 作废退货单：<b>仅入库前</b>可以作废，且作废不产生任何库存变动。
      *
-     * <p>已入库的退货单要"作废"必须先生成反向流水冲减库存（红冲，FR-SAL-04 同族能力），
-     * 本期明确不做（M2 计划书 §7 决策 3）。这里给出明确拒绝而不是静默成功，
+     * <p>已入库的退货单要"作废"必须先生成反向流水冲减库存（红冲）。
+     * M2.5 的红冲范围只有进货单与出货单（FR-PUR-03 / FR-SAL-04），
+     * <b>退货单红冲不在本期</b>，因此这里继续明确拒绝而不是静默成功，
      * 否则用户以为退了货、库存却回不来。
      */
     @Transactional
@@ -233,8 +234,8 @@ public class ReturnOrderApplicationService {
         periodGuard.requireOpen(o.bizDate());
         if (o.status() == DocumentStatus.COMPLETED) {
             throw new BusinessException(ErrorCode.RMA_STATUS_ILLEGAL,
-                    "退货单 %s 已入库完成，作废需先红冲并再次出库（M2.5 提供），本操作已拒绝"
-                            .formatted(o.orderNo()));
+                    "退货单 %s 已入库完成，作废需先红冲并再次出库（退货红冲不在 M2.5 范围），"
+                            + "本操作已拒绝".formatted(o.orderNo()));
         }
         DocumentStatusMachine.requireTransition(o.status(), DocumentStatus.VOIDED,
                 ErrorCode.RMA_STATUS_ILLEGAL, o.orderNo());

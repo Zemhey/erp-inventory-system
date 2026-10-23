@@ -71,6 +71,17 @@ public class InventoryApplicationService {
                                 .formatted(skuId, warehouseId, batchNo)));
     }
 
+    /**
+     * 按来源单号 + 业务类型取原始流水（M2.5 红冲）。
+     *
+     * <p>红冲方据此知道"原单当初在哪些批次上动了多少"，逐条反向；
+     * 余额与流水漂移的校验也用它（Σ 原流水必须等于单据累计执行量）。
+     */
+    @Transactional(readOnly = true)
+    public List<InventoryLedgerEntry> ledgerEntries(String bizRefNo, String bizType) {
+        return ledger.findByBizRefAndBizType(bizRefNo, bizType);
+    }
+
     // ───────────────────────────── 预占 ─────────────────────────────
 
     public record ReserveCommand(long skuId, long warehouseId, String batchNo, int qty, String requestId) {
@@ -183,6 +194,35 @@ public class InventoryApplicationService {
         InventoryBalance after = requireBalance(r.skuId(), r.warehouseId(), r.batchNo());
         return new ReserveResult(r.id(), r.skuId(), r.warehouseId(), r.batchNo(),
                 r.reservedQty(), after.onHandQty(), after.availableQty(), false);
+    }
+
+    /**
+     * 仅当预占仍为 ACTIVE 时释放；已消费/已释放/已超时的记录直接跳过。
+     *
+     * <p>用于 M2.5 的 `PARTIAL` 红冲：已出货行的预占是 `CONSUMED`，
+     * 未出货行才是 `ACTIVE`。若沿用 {@link #release} 的"非 ACTIVE 就抛错"语义，
+     * 红冲一张部分执行单会在第一段已消费预占上失败 —— 但"跳过已消费"不是静默吞错：
+     * 返回 {@code false} 让调用方知道这次释放没有产生数量变动。
+     *
+     * @return 是否真的从 ACTIVE 翻转为 RELEASED 并释放了数量
+     */
+    @Transactional
+    public boolean releaseIfActive(long reservationId) {
+        var r = reservations.findById(reservationId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.INV_RESERVATION_NOT_FOUND,
+                        "预占记录不存在：id=%d".formatted(reservationId)));
+        if (!"ACTIVE".equals(r.status())) {
+            return false;
+        }
+        if (!reservations.markReleased(r.id())) {
+            return false;
+        }
+        if (!balances.release(r.skuId(), r.warehouseId(), r.batchNo(), r.reservedQty())) {
+            throw new BusinessException(ErrorCode.INV_RESERVE_FAILED,
+                    "释放预占失败（并发冲突）：id=%d, skuId=%d, batchNo='%s', qty=%d"
+                            .formatted(r.id(), r.skuId(), r.batchNo(), r.reservedQty()));
+        }
+        return true;
     }
 
     /**
@@ -364,6 +404,99 @@ public class InventoryApplicationService {
             throw new BusinessException(ErrorCode.INV_INSUFFICIENT_STOCK,
                     "出库失败：仍有 %d 件未扣减（skuId=%d）".formatted(remaining, skuId));
         }
+    }
+
+    // ───────────────────────────── 红冲（M2.5） ─────────────────────────────
+
+    /**
+     * 出货红冲：按原 `SALES_OUT` 流水逐批次回补实存，并写 `SALES_REVERSAL` 正向流水。
+     *
+     * <p><b>为什么必须按原流水逐条反向</b>：出货按 FEFO 拆批次，一张单可能产生
+     * 多条 `SALES_OUT`（批次、数量各不同）。若只按单据总数量回补到一个批次，
+     * 批次库存与流水都会失真，FEFO 之后的出货顺序也跟着错。
+     *
+     * <p>本方法只负责"库存事实"：状态推进、退货限制、幂等键都在单据服务里。
+     * 调用方必须已经过账期锁与状态校验。
+     *
+     * @return 本次回补的总数量
+     */
+    @Transactional
+    public int reverseSalesOut(String bizRefNo, Long bizRefId, String requestIdBase) {
+        List<InventoryLedgerEntry> entries = ledger.findByBizRefAndBizType(bizRefNo, "SALES_OUT");
+        int reversed = 0;
+        for (InventoryLedgerEntry e : entries) {
+            int qty = -e.changeQty();
+            if (qty <= 0) {
+                throw new BusinessException(ErrorCode.INV_BALANCE_MISMATCH,
+                        "出货流水方向异常，无法红冲：ledgerId=%d, bizRefNo=%s, changeQty=%d"
+                                .formatted(e.id(), bizRefNo, e.changeQty()));
+            }
+            balances.find(e.skuId(), e.warehouseId(), e.batchNo())
+                    .orElseThrow(() -> new BusinessException(ErrorCode.INV_BALANCE_MISMATCH,
+                            "出货红冲缺少原批次余额行：ledgerId=%d, skuId=%d, warehouseId=%d, batchNo='%s'"
+                                    .formatted(e.id(), e.skuId(), e.warehouseId(), e.batchNo())));
+            balances.increaseOnHand(e.skuId(), e.warehouseId(), e.batchNo(), null, null, qty);
+            ledger.insert(e.skuId(), e.warehouseId(), e.batchNo(), qty,
+                    "SALES_REVERSAL", bizRefNo, bizRefId, null,
+                    reversalRequestId(requestIdBase, e.id()), clock.now());
+            reversed += qty;
+        }
+        return reversed;
+    }
+
+    /**
+     * 进货红冲：按原 `PURCHASE_IN` 流水逐批次回退实存，并写 `PURCHASE_REVERSAL` 负向流水。
+     *
+     * <p>每个批次都走条件 UPDATE（实存足够、且回退后不低于预占），
+     * 任一批次不足就抛 {@code INV_NEGATIVE_NOT_ALLOWED}，由事务整体回滚 ——
+     * 不允许"能退的批次先退了，退不了的后面报错"留下半成品。
+     *
+     * <p><b>不跨批次挪用</b>：货已被卖到别的批次/已被退货回补到别的批次时，
+     * 原批次依然算不足。这是明确口径，避免红冲悄悄改变库存的批次结构。
+     *
+     * @return 本次回退的总数量
+     */
+    @Transactional
+    public int reversePurchaseIn(String bizRefNo, Long bizRefId, String requestIdBase) {
+        List<InventoryLedgerEntry> entries = ledger.findByBizRefAndBizType(bizRefNo, "PURCHASE_IN");
+        int reversed = 0;
+        for (InventoryLedgerEntry e : entries) {
+            int qty = e.changeQty();
+            if (qty <= 0) {
+                throw new BusinessException(ErrorCode.INV_BALANCE_MISMATCH,
+                        "进货流水方向异常，无法红冲：ledgerId=%d, bizRefNo=%s, changeQty=%d"
+                                .formatted(e.id(), bizRefNo, e.changeQty()));
+            }
+            if (!balances.decreaseOnHand(e.skuId(), e.warehouseId(), e.batchNo(), qty)) {
+                InventoryBalance b = balances.find(e.skuId(), e.warehouseId(), e.batchNo())
+                        .orElse(null);
+                int onHand = b == null ? 0 : b.onHandQty();
+                int reserved = b == null ? 0 : b.reservedQty();
+                throw new BusinessException(ErrorCode.INV_NEGATIVE_NOT_ALLOWED,
+                        "进货红冲失败：SKU %d 在仓库 %d 批次 '%s' 当前实存 %d、已预占 %d，"
+                                .formatted(e.skuId(), e.warehouseId(), e.batchNo(), onHand, reserved)
+                                + "需要回退 %d（回退后会为负或低于预占）".formatted(qty),
+                        java.util.Map.of("skuId", e.skuId(), "warehouseId", e.warehouseId(),
+                                "batchNo", e.batchNo(), "onHand", onHand,
+                                "reserved", reserved, "required", qty));
+            }
+            ledger.insert(e.skuId(), e.warehouseId(), e.batchNo(), -qty,
+                    "PURCHASE_REVERSAL", bizRefNo, bizRefId, e.unitCostAmount(),
+                    reversalRequestId(requestIdBase, e.id()), clock.now());
+            reversed += qty;
+        }
+        return reversed;
+    }
+
+    /** 红冲流水的幂等键：在原请求键后附加原流水 id，保证一条原流水只对应一条反向流水。 */
+    private static String reversalRequestId(String base, long sourceLedgerId) {
+        String suffix = ":REV:" + sourceLedgerId;
+        String b = base == null || base.isBlank() ? "void" : base;
+        int maxBase = 64 - suffix.length();
+        if (b.length() > maxBase) {
+            b = b.substring(0, maxBase);
+        }
+        return b + suffix;
     }
 
     // ───────────────────────────── 不变量校验（对账，不变量 INV-2） ─────────────────────────────

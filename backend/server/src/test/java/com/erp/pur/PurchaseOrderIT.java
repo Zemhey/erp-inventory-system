@@ -341,40 +341,31 @@ class PurchaseOrderIT extends PostgresTestBase {
 
     @Test
     @CaseId("TC-PUR-014")
-    @DisplayName("★ 已入库的单据不能直接作废：必须提示先红冲（FR-PUR-03 属 P1）")
-    void void_afterReceived_thenRejected() {
+    @DisplayName("★ 已入库单据红冲：回退实存、写 PURCHASE_REVERSAL、状态 VOIDED")
+    void void_afterReceived_shouldReverseStockAndVoid() {
         PurchaseOrder o = createDraft("req-po-void", 10, 1000L);
         purchaseOrders.submit(o.id());
         purchaseOrders.approve(o.id());
         long lineId = o.lines().get(0).id();
 
-        // ① 只入了一部分（PARTIAL）：状态机本身允许 PARTIAL -> VOIDED，
-        //    因此这里必须由业务规则（先红冲）拦下 —— 这是本用例的重点。
+        // 只入了一部分（PARTIAL）：红冲应只回退实际入库量，而不是单据量
         PurchaseOrder partial = purchaseOrders.receive(o.id(), new ReceiveCommand(
                 List.of(new ReceiveLineCommand(lineId, 4, null, null, null)), "req-void-1"));
         assertThat(partial.status()).isEqualTo(DocumentStatus.PARTIAL);
+        assertThat(data.onHand(skuA, warehouseId, "")).isEqualTo(4);
 
-        assertThatThrownBy(() -> purchaseOrders.voidOrder(o.id()))
-                .as("部分入库后作废必须被业务规则拦下，而不是静默丢库存")
-                .isInstanceOf(BusinessException.class)
-                .hasFieldOrPropertyWithValue("code", ErrorCode.PUR_STATUS_ILLEGAL)
-                .hasMessageContaining("红冲");
+        PurchaseOrder voided = purchaseOrders.voidOrder(o.id(), "req-po-reverse");
 
-        // ② 全部入库（COMPLETED）：这是终态，状态机层面就不允许作废
-        purchaseOrders.receive(o.id(), new ReceiveCommand(
-                List.of(new ReceiveLineCommand(lineId, 6, null, null, null)), "req-void-2"));
-        assertThat(purchaseOrders.require(o.id()).status())
-                .isEqualTo(DocumentStatus.COMPLETED);
-
-        assertThatThrownBy(() -> purchaseOrders.voidOrder(o.id()))
-                .as("已完成是终态，作废必须被拒绝")
-                .isInstanceOf(BusinessException.class)
-                .hasFieldOrPropertyWithValue("code", ErrorCode.PUR_STATUS_ILLEGAL);
-
-        assertThat(data.onHand(skuA, warehouseId, ""))
-                .as("两次作废尝试都不得影响已入库的库存")
-                .isEqualTo(10);
-        assertThat(inventory.checkLedgerConsistency()).isEmpty();
+        assertThat(voided.status()).isEqualTo(DocumentStatus.VOIDED);
+        assertThat(data.onHand(skuA, warehouseId, "")).as("★ 红冲必须回退实存").isZero();
+        assertThat(inventory.ledgerEntries(o.orderNo(), "PURCHASE_IN")).hasSize(1);
+        assertThat(inventory.ledgerEntries(o.orderNo(), "PURCHASE_REVERSAL"))
+                .as("红冲必须留下可追溯的反向流水")
+                .singleElement()
+                .satisfies(e -> assertThat(e.changeQty()).isEqualTo(-4));
+        assertThat(inventory.checkLedgerConsistency())
+                .as("红冲后全库实存 == 流水净和（INV-2）")
+                .isEmpty();
     }
 
     @Test
@@ -383,7 +374,7 @@ class PurchaseOrderIT extends PostgresTestBase {
     void void_draft_thenCannotSubmit() {
         PurchaseOrder o = createDraft("req-po-void2", 5, 1000L);
 
-        PurchaseOrder voided = purchaseOrders.voidOrder(o.id());
+        PurchaseOrder voided = purchaseOrders.voidOrder(o.id(), "req-po-void2");
         assertThat(voided.status()).isEqualTo(DocumentStatus.VOIDED);
 
         assertThatThrownBy(() -> purchaseOrders.submit(o.id()))

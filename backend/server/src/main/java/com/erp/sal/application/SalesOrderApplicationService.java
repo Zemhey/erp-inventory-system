@@ -11,6 +11,7 @@ import com.erp.sal.repository.SalesOrderRepository;
 import com.erp.shared.document.DocumentNumberGenerator;
 import com.erp.shared.document.DocumentStatus;
 import com.erp.shared.document.DocumentStatusMachine;
+import com.erp.shared.db.DbErrors;
 import com.erp.shared.error.BusinessException;
 import com.erp.shared.error.ErrorCode;
 import com.erp.shared.period.PeriodGuard;
@@ -22,6 +23,7 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -197,34 +199,147 @@ public class SalesOrderApplicationService {
     }
 
     /**
-     * 作废出货单：必须<b>释放已占用的预占</b>，否则库存会被永久锁死。
+     * 作废出货单（FR-SAL-04，M2.5 补全红冲闭环）。
      *
-     * <p>契约里 FR-SAL-04（作废/红冲）标为 P1，但"预占不释放"是个会累积的
-     * 资源泄漏 —— 每作废一单就少一份可用库存，且肉眼不可见。
-     * 因此在 M1 就实现"未出货的作废 + 释放预占"这一最小闭环；
-     * 已出货的作废（需回补库存，生成反向流水）仍留待 M2。
+     * <p><b>未出货</b>：释放预占，状态 → VOIDED，不动实存、不写流水。
+     *
+     * <p><b>已出货（PARTIAL/COMPLETED）</b>：红冲 —— 按原 `SALES_OUT` 流水逐批次回补实存，
+     * 写 `SALES_REVERSAL` 正向流水，状态 → VOIDED。规则：
+     * <ul>
+     *   <li>有退货数量（`returnedQty > 0`）拒绝：退货已经回补过库存，再全额红冲会双补；</li>
+     *   <li>账期已锁拒绝（`SET_PERIOD_CLOSED`）；</li>
+     *   <li>`Σ shippedQty` 必须等于原 `SALES_OUT` 流水净额，否则拒绝（防流水漂移下红冲）；</li>
+     *   <li>同 `X-Request-Id` 重放幂等返回；新键重复作废报 `SAL_STATUS_ILLEGAL`。</li>
+     * </ul>
+     *
+     * <p><b>并发</b>：先做「状态 + version」条件 UPDATE，再做库存反向流水。
+     * 状态 UPDATE 是串行化点：并发异键只有一个能成功，另一个在库存动之前就失败；
+     * 同键后到者重读后走幂等返回。
      */
     @Transactional
-    public SalesOrder voidOrder(long id) {
+    public SalesOrder voidOrder(long id, String requestId) {
+        if (requestId == null || requestId.isBlank()) {
+            throw new BusinessException(ErrorCode.SYS_VALIDATION_ERROR,
+                    "作废出货单必须提供幂等键 X-Request-Id");
+        }
         SalesOrder o = require(id);
-        periodGuard.requireOpen(o.bizDate());
-        DocumentStatusMachine.requireTransition(o.status(), DocumentStatus.VOIDED,
-                ErrorCode.SAL_STATUS_ILLEGAL, o.orderNo());
-        if (o.anyShipped()) {
+
+        // ① 已作废：同键幂等返回；异键报状态非法。放在账期检查之前，
+        //    这样"首次成功后账期才被锁"的重放仍然返回首次结果。
+        if (o.status() == DocumentStatus.VOIDED) {
+            if (orders.isVoidedByRequest(o.id(), requestId)) {
+                return o;
+            }
             throw new BusinessException(ErrorCode.SAL_STATUS_ILLEGAL,
-                    "出货单 %s 已有出库，作废需先红冲并回补库存（FR-SAL-04，M2 实现）"
+                    "出货单 %s 已作废（首次作废请求与本次不同），不能再次作废"
                             .formatted(o.orderNo()));
         }
+
+        // ② 账期锁
+        periodGuard.requireOpen(o.bizDate());
+
+        if (o.anyShipped()) {
+            return reverseShippedOrder(o, requestId);
+        }
+
+        // ③ 未出货：原语义（释放预占），状态更新带幂等键
+        DocumentStatusMachine.requireTransition(o.status(), DocumentStatus.VOIDED,
+                ErrorCode.SAL_STATUS_ILLEGAL, o.orderNo());
+        if (!markVoided(o, requestId, false)) {
+            return require(id);
+        }
         for (SalesOrderLine line : o.lines()) {
-            if (line.reservationIds().isEmpty()) {
-                continue;
-            }
             for (long reservationId : line.reservationIds()) {
                 inventory.release(reservationId);
             }
         }
-        transition(o, DocumentStatus.VOIDED);
         return require(id);
+    }
+
+    /** 已出货单据的红冲：校验 → 状态串行化 → 库存逐批次回补 → 释放未出货预占。 */
+    private SalesOrder reverseShippedOrder(SalesOrder o, String requestId) {
+        if (o.anyReturned()) {
+            int returned = o.lines().stream().mapToInt(SalesOrderLine::returnedQty).sum();
+            throw new BusinessException(ErrorCode.SAL_STATUS_ILLEGAL,
+                    "出货单 %s 已退货 %d 件，不能红冲（退货已回补库存，再红冲会重复入库）"
+                            .formatted(o.orderNo(), returned));
+        }
+        DocumentStatusMachine.requireRedReversal(o.status(), ErrorCode.SAL_STATUS_ILLEGAL,
+                o.orderNo());
+
+        int shipped = o.lines().stream().mapToInt(SalesOrderLine::shippedQty).sum();
+        int ledgerOut = inventory.ledgerEntries(o.orderNo(), "SALES_OUT").stream()
+                .mapToInt(e -> -e.changeQty()).sum();
+        if (shipped != ledgerOut) {
+            throw new BusinessException(ErrorCode.SAL_STATUS_ILLEGAL,
+                    "出货单 %s 的累计出货量 %d 与 SALES_OUT 流水净额 %d 不一致，拒绝红冲"
+                            .formatted(o.orderNo(), shipped, ledgerOut),
+                    java.util.Map.of("orderNo", o.orderNo(), "shippedQty", shipped,
+                            "ledgerQty", ledgerOut));
+        }
+
+        if (!markVoided(o, requestId, true)) {
+            return require(o.id());   // 并发同键：另一个请求已完成红冲，本请求幂等收口
+        }
+
+        int reversed = inventory.reverseSalesOut(o.orderNo(), o.id(), requestId);
+        if (reversed != shipped) {
+            throw new BusinessException(ErrorCode.SAL_STATUS_ILLEGAL,
+                    "出货单 %s 红冲数量 %d 与累计出货量 %d 不一致，已回滚"
+                            .formatted(o.orderNo(), reversed, shipped));
+        }
+        // PARTIAL 单据里未出货行的预占仍是 ACTIVE，必须释放；COMPLETED 行均为 CONSUMED，自动跳过。
+        for (SalesOrderLine line : o.lines()) {
+            for (long reservationId : line.reservationIds()) {
+                inventory.releaseIfActive(reservationId);
+            }
+        }
+        return require(o.id());
+    }
+
+    /**
+     * 状态条件更新 + 幂等键；失败时按「同键重放 / 已退货 / 并发冲突」分流。
+     *
+     * <p>红冲多一个 `NOT EXISTS returned_qty > 0` 条件：与并发退货入库靠
+     * `sales_orders` 行锁串行化，退货先提交则这里 0 行。
+     *
+     * @return true = 本次请求完成了状态翻转；false = 并发同键的另一请求已完成
+     */
+    private boolean markVoided(SalesOrder o, String requestId, boolean noReturnsAllowed) {
+        boolean updated;
+        try {
+            updated = noReturnsAllowed
+                    ? orders.markVoidedWithNoReturns(o.id(), o.status(), o.version(), requestId)
+                    : orders.markVoided(o.id(), o.status(), o.version(), requestId);
+        } catch (DataIntegrityViolationException ex) {
+            BusinessException duplicate = DbErrors.translate(ex, "uq_so_void_request",
+                    ErrorCode.SYS_DUPLICATE_REQUEST,
+                    "重复的作废请求：该幂等键已经用于另一张出货单");
+            if (duplicate != null) {
+                throw duplicate;
+            }
+            throw ex;
+        }
+        if (updated) {
+            return true;
+        }
+        SalesOrder latest = require(o.id());
+        if (latest.status() == DocumentStatus.VOIDED
+                && orders.isVoidedByRequest(latest.id(), requestId)) {
+            return false;   // 并发同键：另一个请求已完成，本请求幂等收口
+        }
+        if (latest.anyReturned()) {
+            throw new BusinessException(ErrorCode.SAL_STATUS_ILLEGAL,
+                    "出货单 %s 已退货，不能红冲".formatted(latest.orderNo()));
+        }
+        if (latest.status() == DocumentStatus.VOIDED) {
+            throw new BusinessException(ErrorCode.SAL_STATUS_ILLEGAL,
+                    "出货单 %s 已作废（首次作废请求与本次不同），不能再次作废"
+                            .formatted(latest.orderNo()));
+        }
+        throw new BusinessException(ErrorCode.SAL_STATUS_ILLEGAL,
+                "出货单 %s 状态推进冲突（并发修改），请刷新后重试：期望 %s -> VOIDED"
+                        .formatted(latest.orderNo(), o.status()));
     }
 
     // ─────────────────────────── 出货确认（★ 调 INV） ───────────────────────────

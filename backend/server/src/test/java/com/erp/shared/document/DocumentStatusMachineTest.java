@@ -166,4 +166,51 @@ class DocumentStatusMachineTest {
                 .as("分批执行的业务语义：可以反复'部分完成'")
                 .isTrue();
     }
+
+    // ─────────────────────────── 红冲（补偿性转移，M2.5） ───────────────────────────
+
+    @Test
+    @CaseId("TC-DOC-011")
+    @DisplayName("★ 红冲白名单：仅 PARTIAL / COMPLETED 可补偿作废，目标恒为 VOIDED")
+    void redReversal_isAllowedOnlyForExecutedStates() {
+        assertThat(DocumentStatusMachine.requireRedReversal(
+                DocumentStatus.PARTIAL, ErrorCode.PUR_STATUS_ILLEGAL, "PO-X"))
+                .isEqualTo(DocumentStatus.VOIDED);
+        assertThat(DocumentStatusMachine.requireRedReversal(
+                DocumentStatus.COMPLETED, ErrorCode.SAL_STATUS_ILLEGAL, "SO-X"))
+                .isEqualTo(DocumentStatus.VOIDED);
+
+        for (DocumentStatus from : DocumentStatus.values()) {
+            boolean allowed = from == DocumentStatus.PARTIAL || from == DocumentStatus.COMPLETED;
+            if (allowed) {
+                continue;
+            }
+            assertThatThrownBy(() -> DocumentStatusMachine.requireRedReversal(
+                    from, ErrorCode.PUR_STATUS_ILLEGAL, "PO-X"))
+                    .as("%s 不应允许红冲", from)
+                    .isInstanceOf(BusinessException.class)
+                    .hasFieldOrPropertyWithValue("code", ErrorCode.PUR_STATUS_ILLEGAL)
+                    .hasMessageContaining("红冲")
+                    .hasMessageContaining(from.name())
+                    .hasMessageContaining("PO-X");
+        }
+    }
+
+    @Test
+    @CaseId("TC-DOC-012")
+    @DisplayName("★ 红冲不改常规状态机：COMPLETED 在 7×7 表里仍是终态（月结 isOpen 口径不被污染）")
+    void redReversal_doesNotMakeCompletedANonTerminalState() {
+        assertThat(DocumentStatus.COMPLETED.canTransitionTo(DocumentStatus.VOIDED))
+                .as("常规转移表必须继续拒绝 COMPLETED -> VOIDED")
+                .isFalse();
+        assertThat(DocumentStatus.COMPLETED.isTerminal()).isTrue();
+        assertThat(DocumentStatus.COMPLETED.isOpen()).isFalse();
+
+        assertThatThrownBy(() -> DocumentStatusMachine.requireTransition(
+                DocumentStatus.COMPLETED, DocumentStatus.VOIDED,
+                ErrorCode.SAL_STATUS_ILLEGAL, "SO-X"))
+                .as("走错入口（requireTransition）时红冲依然被拦住")
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("code", ErrorCode.SAL_STATUS_ILLEGAL);
+    }
 }
