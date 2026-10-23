@@ -14,7 +14,9 @@ import {
   Sell,
   ShoppingCart,
   SwitchButton,
+  Tickets,
   User,
+  Wallet,
 } from '@element-plus/icons-vue'
 import { useSessionStore } from '@/stores/session'
 
@@ -80,6 +82,9 @@ const allMenus: MenuItem[] = [
   { path: '/return-orders', title: '退货单', icon: RefreshLeft, permission: 'rma:read' },
   { path: '/settlements', title: '结算', icon: Coin, permission: 'set:read' },
   { path: '/reports', title: '报表', icon: DataAnalysis, permission: 'rpt:read' },
+  // V2-2 采购闭环：继续追加，不重排既有菜单
+  { path: '/purchase-requisitions', title: '请购与质检', icon: Tickets, permission: 'pur:read' },
+  { path: '/supplier-payables', title: '应付与付款', icon: Wallet, permission: 'pur:payable' },
 ]
 
 const visibleMenus = computed(() =>

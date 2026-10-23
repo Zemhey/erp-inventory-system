@@ -334,6 +334,67 @@ export const nlApi = {
   command: (command: string) => http.post<never, NlCommandResult>('/nl/command', { command }),
 }
 
+/**
+ * 请购单（FR-PUR-04）。复用进货单的存储与状态机，但只有"转订单"一个出口。
+ * 转单动作要 `pur:approve`：它把申请变成真实采购承诺。
+ */
+export const requisitionApi = {
+  list: (params: { status?: string; supplierId?: number; page?: number; size?: number }) =>
+    http.get<never, PageData<PurchaseRequisition>>('/purchase-requisitions', { params }),
+  get: (id: number) => http.get<never, PurchaseRequisition>(`/purchase-requisitions/${id}`),
+  create: (body: PurchaseRequisitionCreate) =>
+    http.post<never, PurchaseRequisition>('/purchase-requisitions', body),
+  submit: (id: number) =>
+    http.post<never, PurchaseRequisition>(`/purchase-requisitions/${id}/submit`),
+  approve: (id: number) =>
+    http.post<never, PurchaseRequisition>(`/purchase-requisitions/${id}/approve`),
+  convert: (id: number, body: RequisitionConvertRequest) =>
+    http.post<never, PurchaseOrder>(`/purchase-requisitions/${id}/convert`, body),
+}
+
+/**
+ * 到货/质检记录（FR-PUR-05）。
+ * 不合格量只存在于这里，`acceptedQty` 才是进库存与应付的数量。
+ */
+export const purchaseReceiptApi = {
+  listByOrder: (orderId: number) =>
+    http.get<never, PurchaseReceipt[]>(`/purchase-orders/${orderId}/receipts`),
+}
+
+/** 采购退货（FR-PUR-06）：建单只收到货行与数量，金额由后端派生。 */
+export const purchaseReturnApi = {
+  list: (params: {
+    status?: string
+    supplierId?: number
+    purchaseOrderId?: number
+    page?: number
+    size?: number
+  }) => http.get<never, PageData<PurchaseReturn>>('/purchase-returns', { params }),
+  get: (id: number) => http.get<never, PurchaseReturn>(`/purchase-returns/${id}`),
+  create: (body: PurchaseReturnCreate) =>
+    http.post<never, PurchaseReturn>('/purchase-returns', body),
+  approve: (id: number) => http.post<never, PurchaseReturn>(`/purchase-returns/${id}/approve`),
+  voidReturn: (id: number) => http.post<never, PurchaseReturn>(`/purchase-returns/${id}/void`),
+}
+
+/**
+ * 供应商应付与付款核销（FR-PUR-07/08）。
+ *
+ * `reconcile` 是可重复的余额/守恒校验入口：每次实时聚合，不读缓存。
+ * 付款请求的 `allocations` 合计必须等于 `amount`，否则后端 400 拒绝。
+ */
+export const payableApi = {
+  list: (params: { supplierId?: number; status?: string; page?: number; size?: number }) =>
+    http.get<never, PageData<SupplierPayable>>('/supplier-payables', { params }),
+  get: (id: number) => http.get<never, SupplierPayable>(`/supplier-payables/${id}`),
+  reconcile: (supplierId?: number) =>
+    http.get<never, PayableReconcile>('/supplier-payables/reconcile', {
+      params: { supplierId },
+    }),
+  pay: (body: SupplierPaymentRequest) =>
+    http.post<never, SupplierPaymentResult>('/supplier-payments', body),
+}
+
 // ═══════════════════════ 类型定义（与后端 DTO 对齐） ═══════════════════════
 
 export interface Product {
@@ -501,6 +562,13 @@ export interface OrderLine {
   unitPriceAmount: number
   amount: number
   receivedQty?: number
+  /** 累计质检合格量（FR-PUR-05）：只有合格量入库存/应付 */
+  qcQty?: number
+  /** NONE / PASSED / PARTIAL / FAILED */
+  qcStatus?: string
+  qcNote?: string | null
+  /** 累计到货但不合格的数量 */
+  rejectedQty?: number
   shippedQty?: number
   /** 累计已退货数量；剩余可退 = shippedQty − returnedQty（退货页用） */
   returnedQty?: number
@@ -536,6 +604,171 @@ export interface ReceiveLine {
   batchNo?: string
   productionDate?: string
   expiryDate?: string
+  /** 本次到货中的合格数量；缺省 = qty（兼容旧调用） */
+  qcQty?: number
+  qcNote?: string
+}
+
+/** 请购明细行（FR-PUR-04）。与进货行同构，但没有到货/质检字段。 */
+export interface RequisitionLine {
+  id: number
+  lineNo: number
+  skuId: number
+  qty: number
+  unitPriceAmount: number
+  amount: number
+}
+
+export interface PurchaseRequisition {
+  id: number
+  orderNo: string
+  status: string
+  supplierId: number
+  warehouseId: number
+  bizDate: string
+  totalAmount: number
+  totalQty: number
+  period?: string | null
+  remark?: string | null
+  /** 非空表示已转单，不能再修改/转化 */
+  convertedOrderId?: number | null
+  lines: RequisitionLine[]
+}
+
+export interface PurchaseRequisitionCreate {
+  supplierId: number
+  warehouseId: number
+  bizDate?: string
+  remark?: string
+  lines: { skuId: number; qty: number; unitPriceAmount: number }[]
+}
+
+/** 转单必须覆盖全部行；数量 ∈ [1, 申请数量] */
+export interface RequisitionConvertRequest {
+  bizDate?: string
+  remark?: string
+  lines: { lineId: number; qty: number }[]
+}
+
+/** 到货行（FR-PUR-05）：received = qc + rejected。 */
+export interface PurchaseReceiptLine {
+  id: number
+  lineNo: number
+  purchaseOrderLineId: number
+  skuId: number
+  batchNo: string
+  receivedQty: number
+  qcQty: number
+  rejectedQty: number
+  qcStatus: 'PASSED' | 'PARTIAL' | 'FAILED'
+  qcNote?: string | null
+  unitPriceAmount: number
+  acceptedAmount: number
+}
+
+export interface PurchaseReceipt {
+  id: number
+  receiptNo: string
+  purchaseOrderId: number
+  supplierId: number
+  warehouseId: number
+  bizDate: string
+  totalQty: number
+  acceptedQty: number
+  rejectedQty: number
+  acceptedAmount: number
+  lines: PurchaseReceiptLine[]
+}
+
+/** 采购退货单（FR-PUR-06）。 */
+export interface PurchaseReturn {
+  id: number
+  returnNo: string
+  purchaseOrderId: number
+  supplierId: number
+  warehouseId: number
+  bizDate: string
+  period?: string | null
+  status: 'DRAFT' | 'COMPLETED' | 'VOIDED'
+  totalQty: number
+  totalAmount: number
+  remark?: string | null
+  lines: PurchaseReturnLine[]
+}
+
+export interface PurchaseReturnLine {
+  receiptLineId: number
+  purchaseOrderLineId: number
+  skuId: number
+  qty: number
+  unitPriceAmount: number
+  amount: number
+  batchNo: string
+}
+
+export interface PurchaseReturnCreate {
+  purchaseOrderId: number
+  bizDate?: string
+  remark?: string
+  lines: { receiptLineId: number; qty: number }[]
+}
+
+/** 应付核销明细（一行 = 一张付款单对一张应付单）。 */
+export interface PayableAllocation {
+  id: number
+  paymentNo: string
+  amount: number
+  paymentAmount: number
+  bizDate: string
+  remark?: string | null
+}
+
+/**
+ * 供应商应付单（FR-PUR-07）。
+ * `balance` 是后端生成列，前端只读、不自行计算。
+ */
+export interface SupplierPayable {
+  id: number
+  payableNo: string
+  supplierId: number
+  purchaseOrderId: number
+  orderNo: string
+  receiptId: number
+  bizDate: string
+  period?: string | null
+  originalAmount: number
+  returnedAmount: number
+  paidAmount: number
+  balance: number
+  status: 'OPEN' | 'PARTIAL' | 'SETTLED'
+  allocations: PayableAllocation[]
+}
+
+/** 余额/核销守恒核对结果（FR-PUR-07/08）。 */
+export interface PayableReconcile {
+  supplierId?: number | null
+  purchaseAmount: number
+  returnAmount: number
+  paidAmount: number
+  balance: number
+  paymentTotal: number
+  allocationTotal: number
+  balanced: boolean
+  conserved: boolean
+}
+
+export interface SupplierPaymentRequest {
+  supplierId: number
+  amount: number
+  bizDate?: string
+  remark?: string
+  allocations: { payableId: number; amount: number }[]
+}
+
+export interface SupplierPaymentResult {
+  paymentNo: string
+  paymentAmount: number
+  allocations: { payableId: number; amount: number }[]
 }
 
 export interface SalesOrder {
