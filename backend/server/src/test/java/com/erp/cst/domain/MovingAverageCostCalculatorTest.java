@@ -20,6 +20,7 @@ class MovingAverageCostCalculatorTest {
             OffsetDateTime.of(2026, 10, 1, 9, 0, 0, 0, ZoneOffset.ofHours(8));
     private static final long SKU = 1L;
     private static final long WH = 10L;
+    private static final long WH2 = 20L;
 
     // ─────────────────────────── 基础均价 ───────────────────────────
 
@@ -190,7 +191,7 @@ class MovingAverageCostCalculatorTest {
 
     @Test
     @CaseId("TC-CST-017")
-    @DisplayName("无显式成本的入库（调整/调拨）按当前均价入池")
+    @DisplayName("无显式成本的调整入库按当前均价入池（调拨入库已改为优先配对）")
     void inboundWithoutExplicitCostUsesAverage() {
         CostSolution solution = calc(
                 purchase(1, 10, 100),
@@ -276,10 +277,117 @@ class MovingAverageCostCalculatorTest {
                 .hasMessageContaining("成本池数量不足");
     }
 
+    // ─────────────────────────── 仓间调拨配对（V2-1 补丁） ───────────────────────────
+
+    @Test
+    @CaseId("TC-CST-057")
+    @DisplayName("调拨：目标仓为空时，调入按源仓出库成本配对，两仓合计守恒")
+    void transferPairsCostWhenTargetEmpty() {
+        CostSolution solution = calc(
+                purchase(1, SKU, WH, 10, 100),
+                transferOut(2, SKU, WH, "", 4, "TO-1"),
+                transferIn(3, SKU, WH2, "", 4, "TO-1", null));
+
+        assertThat(solution.endingPools().get(new CostPoolKey(SKU, WH)))
+                .isEqualTo(new CostPoolState(6, 600));
+        assertThat(solution.endingPools().get(new CostPoolKey(SKU, WH2)))
+                .isEqualTo(new CostPoolState(4, 400));
+        assertThat(layer(solution, "TRANSFER_OUT").totalCostAmount()).isEqualTo(400);
+        assertThat(layer(solution, "TRANSFER_IN").totalCostAmount()).isEqualTo(400);
+        assertThat(layer(solution, "TRANSFER_IN").unitCostAmount()).isEqualTo(100);
+        assertThat(combinedEndingCost(solution)).isEqualTo(1000);
+        assertThat(solution.balanced()).isTrue();
+    }
+
+    @Test
+    @CaseId("TC-CST-058")
+    @DisplayName("调拨：目标仓已有不同均价时，调入仍按源仓成本，不被目标均价重估")
+    void transferUsesSourceCostWhenTargetHasDifferentAverage() {
+        CostSolution solution = calc(
+                purchase(1, SKU, WH, 10, 100),
+                purchase(2, SKU, WH2, 10, 200),
+                transferOut(3, SKU, WH, "", 4, "TO-2"),
+                transferIn(4, SKU, WH2, "", 4, "TO-2", null));
+
+        assertThat(layer(solution, "TRANSFER_OUT").unitCostAmount()).isEqualTo(100);
+        assertThat(layer(solution, "TRANSFER_IN").unitCostAmount()).isEqualTo(100);
+        assertThat(layer(solution, "TRANSFER_IN").totalCostAmount()).isEqualTo(400);
+        assertThat(solution.endingPools().get(new CostPoolKey(SKU, WH)))
+                .isEqualTo(new CostPoolState(6, 600));
+        assertThat(solution.endingPools().get(new CostPoolKey(SKU, WH2)))
+                .isEqualTo(new CostPoolState(14, 2400));
+        assertThat(combinedEndingCost(solution))
+                .as("两仓合计成本 = 初始 1000 + 2000，调拨不得凭空增减")
+                .isEqualTo(3000);
+    }
+
+    @Test
+    @CaseId("TC-CST-059")
+    @DisplayName("多批次/部分调拨：每个批次各自配对，未带 unitCostAmount 仍守恒")
+    void transferMultiBatchWithoutUnitCost() {
+        CostSolution solution = calc(
+                purchase(1, SKU, WH, "B1", 10, 100),
+                purchase(2, SKU, WH, "B2", 10, 300),
+                transferOut(3, SKU, WH, "B1", 4, "TO-3"),
+                transferIn(4, SKU, WH2, "B1", 4, "TO-3", null),
+                transferOut(5, SKU, WH, "B2", 3, "TO-3"),
+                transferIn(6, SKU, WH2, "B2", 3, "TO-3", null));
+
+        // 成本池是 SKU 级移动加权：两笔进货后均价 200，调出按 200 结转
+        assertThat(sumLayers(solution, "TRANSFER_OUT")).isEqualTo(1400);
+        assertThat(sumLayers(solution, "TRANSFER_IN")).isEqualTo(1400);
+        assertThat(solution.endingPools().get(new CostPoolKey(SKU, WH)))
+                .isEqualTo(new CostPoolState(13, 2600));
+        assertThat(solution.endingPools().get(new CostPoolKey(SKU, WH2)))
+                .isEqualTo(new CostPoolState(7, 1400));
+        assertThat(combinedEndingCost(solution)).isEqualTo(4000);
+    }
+
+    @Test
+    @CaseId("TC-CST-060")
+    @DisplayName("调拨后再出库：目标仓出库成本沿用源仓成本，外部出库 + 两仓期末守恒")
+    void saleAfterTransferUsesTransferredCost() {
+        CostSolution solution = calc(
+                purchase(1, SKU, WH, 10, 100),
+                transferOut(2, SKU, WH, "", 4, "TO-4"),
+                transferIn(3, SKU, WH2, "", 4, "TO-4", null),
+                sale(4, SKU, WH2, 2, "SO-AFTER-TRANSFER"));
+
+        assertThat(layer(solution, "SALES_OUT").unitCostAmount()).isEqualTo(100);
+        assertThat(layer(solution, "SALES_OUT").totalCostAmount()).isEqualTo(200);
+        assertThat(solution.endingPools().get(new CostPoolKey(SKU, WH)))
+                .isEqualTo(new CostPoolState(6, 600));
+        assertThat(solution.endingPools().get(new CostPoolKey(SKU, WH2)))
+                .isEqualTo(new CostPoolState(2, 200));
+        assertThat(combinedEndingCost(solution) + layer(solution, "SALES_OUT").totalCostAmount())
+                .as("外部出库 200 + 两仓期末 800 = 初始入库 1000")
+                .isEqualTo(1000);
+    }
+
     // ─────────────────────────── 构造器 ───────────────────────────
 
     private static CostSolution calc(CostEvent... events) {
         return MovingAverageCostCalculator.calculate(List.of(events));
+    }
+
+    private static long combinedEndingCost(CostSolution solution) {
+        return solution.endingPools().getOrDefault(new CostPoolKey(SKU, WH), CostPoolState.empty())
+                .costAmount()
+                + solution.endingPools().getOrDefault(new CostPoolKey(SKU, WH2),
+                        CostPoolState.empty()).costAmount();
+    }
+
+    private static CostLayer layer(CostSolution solution, String bizType) {
+        return solution.layers().stream()
+                .filter(layer -> layer.bizType().equals(bizType))
+                .findFirst().orElseThrow();
+    }
+
+    private static long sumLayers(CostSolution solution, String bizType) {
+        return solution.layers().stream()
+                .filter(layer -> layer.bizType().equals(bizType))
+                .mapToLong(CostLayer::totalCostAmount)
+                .sum();
     }
 
     private static CostEvent purchase(long id, int qty, long unitCost) {
@@ -290,12 +398,36 @@ class MovingAverageCostCalculatorTest {
         return inbound(id, skuId, warehouseId, qty, "PURCHASE_IN", "PO-" + id, unitCost);
     }
 
+    private static CostEvent purchase(long id, long skuId, long warehouseId, String batch,
+                                      int qty, long unitCost) {
+        return new CostEvent(id, skuId, warehouseId, batch, qty, "PURCHASE_IN",
+                "PO-" + id, unitCost, null, at(id));
+    }
+
     private static CostEvent sale(long id, int qty, String orderNo) {
         return sale(id, SKU, WH, qty, orderNo);
     }
 
     private static CostEvent sale(long id, long skuId, long warehouseId, int qty, String orderNo) {
         return outbound(id, skuId, warehouseId, qty, "SALES_OUT", orderNo, null);
+    }
+
+    private static CostEvent sale(long id, long skuId, long warehouseId, String batch,
+                                  int qty, String orderNo) {
+        return new CostEvent(id, skuId, warehouseId, batch, -qty, "SALES_OUT", orderNo,
+                null, null, at(id));
+    }
+
+    private static CostEvent transferOut(long id, long skuId, long warehouseId, String batch,
+                                         int qty, String transferNo) {
+        return new CostEvent(id, skuId, warehouseId, batch, -qty, "TRANSFER_OUT", transferNo,
+                null, null, at(id));
+    }
+
+    private static CostEvent transferIn(long id, long skuId, long warehouseId, String batch,
+                                        int qty, String transferNo, Long unitCost) {
+        return new CostEvent(id, skuId, warehouseId, batch, qty, "TRANSFER_IN", transferNo,
+                unitCost, null, at(id));
     }
 
     private static CostEvent returnIn(long id, int qty, String returnNo, String originOrderNo) {
