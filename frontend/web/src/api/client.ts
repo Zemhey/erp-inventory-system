@@ -223,6 +223,99 @@ export const invApi = {
   consistencyCheck: () => http.get<never, { consistent: boolean }>('/inventory/consistency-check'),
 }
 
+/**
+ * 库存作业（V2-1 FR-INV-07~13）：调拨 / 盘点 / 调整 / 冻结 / 洞察。
+ *
+ * 写操作由拦截器自动带 X-Request-Id；页面只负责收集参数。
+ * 所有数量字段都是后端算好的结果，前端不做库存判断。
+ */
+export const invOpsApi = {
+  // ── 调拨 ──
+  listTransfers: (params: {
+    status?: TransferStatus
+    fromWarehouseId?: number
+    toWarehouseId?: number
+    page?: number
+    size?: number
+  }) => http.get<never, PageData<InventoryTransfer>>('/inventory/transfers', { params }),
+  createTransfer: (body: {
+    fromWarehouseId: number
+    toWarehouseId: number
+    bizDate?: string
+    remark?: string
+    lines: { skuId: number; batchNo?: string; qty: number; unitCostAmount?: number }[]
+  }) => http.post<never, InventoryTransfer>('/inventory/transfers', body),
+  receiveTransfer: (id: number) =>
+    http.post<never, InventoryTransfer & { conservationDiff: number }>(
+      `/inventory/transfers/${id}/receive`,
+    ),
+
+  // ── 盘点 ──
+  listStocktakes: (params: { status?: StocktakeStatus; warehouseId?: number; page?: number; size?: number }) =>
+    http.get<never, PageData<Stocktake>>('/inventory/stocktakes', { params }),
+  createStocktake: (body: {
+    warehouseId: number
+    bizDate?: string
+    remark?: string
+    lines: { skuId: number; batchNo?: string; countedQty: number }[]
+  }) => http.post<never, Stocktake>('/inventory/stocktakes', body),
+  postStocktake: (id: number) => http.post<never, Stocktake>(`/inventory/stocktakes/${id}/post`),
+
+  // ── 调整 ──
+  listAdjustments: (params: { skuId?: number; warehouseId?: number; page?: number; size?: number }) =>
+    http.get<never, PageData<InventoryAdjustment>>('/inventory/adjustments', { params }),
+  createAdjustment: (body: {
+    skuId: number
+    warehouseId: number
+    batchNo?: string
+    changeQty: number
+    reason: string
+    unitCostAmount?: number
+  }) => http.post<never, InventoryAdjustment>('/inventory/adjustments', body),
+
+  // ── 冻结 ──
+  listFreezes: (params: {
+    status?: FreezeStatus
+    skuId?: number
+    warehouseId?: number
+    page?: number
+    size?: number
+  }) => http.get<never, PageData<InventoryFreeze>>('/inventory/freezes', { params }),
+  createFreeze: (body: {
+    skuId: number
+    warehouseId: number
+    batchNo?: string
+    qty: number
+    reason?: string
+    expiresAt?: string
+  }) => http.post<never, InventoryFreeze>('/inventory/freezes', body),
+  releaseFreeze: (id: number) =>
+    http.post<never, InventoryFreeze>(`/inventory/freezes/${id}/release`),
+
+  // ── 洞察 ──
+  balanceDimensions: (params: {
+    skuId?: number
+    warehouseId?: number
+    batchNo?: string
+    status?: StockStatus
+    ownership?: 'SELF'
+  }) =>
+    http.get<never, { items: BalanceDimensionRow[]; totals: BalanceDimensionTotals }>(
+      '/inventory/balance-dimensions',
+      { params },
+    ),
+  alerts: (params: {
+    warehouseId?: number
+    type?: AlertType
+    expiringDays?: number
+    slowMovingDays?: number
+  }) => http.get<never, { items: InventoryAlertRow[]; total: number }>('/inventory/alerts', { params }),
+  replenishment: (params: { warehouseId?: number }) =>
+    http.get<never, { items: ReplenishmentSuggestion[]; total: number }>('/inventory/replenishment', {
+      params,
+    }),
+}
+
 /** 进货（FR-PUR-01/02）。 */
 export const purApi = {
   list: (params: { status?: string; supplierId?: number; page?: number; size?: number }) =>
@@ -478,7 +571,134 @@ export interface InventoryBalance {
   expiryDate?: string | null
   onHandQty: number
   reservedQty: number
+  /** 冻结量：不参与可用量（FR-INV-10） */
+  frozenQty: number
   availableQty: number
+}
+
+// ═══════════════════════ 库存作业（V2-1） ═══════════════════════
+
+export type TransferStatus = 'IN_TRANSIT' | 'COMPLETED'
+export type StocktakeStatus = 'DRAFT' | 'POSTED'
+export type FreezeStatus = 'ACTIVE' | 'RELEASED' | 'EXPIRED'
+export type StockStatus = 'AVAILABLE' | 'RESERVED' | 'FROZEN'
+export type AlertType = 'SAFETY' | 'SLOW_MOVING' | 'EXPIRING'
+
+export interface TransferLine {
+  lineNo: number
+  skuId: number
+  batchNo: string
+  qty: number
+  /** 仍在途的数量；到货后为 0 */
+  inTransitQty: number
+  productionDate?: string | null
+  expiryDate?: string | null
+  unitCostAmount?: number | null
+}
+
+export interface InventoryTransfer {
+  id: number
+  transferNo: string
+  fromWarehouseId: number
+  toWarehouseId: number
+  status: TransferStatus
+  bizDate: string
+  remark?: string | null
+  inTransitQty: number
+  receivedAt?: string | null
+  createdAt: string
+  lines: TransferLine[]
+  duplicate?: boolean
+}
+
+export interface StocktakeLine {
+  lineNo: number
+  skuId: number
+  batchNo: string
+  /** 建单时快照的账面量 */
+  bookQty: number
+  countedQty: number
+  /** counted - book；0 表示不产生调整流水 */
+  diffQty: number
+}
+
+export interface Stocktake {
+  id: number
+  stocktakeNo: string
+  warehouseId: number
+  status: StocktakeStatus
+  bizDate: string
+  remark?: string | null
+  totalDiffQty: number
+  postedAt?: string | null
+  createdAt: string
+  lines: StocktakeLine[]
+  duplicate?: boolean
+}
+
+export interface InventoryAdjustment {
+  id: number
+  adjustNo: string
+  skuId: number
+  warehouseId: number
+  batchNo: string
+  /** 正=调增，负=调减 */
+  changeQty: number
+  reason: string
+  createdAt: string
+  duplicate?: boolean
+}
+
+export interface InventoryFreeze {
+  id: number
+  skuId: number
+  warehouseId: number
+  batchNo: string
+  qty: number
+  reason?: string | null
+  status: FreezeStatus
+  expiresAt?: string | null
+  releasedAt?: string | null
+  createdAt: string
+  duplicate?: boolean
+}
+
+export interface BalanceDimensionRow {
+  warehouseId: number
+  skuId: number
+  batchNo: string
+  stockStatus: StockStatus
+  ownership: 'SELF'
+  qty: number
+}
+
+export interface BalanceDimensionTotals {
+  onHandQty: number
+  byStatus: Record<StockStatus, number>
+}
+
+export interface InventoryAlertRow {
+  type: AlertType
+  skuId: number
+  warehouseId: number
+  batchNo?: string | null
+  onHandQty: number
+  availableQty: number
+  /** 安全库存下限 / 滞销天数 / 临期天数 */
+  threshold: number
+  expiryDate?: string | null
+  lastMovementAt?: string | null
+  warehousePriority: number
+}
+
+export interface ReplenishmentSuggestion {
+  skuId: number
+  warehouseId: number
+  availableQty: number
+  minLevel: number
+  maxLevel: number
+  suggestedQty: number
+  warehousePriority: number
 }
 
 export interface LedgerEntry {

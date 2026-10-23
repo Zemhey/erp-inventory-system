@@ -212,6 +212,7 @@ public class InventoryController {
         m.put("expiryDate", b.expiryDate() == null ? null : b.expiryDate().toString());
         m.put("onHandQty", b.onHandQty());
         m.put("reservedQty", b.reservedQty());
+        m.put("frozenQty", b.frozenQty());
         m.put("availableQty", b.availableQty());
         return m;
     }

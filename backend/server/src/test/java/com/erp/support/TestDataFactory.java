@@ -85,6 +85,9 @@ public class TestDataFactory {
         //   被 PeriodGuard 拦成 SET_PERIOD_CLOSED（计划书 §6 坑 3 的同一条防线）。
         jdbc.execute("""
                 TRUNCATE inventory_ledger, inventory_reservations, inventory_balances,
+                         transfer_lines, inventory_transfers,
+                         stocktake_lines, stocktakes,
+                         inventory_adjustments, inventory_freezes,
                          sales_order_line_reservations, return_order_lines,
                          purchase_order_lines, sales_order_lines,
                          return_orders, purchase_orders, sales_orders,
@@ -168,6 +171,29 @@ public class TestDataFactory {
 
     public int reserved(long skuId, long warehouseId, String batchNo) {
         return balanceColumn(skuId, warehouseId, batchNo, "reserved_qty");
+    }
+
+    public int frozen(long skuId, long warehouseId, String batchNo) {
+        return balanceColumn(skuId, warehouseId, batchNo, "frozen_qty");
+    }
+
+    /** 设置 SKU 的补货阈值（FR-INV-12/13）。 */
+    public void skuLevels(long skuId, int minLevel, int maxLevel) {
+        jdbc.update("UPDATE skus SET min_level = ?, max_level = ? WHERE id = ?",
+                minLevel, maxLevel, skuId);
+    }
+
+    /** 设置仓库优先级（数值越大越优先）。 */
+    public void warehousePriority(long warehouseId, int priority) {
+        jdbc.update("UPDATE warehouses SET priority = ? WHERE id = ?", priority, warehouseId);
+    }
+
+    /** 按业务类型数流水条数（断言"差异为 0 的行不产生调整流水"）。 */
+    public int ledgerCountByType(String bizRefNo, String bizType) {
+        Integer n = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM inventory_ledger WHERE biz_ref_no = ? AND biz_type = ?
+                """, Integer.class, bizRefNo, bizType);
+        return n == null ? 0 : n;
     }
 
     public int available(long skuId, long warehouseId, String batchNo) {
