@@ -4,9 +4,9 @@
 ![Java](https://img.shields.io/badge/Java-17-007396?logo=openjdk&logoColor=white)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.3-6DB33F?logo=springboot&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-209%20passing-brightgreen)
-![Coverage](https://img.shields.io/badge/line%20coverage-81.6%25-yellowgreen)
-![Branch](https://img.shields.io/badge/branch%20coverage-59.7%25-yellowgreen)
+![Tests](https://img.shields.io/badge/tests-216%20passing-brightgreen)
+![Coverage](https://img.shields.io/badge/line%20coverage-82.3%25-yellowgreen)
+![Branch](https://img.shields.io/badge/branch%20coverage-60.3%25-yellowgreen)
 
 > **多端 B/S 进销存 SaaS 平台 + 配套自动化测试体系**
 > Java 17 · Spring Boot 3 · PostgreSQL 16 · Vue 3 · uni-app
@@ -25,7 +25,7 @@
 | **看后端业务逻辑 / 加接口** | [`backend/`](backend/) | 所有服务端代码 |
 | **想知道整个项目是什么、怎么继续** | [`docs/planning/项目总纲.md`](docs/planning/项目总纲.md) | 一份文件看懂全局 |
 | **看做到哪了、还差什么** | [`docs/00-索引与追踪矩阵.md`](docs/00-索引与追踪矩阵.md) | 进度看板 + 需求↔测试矩阵 |
-| **看某个里程碑怎么做** | [`.plan/`](.plan/) | M1 / M3 已完成；M2 后端已合并（S0~S4 + S5a 退货单页），剩 S5b 两页 + S6 E2E/CI |
+| **看某个里程碑怎么做** | [`.plan/`](.plan/) | M1 / M3 已完成；M2 后端 + 前端三页已合并（退货 / 结算 / 报表），剩 S5c 接口接入 + S6 E2E/CI + S7 收尾 |
 | **看接口契约** | [`packages/api-contract/openapi.yaml`](packages/api-contract/openapi.yaml) | 单一事实源 |
 | **看代码结构 / 接口清单** | [`index/`](index/) | 脚本生成，禁止手写 |
 | **起环境 / 跑构建 / 生成索引** | [`scripts/`](scripts/) | 一键脚本 |
@@ -82,14 +82,14 @@
 
 ## 项目状态
 
-**当前阶段：M1 已完成 ✅ · M3 已完成 ✅（7 个业务页面 + 全局打磨 + 14 条 E2E 两遍全绿）· M2 后端已全部合并进 main ✅ · 下一步 S5b 结算页 + 报表页 → S6 E2E/CI → S7 收尾**
+**当前阶段：M1 已完成 ✅ · M3 已完成 ✅（7 个业务页面 + 全局打磨 + 14 条 E2E 两遍全绿）· M2 后端与三个业务页面已全部合并进 main ✅ · 下一步 S5c 退货建单接入 → S6 E2E/CI → S7 收尾**
 
 - ✅ 方向与路线确定（行业、技术栈、测试体系）
 - ✅ 规划文档（00~07 + 11 条 ADR）
 - ✅ **M0 交付**：OpenAPI 六资源契约 · Spring Boot 3 骨架 · Flyway schema · 库存纵向切片 · compose 一键起环境 · CI 三道门禁
-- ✅ **M1 交付**：主数据（商品/SKU 矩阵/供应商/客户/仓库）· 进货闭环 · 出货闭环（FEFO）· IAM（JWT + RBAC）· 统一状态机 · 原子取号 · M1 基线 156 条测试（**当前累计 209 条全绿**）
+- ✅ **M1 交付**：主数据（商品/SKU 矩阵/供应商/客户/仓库）· 进货闭环 · 出货闭环（FEFO）· IAM（JWT + RBAC）· 统一状态机 · 原子取号 · M1 基线 156 条测试（**当前累计 216 条全绿**）
 - ✅ **M3 交付**：登录 / 布局 / 工作台 + 商品与 SKU + 供应商 / 客户 / 仓库 + 库存查询（实存·预占·可用 + 流水追溯）+ 进货单（状态机 + 分批入库）+ 出货单（建单即预占 + 折扣 + 出货），**7 个业务页面全齐、无占位页**；S7 全局打磨（空状态、错误态、窄屏适配）；**S8 Playwright E2E 14 条关键路径，真实后端 + 真实 PostgreSQL 连续两遍 15/15 全绿**，测试数据清理后开发库回到基线
-- 🚧 **M2（后端全部完成，剩前端两页 + E2E）**：退货 `FR-RMA-01`（8 个接口）· 日清 / 月结锁账 / 对账 `FR-SET-01~03` · 三类报表 `FR-RPT-01~03` · `BR-INV-05` 预占超时自动释放 —— **14 个新接口全部有实现有测试**，`CONTRACT_ONLY` 已清零；后端 **209 条用例全绿**、行 **81.6%** / 分支 **59.7%**；前端 **8 个业务页面**（S5a 退货单页已上线）。待做：**S5b** 结算页 + 报表页 → **S6** E2E 补 5 条 + `web-e2e` 接入 CI → **S7** 收尾；红冲（FR-SAL-04 / FR-PUR-03）与 G5~G13 体验债转 M2.5（计划：[`.plan/M2-计划书.md`](.plan/M2-计划书.md)）
+- 🚧 **M2（后端全部完成 + 三个业务页面已上线，剩接口接入 / E2E / 收尾）**：退货 `FR-RMA-01`（9 个接口，含"可退出货单查询"）· 日清 / 月结锁账 / 对账 `FR-SET-01~03` · 三类报表 `FR-RPT-01~03` · `BR-INV-05` 预占超时自动释放 —— **15 个新接口全部有实现有测试**，`CONTRACT_ONLY` 已清零；后端 **216 条用例全绿**、行 **82.3%** / 分支 **60.3%**；前端 **10 个业务页面**（退货单 / 结算 / 报表三页已上线，锁账拒绝与对账不平的界面表现已实测）。待做：**S5c** 退货建单改调 `GET /return-orders/returnable-orders` → **S6** E2E 补 5 条 + `web-e2e` 接入 CI → **S7** 收尾（含 §6 坑 15~17 的定夺）；红冲（FR-SAL-04 / FR-PUR-03）与 G5~G13 体验债转 M2.5（计划：[`.plan/M2-计划书.md`](.plan/M2-计划书.md)）
 - ⬜ M4/M5：小程序 + Android（uni-app 一套出两端）
 - ⬜ M6：云部署（服务器已有，备案中）
 - ⬜ M7：自然语言操作 + MCP ｜ M8：单机版
@@ -116,7 +116,7 @@
 ```powershell
 .\scripts\build-env.ps1          # 创建 D:\erp-build 联接（非破坏、可回滚）
 cd D:\erp-build\backend\server
-.\gradlew.bat test               # 运行测试（209 条，全绿）
+.\gradlew.bat test               # 运行测试（216 条，全绿）
 ```
 
 删除联接：`.\scripts\build-env.ps1 -Remove`
