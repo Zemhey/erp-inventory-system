@@ -81,6 +81,8 @@ dependencies {
     testImplementation("org.testcontainers:postgresql")
     // ArchUnit：用测试守住架构约束（计划书 §3.3、S7）
     testImplementation("com.tngtech.archunit:archunit-junit5:1.3.0")
+    // jqwik：V2-4 成本守恒属性测试（INV-11，≥1000 组随机流水）
+    testImplementation("net.jqwik:jqwik:1.8.5")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
