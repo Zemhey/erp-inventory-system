@@ -1,10 +1,46 @@
 import { expect, type Locator, type Page } from '@playwright/test'
 
-export async function loginViaUi(page: Page, username: string, password: string): Promise<void> {
-  await page.goto('/login')
+async function submitLogin(page: Page, username: string, password: string): Promise<void> {
   await page.getByPlaceholder('请输入用户名').fill(username)
   await page.getByPlaceholder('请输入密码').fill(password)
   await page.getByRole('button', { name: /登\s*录/ }).click()
+}
+
+export async function loginViaUi(page: Page, username: string, password: string): Promise<void> {
+  await page.goto('/login')
+  await submitLogin(page, username, password)
+}
+
+/**
+ * 换一个账号登录。
+ *
+ * ★ 两次 goto 之间夹一次 `localStorage.clear()`，两个原因各占一半：
+ *   - 不清 token 的话，路由守卫见到 token 会把 `/login` 弹回工作台
+ *     （router/index.ts 的 `to.name === 'login' && token` 分支），第二个账号根本登不进去；
+ *   - 第一次 goto 是为了**拿到应用自身的 origin** —— 在 `about:blank` 上读 localStorage
+ *     会直接 SecurityError。clear 之后必须整页重载，内存里的 Pinia 会话才会跟着失效。
+ */
+export async function loginAsAnother(
+  page: Page,
+  username: string,
+  password: string,
+): Promise<void> {
+  await page.goto('/login')
+  await page.evaluate(() => localStorage.clear())
+  await page.goto('/login')
+  await submitLogin(page, username, password)
+}
+
+/** 当前会话的 token（从 UI 登录后的 localStorage 读，用例里不出现任何硬编码凭据）。 */
+export async function readToken(page: Page): Promise<string> {
+  const token = await page.evaluate(() => localStorage.getItem('erp.token'))
+  if (!token) throw new Error('localStorage 里没有 erp.token：登录未成功')
+  return token
+}
+
+/** 当前会话的权限码集合（前端菜单/按钮显隐与路由守卫都读这一份）。 */
+export async function readPermissions(page: Page): Promise<string[]> {
+  return page.evaluate(() => JSON.parse(localStorage.getItem('erp.permissions') ?? '[]') as string[])
 }
 
 /** el-select 的可访问名称来自 form-item 标签（如 “* 供应商”），不是 placeholder。 */
@@ -56,4 +92,27 @@ export async function confirmBox(
   const box = page.getByRole('dialog').filter({ hasText: text, visible: true }).last()
   await expect(box).toBeVisible()
   await box.getByRole('button', { name: button, exact: true }).click()
+}
+
+/**
+ * 切换 el-tabs 页签。
+ *
+ * ★ 三个 pane **同时存在于 DOM**，只有一个可见（S5b 实测第 ① 条）。
+ *   所以任何"页签内的按钮"都必须先在 `[role="tabpanel"]:visible` 里找，
+ *   否则 `getByRole('button', {name:'查询'})` 会命中隐藏 pane 里的同名按钮并超时。
+ */
+export async function switchTab(page: Page, name: string): Promise<void> {
+  await page.getByRole('tab', { name }).click()
+  await expect(page.getByRole('tab', { name, selected: true })).toBeVisible()
+}
+
+/** 当前可见的页签内容面板（配合 switchTab 使用）。 */
+export function visiblePanel(page: Page): Locator {
+  return page.locator('[role="tabpanel"]:visible').first()
+}
+
+/** 直接读写 el-date-picker 的值：value-format 让 fill 的文本就是模型值（S5b 第 ③ 条）。 */
+export async function fillDate(input: Locator, value: string): Promise<void> {
+  await input.fill(value)
+  await input.press('Enter')
 }

@@ -19,8 +19,8 @@ export default async function globalTeardown(): Promise<void> {
   const run = JSON.parse(readFileSync(runFile, 'utf8')) as RunInfo
   let failure: Error | null = null
   let summary = ''
-  let remaining: Record<string, number> = {}
-  let after: Record<string, number> = {}
+  let remaining: Record<string, string> = {}
+  let after: Record<string, string> = {}
 
   try {
     ;({ summary, remaining } = cleanupRun(run))
@@ -50,7 +50,7 @@ export default async function globalTeardown(): Promise<void> {
 
   if (failure) throw failure
 
-  const leftovers = Object.entries(remaining).filter(([, n]) => n > 0)
+  const leftovers = Object.entries(remaining).filter(([, n]) => Number(n) > 0)
   if (leftovers.length) {
     throw new Error(
       `[e2e] 清理后仍有前缀残留：${leftovers.map(([k, n]) => `${k}=${n}`).join('，')}`,
@@ -74,5 +74,17 @@ export default async function globalTeardown(): Promise<void> {
     )
   }
 
-  console.log(`[e2e] 清理完成 ${run.runId}：前缀残留 0，业务表计数已回到基线`)
+  const deleted = summary
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => {
+      const [key, value] = line.split('\t')
+      return `${key}=${value}`
+    })
+    .join(' ')
+  console.log(`[e2e] 本轮删除行数：${deleted}`)
+  console.log(
+    `[e2e] 清理完成 ${run.runId}：前缀残留 0，业务表计数已回到基线，` +
+      `e2e-reserve-001 仍为 ${after.baseline_reservation} 条（状态 ${after.baseline_reservation_state || '无'}）`,
+  )
 }
