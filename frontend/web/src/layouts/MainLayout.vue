@@ -4,6 +4,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import {
   Box,
+  Coin,
+  DataAnalysis,
   Goods,
   House,
   Menu as MenuIcon,
@@ -76,6 +78,8 @@ const allMenus: MenuItem[] = [
   { path: '/sales-orders', title: '出货单', icon: Sell, permission: 'sal:read' },
   // 追加式新增：本数组只往后加，不重排（S5b 的结算页 / 报表页接在后面，见 M2 计划书 §5.6）
   { path: '/return-orders', title: '退货单', icon: RefreshLeft, permission: 'rma:read' },
+  { path: '/settlements', title: '结算', icon: Coin, permission: 'set:read' },
+  { path: '/reports', title: '报表', icon: DataAnalysis, permission: 'rpt:read' },
 ]
 
 const visibleMenus = computed(() =>
