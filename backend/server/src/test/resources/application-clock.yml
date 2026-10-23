@@ -1,0 +1,9 @@
+# clock profile 的测试侧覆盖（计划书 §6 坑 9b）
+#
+# 使用可控时钟（TestClockConfig）的用例必须自己调用 expireOverdueReservations()，
+# 不能一边注入时钟、一边让 @Scheduled 按真实墙钟抢先释放 —— 那会让断言随机红。
+# 这里关掉开关，整个调度装配（@EnableScheduling + 调度线程）就不注册。
+# 开关关掉后"到期仍然要手动触发"这一点由 InventoryReservationExpiryIT 断言守着。
+erp:
+  inventory:
+    expire-scheduling-enabled: false
