@@ -52,20 +52,28 @@ if (-not (Test-Path $javaExe)) {
 $tmpDir = Join-Path $env:TEMP ("bcrypt-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
 New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
 
+# ★ 这段临时 Java 源码**只能是纯 ASCII**，下面的写出编码必须与之匹配。
+#   坑（计划书 §6 坑 17，本机 PS 5.1 实测）：`Set-Content -Encoding UTF8` 在
+#   Windows PowerShell 5.1 下会写入 **BOM**（EF BB BF），而 `javac` 不认 BOM，
+#   直接报「非法字符: '\ufeff'」→ 建账号这一步整个挂掉。
+#   这里刻意用 `-Encoding ASCII`（5.1 的 ASCII 写出**不带 BOM**，UTF8 带），
+#   所以源码里不能有中文注释 —— 一旦有人加回中文，ASCII 写出会把它们变成 '?'，
+#   javac 反而照常通过（注释里的 '?' 无害），坏得静默。宁可写英文。
 $javaSrc = @'
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 public class GenHash {
     public static void main(String[] args) {
-        // 强度 10 与 PasswordEncoderConfig 保持一致，否则登录时校验虽能通过，
-        // 但每次登录的计算成本不同，后续调优会误判。
+        // Strength 10 must match PasswordEncoderConfig; a different cost factor
+        // still verifies on login but makes every login cost something else,
+        // so later tuning would be measured against the wrong baseline.
         var encoder = new BCryptPasswordEncoder(10);
         System.out.println(encoder.encode(args[0]));
     }
 }
 '@
 $srcFile = Join-Path $tmpDir 'GenHash.java'
-Set-Content -Path $srcFile -Value $javaSrc -Encoding UTF8
+Set-Content -Path $srcFile -Value $javaSrc -Encoding ASCII
 
 try {
     & (Join-Path $javaHome 'bin\javac.exe') -encoding UTF-8 `
