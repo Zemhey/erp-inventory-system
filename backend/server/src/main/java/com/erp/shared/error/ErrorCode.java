@@ -55,7 +55,15 @@ public enum ErrorCode {
     SET_PERIOD_CLOSED(409),
     SET_PERIOD_NOT_CLOSED(409),
     SET_RECONCILE_MISMATCH(409),
-    SET_ALREADY_SETTLED(409);
+    SET_ALREADY_SETTLED(409),
+
+    // ── 自然语言操作（FR-SYS-04）──
+    /** 解析器无法把文本映射为已支持的意图（含 LLM 未返回 tool call）。 */
+    NL_COMMAND_UNRECOGNIZED(422),
+    /** 意图已识别，但参数缺失/类型非法/枚举取值非法。 */
+    NL_COMMAND_INVALID_ARGUMENT(400),
+    /** 配置为真实 LLM 但解析器不可用：key 缺失、网络/超时、上游响应非法。 */
+    NL_PARSER_UNAVAILABLE(503);
 
     private final int httpStatus;
 

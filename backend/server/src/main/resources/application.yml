@@ -65,6 +65,15 @@ erp:
   settlement:
     # 账期锁账后是否允许财务强制解锁（生产建议 false）
     allow-unlock-closed-period: false
+  nl:
+    # 自然语言解析器（FR-SYS-04）：stub = 确定性规则，离线/测试/CI 默认；
+    # openai = OpenAI 兼容端点 + function calling（key 只从环境变量注入，绝不入库）。
+    parser: ${ERP_NL_PARSER:stub}
+    openai:
+      base-url: ${ERP_NL_BASE_URL:https://api.openai.com/v1}
+      api-key: ${ERP_NL_API_KEY:}
+      model: ${ERP_NL_MODEL:gpt-4o-mini}
+      timeout-seconds: 30
 
 logging:
   level:

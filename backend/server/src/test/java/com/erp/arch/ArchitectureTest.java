@@ -102,7 +102,7 @@ class ArchitectureTest {
             noClasses()
                     .that().resideInAnyPackage("com.erp.inv..", "com.erp.pur..", "com.erp.sal..",
                             "com.erp.rma..", "com.erp.set..", "com.erp.rpt..",
-                            "com.erp.mdm..", "com.erp.iam..",
+                            "com.erp.mdm..", "com.erp.iam..", "com.erp.nl..",
                             "com.erp.shared.document..")
                     .and().doNotHaveSimpleName("ClockConfig")
                     .should().dependOnClassesThat().areAssignableTo(java.time.Clock.class)
@@ -132,7 +132,7 @@ class ArchitectureTest {
             classes()
                     .that().resideInAnyPackage("com.erp.inv..", "com.erp.pur..", "com.erp.sal..",
                             "com.erp.rma..", "com.erp.set..", "com.erp.rpt..",
-                            "com.erp.mdm..", "com.erp.iam..",
+                            "com.erp.mdm..", "com.erp.iam..", "com.erp.nl..",
                             "com.erp.shared.document..")
                     .and().doNotHaveSimpleName("ClockConfig")
                     .should(noSystemTimeCalls())
@@ -327,6 +327,27 @@ class ArchitectureTest {
                     .resideInAnyPackage("com.erp.sal.repository..")
                     .because("可退口径归出货域：RMA 只能通过 ReturnableSalesOrderService 读出货单，"
                             + "直连 sal.repository 等于在退货模块抄一份 shipped_qty − returned_qty（§6 坑 13）");
+
+    // ─────────────────────── 规则 9：NL 只做解析与调度（M7 FR-SYS-04） ───────────────────────
+
+    /**
+     * ★ {@code nl} 不得依赖任何 {@code repository}。
+     *
+     * <p>自然语言入口最容易走偏的写法是"顺手查一下库存/单据"：一旦它注入
+     * {@code InventoryBalanceRepository} 或单据仓储，就会长出一套与
+     * ApplicationService 并行的业务逻辑 —— 库存判断、状态过滤、金额计算各一份，
+     * 规则一变就分叉，而且 NL 的调用方（LLM / Agent）不会像页面那样被人盯着看。
+     *
+     * <p>正确边界：NL 只产出"意图 + 参数"，执行一律调用既有 ApplicationService。
+     * 这条规则与 TC-ARCH-007 一起，把"不重复实现业务规则"从注释变成红。
+     */
+    @ArchTest
+    static final ArchRule 自然语言入口不得直连仓储 =
+            noClasses()
+                    .that().resideInAPackage("com.erp.nl..")
+                    .should().dependOnClassesThat().resideInAnyPackage("..repository..")
+                    .because("NL 层只做解析与调度：业务规则必须调用既有 ApplicationService，"
+                            + "直连仓储等于在自然语言入口复制第二套规则（FR-SYS-04）");
 
     // ─────────────────────── 辅助实现 ───────────────────────
 
@@ -566,6 +587,34 @@ class ArchitectureTest {
                 退货模块不得直连出货模块仓储.evaluate(classes).hasViolation())
                 .as("★ 规则必须能拦住 rma -> sal.repository 的直连；"
                         + "若为 false 说明可退口径已被抄进退货模块而门禁失效（假绿）")
+                .isTrue();
+    }
+
+    /**
+     * ★ 自检：NL 入口直连仓储必须被拦住。
+     *
+     * <p>探针放进真实的 {@code com.erp.nl.application} 包，并 evaluate 生产规则本身：
+     * 规则被改窄（例如只拦 {@code nl.api}）时，本用例立刻红。
+     */
+    @org.junit.jupiter.api.Test
+    @CaseId("TC-ARCH-007")
+    @org.junit.jupiter.api.DisplayName("★ 规则自检：NL 入口不得直连仓储的规则必须拦住违规 import")
+    void 规则自检_自然语言入口不得直连仓储规则必须生效() {
+        var classes = compileProbe("com.erp.nl.application.BadNlRepositoryProbe", """
+                package com.erp.nl.application;
+
+                public class BadNlRepositoryProbe {
+                    private final com.erp.inv.repository.InventoryBalanceRepository repo = null;
+
+                    public Object bad() {
+                        return repo;
+                    }
+                }
+                """);
+        org.assertj.core.api.Assertions.assertThat(
+                自然语言入口不得直连仓储.evaluate(classes).hasViolation())
+                .as("★ 规则必须能拦住 nl -> repository 的直连；"
+                        + "若为 false 说明 NL 已可能在解析层复制业务规则（假绿）")
                 .isTrue();
     }
 
