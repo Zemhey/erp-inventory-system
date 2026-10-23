@@ -1,0 +1,5 @@
+# 单机版本地产物：密钥、备份、断网镜像包
+.env
+backups/
+images/
+*.dump

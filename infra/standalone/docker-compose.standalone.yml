@@ -1,0 +1,116 @@
+# ============================================================================
+# 单机版编排：PostgreSQL 16 + Spring Boot + nginx（前端静态资源与 /api 反代）
+#
+# 与 M6 生产 compose 的区别只有：
+#   1. 项目名 / 容器名 / 卷名独立，可与生产编排同机共存；
+#   2. 宿主端口改为 18090（Web）与 15439（PG 回环），避开 8080/3000/8081/3001
+#      以及 M6 的 18080/15435；
+#   3. pull_policy: never —— 单机版运行期不联网拉镜像，镜像必须先导入/构建。
+#
+# 用法（推荐）：
+#   ./infra/standalone/start-standalone.sh
+#   .\infra\standalone\start-standalone.ps1
+#
+# 手工启动前请确认 infra/standalone/.env 已存在（启动脚本会自动生成）。
+# ============================================================================
+name: erp-standalone
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: erp-standalone-postgres
+    restart: unless-stopped
+    # 单机版离线优先：绝不隐式 pull；缺镜像时由启动脚本给出导入/构建指引
+    pull_policy: never
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-erp}
+      POSTGRES_USER: ${POSTGRES_USER:-erp}
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required (run start-standalone to generate .env)}"
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+      TZ: ${TZ:-Asia/Shanghai}
+    ports:
+      # 只绑回环：本机 psql / 备份 / 排障用，局域网与公网均不可达
+      - "127.0.0.1:${PG_HOST_PORT:-15439}:5432"
+    volumes:
+      - erp-standalone-pgdata:/var/lib/postgresql/data
+    shm_size: 256mb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+    logging: *default-logging
+
+  backend:
+    image: erp-backend:${IMAGE_TAG:-standalone}
+    container_name: erp-standalone-backend
+    pull_policy: never
+    build:
+      context: ../../backend/server
+      dockerfile: Dockerfile
+      args:
+        BUILD_IMAGE: ${BACKEND_BUILD_IMAGE:-eclipse-temurin:17-jdk-alpine}
+        RUNTIME_IMAGE: ${BACKEND_RUNTIME_IMAGE:-eclipse-temurin:17-jre-alpine}
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 40s
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-erp}
+      DB_USER: ${POSTGRES_USER:-erp}
+      DB_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
+      ERP_JWT_SECRET: "${ERP_JWT_SECRET:?ERP_JWT_SECRET is required (run start-standalone to generate .env)}"
+      SERVER_PORT: "8080"
+      TZ: ${TZ:-Asia/Shanghai}
+      JAVA_OPTS: "${JAVA_OPTS:--XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError -Duser.timezone=Asia/Shanghai -Dfile.encoding=UTF-8}"
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    logging: *default-logging
+
+  web:
+    image: erp-web:${IMAGE_TAG:-standalone}
+    container_name: erp-standalone-web
+    pull_policy: never
+    build:
+      context: ../../frontend/web
+      dockerfile: Dockerfile
+      args:
+        NODE_IMAGE: ${WEB_BUILD_IMAGE:-node:22-alpine}
+        NGINX_IMAGE: ${WEB_RUNTIME_IMAGE:-nginx:1.27-alpine}
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org}
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      # 默认只给本机用；如需局域网访问，把 WEB_BIND_IP 改成 0.0.0.0（注意防火墙）
+      - "${WEB_BIND_IP:-127.0.0.1}:${WEB_PORT:-18090}:80"
+    healthcheck:
+      # 只检查 web 自身；整套可用性由 /readyz 表达
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging: *default-logging
+
+volumes:
+  erp-standalone-pgdata:
+    # 固定卷名，停止/重启/升级都复用；stop --remove-data 才会删除
+    name: erp-standalone-pgdata
