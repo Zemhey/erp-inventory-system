@@ -74,23 +74,24 @@ SRC_ROOT = pathlib.Path(__file__).resolve().parent.parent / 'backend/server/src/
 def scan_impl_consumers() -> dict:
     """扫描 Controller 源码，返回 {完整路径: 是否消费 X-Request-Id}。
 
-    ★ 关键细节：方法级 @PostMapping 里写的是**相对路径**（如 `/{id}/submit`），
-    必须拼上类级 @RequestMapping 前缀（如 `/api/v1/purchase-requisitions`）才是完整路径。
-    只用方法级路径去匹配契约路径，会全部匹配失败 —— 我第一版就是这么错的。
-
-    另外必须跳过 `build/` 目录（编译产物里有源码副本，会把结果算成两倍）。
+    ★ 关键细节（三个都踩过）：
+    1. 方法级 @PostMapping 里写的是**相对路径**（如 `/{id}/submit`），
+       必须拼上类级 @RequestMapping 前缀才是完整路径。
+    2. 必须跳过 `build/` 目录（编译产物里有源码副本）。
+    3. **不能用一个固定的"往后 N 行"窗口判断方法体** —— 相邻方法会串味。
+       本文件曾经用 `lines[i:i+12]`，结果 `approve(@PathVariable long id)`（112 行）
+       的窗口覆盖到了相邻 `convert`（118 行起）的 `@RequestHeader`（122 行），
+       把"不消费"误报成"消费"。**改为按括号配平扫描方法签名**。
     """
     result = {}
     if not SRC_ROOT.exists():
         return result
 
     for f in SRC_ROOT.rglob('*Controller.java'):
-        # 跳过构建产物目录
         if any(part in ('build', 'out', 'target') for part in f.parts):
             continue
         lines = f.read_text(encoding='utf-8', errors='ignore').splitlines()
 
-        # 取类级前缀
         prefix = ''
         for line in lines:
             m = re.search(r'@RequestMapping\("([^"]*)"\)', line)
@@ -104,8 +105,33 @@ def scan_impl_consumers() -> dict:
                 continue
             rel = m.group(1) or ''
             full = (prefix + rel) if rel else prefix
-            seg = '\n'.join(lines[i:i + 12])
-            result[full] = 'X-Request-Id' in seg
+
+            # ── 按括号配平取方法签名 ──────────────────────────────────
+            # ★ 坑：`@PostMapping("/{id}/void")` 这一行里的**字符串字面量**
+            #   自带 `{` 和 `}`！直接数括号会在注解行上就配平为 0 并提前退出，
+            #   导致签名只剩注解行、扫不到 @RequestHeader。
+            #   必须先剥掉字符串字面量再数括号。
+            sig_parts = []
+            depth = 0
+            entered_body = False
+            for j in range(i, min(i + 40, len(lines))):
+                seg = lines[j]
+                sig_parts.append(seg)
+
+                # 剥掉双引号内的内容（`"/{id}/void"` → `""`）
+                stripped = re.sub(r'"([^"\\]|\\.)*"', '""', seg)
+                stripped = re.sub(r"'([^'\\]|\\.)*'", "''", stripped)
+
+                for ch in stripped:
+                    if ch == '{':
+                        depth += 1
+                    elif ch == '}':
+                        depth -= 1
+                if depth > 0:
+                    entered_body = True
+                    break
+            signature = '\n'.join(sig_parts)
+            result[full] = 'X-Request-Id' in signature
 
     return result
 
