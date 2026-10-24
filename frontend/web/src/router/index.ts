@@ -165,6 +165,19 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/sal/ReceivableView.vue'),
         meta: { title: '应收 / 收款 / 信用', permission: 'sal:read' },
       },
+      // E1 追加：审计查询与数据字典（FR-SYS-07）。继续只往后加，通配兜底路由仍在数组最后
+      {
+        path: 'audits',
+        name: 'audits',
+        component: () => import('@/views/sys/AuditView.vue'),
+        meta: { title: '审计查询', permission: 'sys:read' },
+      },
+      {
+        path: 'dicts',
+        name: 'dicts',
+        component: () => import('@/views/sys/DictView.vue'),
+        meta: { title: '数据字典', permission: 'sys:read' },
+      },
     ],
   },
   {

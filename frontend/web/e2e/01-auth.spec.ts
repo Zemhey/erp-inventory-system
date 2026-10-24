@@ -13,6 +13,8 @@ test('E2E-01 登录成功 → 进工作台', async ({ page }) => {
 
   await expect(page).toHaveURL(/\/dashboard$/)
   await expect(page.getByText('当前账号权限')).toBeVisible()
+  // 菜单已按业务域分组，入口在“主数据”二级菜单里；先展开再断言入口存在。
+  await page.locator('.menu .el-sub-menu__title', { hasText: '主数据' }).click()
   await expect(page.getByRole('menuitem', { name: '商品与 SKU' })).toBeVisible()
 
   const token = await page.evaluate(() => localStorage.getItem('erp.token'))

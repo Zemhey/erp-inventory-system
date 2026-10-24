@@ -70,6 +70,8 @@ test('E2E-14 权限：VIEWER 看不到任何写按钮', async ({ page, api, run 
   await expect(page.getByRole('button', { name: '新建出货单' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '新建第一张出货单' })).toHaveCount(0)
 
+  // 菜单已分组，“进货单”在“采购”二级菜单里；展开后断言 VIEWER 仍能看到该入口。
+  await page.locator('.menu .el-sub-menu__title', { hasText: '采购' }).click()
   await expect(page.getByRole('menuitem', { name: '进货单' })).toBeVisible()
 })
 
