@@ -213,9 +213,9 @@ class ShipmentIT extends PostgresTestBase {
     @DisplayName("★ 跨仓拆单发货：两张发货单分别确认，两仓各自扣减且总量守恒")
     void crossWarehouseShipments_deductFromEachWarehouse() {
         long whHigh = warehouseService.create(new WarehouseApplicationService.CreateCommand(
-                "WH-SHIP-H", "高优先仓", null, true, 10)).id();
+                "WH-SHIP-H", "高优先仓", null, true, 900)).id();
         long whNormal = warehouseService.create(new WarehouseApplicationService.CreateCommand(
-                "WH-SHIP-N", "普通仓", null, true, 100)).id();
+                "WH-SHIP-N", "普通仓", null, true, 500)).id();
         stock(skuA, whHigh, 10);
         stock(skuA, whNormal, 10);
         SalesOrder order = salesOrders.createAutoSplit(new SalesOrderApplicationService.CreateCommand(
@@ -243,9 +243,9 @@ class ShipmentIT extends PostgresTestBase {
     @DisplayName("部分发货：先确认一张仓单 → 订单 PARTIAL；再确认另一张 → COMPLETED")
     void partialShipment_movesOrderToPartialThenCompleted() {
         long whHigh = warehouseService.create(new WarehouseApplicationService.CreateCommand(
-                "WH-SHIP-P1", "仓一", null, true, 10)).id();
+                "WH-SHIP-P1", "仓一", null, true, 900)).id();
         long whNormal = warehouseService.create(new WarehouseApplicationService.CreateCommand(
-                "WH-SHIP-P2", "仓二", null, true, 100)).id();
+                "WH-SHIP-P2", "仓二", null, true, 500)).id();
         stock(skuA, whHigh, 4);
         stock(skuA, whNormal, 4);
         SalesOrder order = salesOrders.createAutoSplit(new SalesOrderApplicationService.CreateCommand(

@@ -271,7 +271,7 @@ class SalesQuoteIT extends PostgresTestBase {
     @DisplayName("转化省略 warehouseId：按优先级自动选仓/拆单，报价单完成")
     void convert_withoutWarehouse_usesAutoSplit() {
         long secondWarehouse = warehouseService.create(new WarehouseApplicationService.CreateCommand(
-                "WH-QUOTE-2", "报价二仓", null, true, 50)).id();
+                "WH-QUOTE-2", "报价二仓", null, true, 500)).id();
         data.stock(skuId, secondWarehouse, "", null, 5);
         data.ledger(skuId, secondWarehouse, "", 5, "PURCHASE_IN", "SEED-Q-035-2");
         SalesQuote quote = approvedQuote(15, 1000L, null, "req-quote-035");

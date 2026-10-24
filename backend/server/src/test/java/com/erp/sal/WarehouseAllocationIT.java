@@ -51,9 +51,9 @@ class WarehouseAllocationIT extends PostgresTestBase {
 
     private TestDataFactory data;
     private long customerId;
-    private long whHigh;    // priority 10
-    private long whNormal;  // priority 100
-    private long whLow;     // priority 200
+    private long whHigh;    // priority 900（V9：越大越优先）
+    private long whNormal;  // priority 500
+    private long whLow;     // priority 100
     private long skuA;
     private long skuC;
 
@@ -63,11 +63,11 @@ class WarehouseAllocationIT extends PostgresTestBase {
         data.truncateAll();
         customerId = data.customer("CUS-ALLOC");
         whHigh = warehouseService.create(new WarehouseApplicationService.CreateCommand(
-                "WH-HIGH", "高优先仓", null, true, 10)).id();
+                "WH-HIGH", "高优先仓", null, true, 900)).id();
         whNormal = warehouseService.create(new WarehouseApplicationService.CreateCommand(
-                "WH-NORMAL", "普通仓", null, true, 100)).id();
+                "WH-NORMAL", "普通仓", null, true, 500)).id();
         whLow = warehouseService.create(new WarehouseApplicationService.CreateCommand(
-                "WH-LOW", "低优先仓", null, true, 200)).id();
+                "WH-LOW", "低优先仓", null, true, 100)).id();
         long productId = data.product("P-ALLOC", "选仓测试商品");
         skuA = data.sku(productId, "白色", "L");
         skuC = data.sku(productId, "蓝色", "S");

@@ -122,6 +122,12 @@ class SalesClosedLoopApiIT extends PostgresTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("COMPLETED"))
                 .andExpect(jsonPath("$.data.convertedOrderId").isNumber());
+        mvc.perform(get("/api/v1/sales-quotes")
+                        .param("status", "COMPLETED")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.items[0].status").value("COMPLETED"));
         assertThat(data.reserved(skuA, warehouseId, "")).isEqualTo(5);
     }
 
@@ -204,6 +210,31 @@ class SalesClosedLoopApiIT extends PostgresTestBase {
                 .andExpect(jsonPath("$.data.availableQty").value(5))
                 .andExpect(jsonPath("$.data.components[0].maxBundles").value(5))
                 .andExpect(jsonPath("$.data.components[1].maxBundles").value(5));
+
+        mvc.perform(get("/api/v1/product-bundles")
+                        .param("keyword", "API-BUNDLE")
+                        .param("onlyEnabled", "true")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(1));
+        mvc.perform(get("/api/v1/product-bundles/" + bundleId).header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.code").value("API-BUNDLE-073"));
+        mvc.perform(put("/api/v1/product-bundles/" + bundleId)
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"接口套装改","priceAmount":40000,
+                                 "items":[{"componentSkuId":%d,"ratioQty":2},
+                                          {"componentSkuId":%d,"ratioQty":3}]}
+                                """.formatted(skuA, skuB)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.name").value("接口套装改"))
+                .andExpect(jsonPath("$.data.priceAmount").value(40000));
+        mvc.perform(post("/api/v1/product-bundles/" + bundleId + "/disable")
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.enabled").value(false));
     }
 
     // ─────────────────────────── 发货 ───────────────────────────
@@ -228,6 +259,19 @@ class SalesClosedLoopApiIT extends PostgresTestBase {
                 .andReturn();
         assertThat(data(replay).get("planId").asLong()).isEqualTo(planId);
         assertThat(count("so_shipments")).isEqualTo(1);
+
+        JsonNode shipment = data(first).get("shipments").get(0);
+        long shipmentId = shipment.get("id").asLong();
+        mvc.perform(get("/api/v1/shipments")
+                        .param("salesOrderId", String.valueOf(order.id()))
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.items[0].id").value(shipmentId));
+        mvc.perform(get("/api/v1/shipments/" + shipmentId).header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("DRAFT"))
+                .andExpect(jsonPath("$.data.lines[0].plannedQty").value(6));
     }
 
     @Test
@@ -343,6 +387,40 @@ class SalesClosedLoopApiIT extends PostgresTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.total").value(1))
                 .andExpect(jsonPath("$.data.items[0].id").value(receivableId));
+
+        mvc.perform(get("/api/v1/receivables/" + receivableId).header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.balance").value(10000))
+                .andExpect(jsonPath("$.data.status").value("OPEN"));
+
+        MvcResult receipt = mvc.perform(post("/api/v1/customer-receipts")
+                        .header("Authorization", auth)
+                        .header("X-Request-Id", "api-receipt-079")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"customerId":%d,"amount":10000,
+                                 "allocations":[{"receivableId":%d,"amount":10000}]}
+                                """.formatted(customerId, receivableId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.amount").value(10000))
+                .andReturn();
+        long receiptId = data(receipt).get("id").asLong();
+
+        mvc.perform(get("/api/v1/customer-receipts")
+                        .param("customerId", String.valueOf(customerId))
+                        .header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.items[0].id").value(receiptId));
+        mvc.perform(get("/api/v1/customer-receipts/" + receiptId).header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.receiptNo").isString())
+                .andExpect(jsonPath("$.data.allocations[0].receivableId").value(receivableId));
+
+        mvc.perform(get("/api/v1/receivables/" + receivableId).header("Authorization", auth))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.balance").value(0))
+                .andExpect(jsonPath("$.data.status").value("SETTLED"));
     }
 
     @Test
@@ -441,13 +519,13 @@ class SalesClosedLoopApiIT extends PostgresTestBase {
                         .header("Authorization", auth)
                         .header("X-Request-Id", "api-wh-084")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"code\":\"WH-API-084\",\"name\":\"接口仓\",\"priority\":5}"))
+                        .content("{\"code\":\"WH-API-084\",\"name\":\"接口仓\",\"priority\":500}"))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.data.priority").value(5));
+                .andExpect(jsonPath("$.data.priority").value(500));
 
         mvc.perform(get("/api/v1/warehouses").header("Authorization", auth))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].priority").value(5));
+                .andExpect(jsonPath("$.data[0].priority").value(500));
     }
 
     // ─────────────────────────── 辅助 ───────────────────────────

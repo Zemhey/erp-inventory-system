@@ -118,24 +118,24 @@ class SalesMasterDataDimensionsIT extends PostgresTestBase {
 
     @Test
     @CaseId("TC-MDM-025")
-    @DisplayName("仓库优先级：创建/更新生效，列表按 priority 升序；缺省为 100")
+    @DisplayName("仓库优先级：创建/更新生效，列表按 priority 降序；缺省为 100")
     void warehousePriority_sortsAndDefaults() {
         long normal = warehouses.create(new WarehouseApplicationService.CreateCommand(
-                "WH-DIM-N", "普通仓", null, true, 100)).id();
+                "WH-DIM-N", "普通仓", null, true, 500)).id();
         long high = warehouses.create(new WarehouseApplicationService.CreateCommand(
-                "WH-DIM-H", "高优仓", null, true, 10)).id();
+                "WH-DIM-H", "高优仓", null, true, 900)).id();
         long low = warehouses.create(new WarehouseApplicationService.CreateCommand(
-                "WH-DIM-L", "低优仓", null, true, 200)).id();
+                "WH-DIM-L", "低优仓", null, true, 100)).id();
         long defaulted = warehouses.create(new WarehouseApplicationService.CreateCommand(
                 "WH-DIM-D", "默认仓", null, true)).id();
 
         assertThat(warehouses.require(defaulted).priority()).isEqualTo(100);
         List<Long> ids = warehouses.list(true).stream()
                 .map(w -> w.id()).toList();
-        assertThat(ids).containsExactly(high, normal, defaulted, low);
+        assertThat(ids).containsExactly(high, normal, low, defaulted);
 
         warehouses.update(low, new WarehouseApplicationService.UpdateCommand(
-                "低优仓", null, true, 5));
+                "低优仓", null, true, 950));
         assertThat(warehouses.list(true).get(0).id()).isEqualTo(low);
     }
 
