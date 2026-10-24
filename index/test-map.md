@@ -52,6 +52,21 @@
 | `TC-RMA-017` | ★ 分页口径：total 是单据张数、翻页取得后面的单，size 越界只钳制不当全量 | `backend/server/src/test/java/com/erp/api/ReturnableOrderApiIT.java` |
 | `TC-SAL-024` | ★ 出货 void：缺幂等键 400；红冲 200 + 库存回补；同键重放 200；新键 409 | `backend/server/src/test/java/com/erp/api/ReversalApiIT.java` |
 | `TC-PUR-023` | ★ 进货 void：缺幂等键 400；红冲 200 + 库存回退；同键重放 200；新键 409 | `backend/server/src/test/java/com/erp/api/ReversalApiIT.java` |
+| `TC-API-070` | 报价 HTTP：建单 201 → 提交/审核 → 转化 200，报价 COMPLETED 且订单已预占 | `backend/server/src/test/java/com/erp/api/SalesClosedLoopApiIT.java` |
+| `TC-API-071` | 报价转化信用超额：409 SAL_CREDIT_LIMIT_EXCEEDED，且无预占 | `backend/server/src/test/java/com/erp/api/SalesClosedLoopApiIT.java` |
+| `TC-API-072` | 自动选仓 HTTP：201，allocations 跨两仓且 Σ qty == 行数量 | `backend/server/src/test/java/com/erp/api/SalesClosedLoopApiIT.java` |
+| `TC-API-073` | 套装 HTTP：建套装 201，可用量 = min(组件可用÷配比) | `backend/server/src/test/java/com/erp/api/SalesClosedLoopApiIT.java` |
+| `TC-API-074` | 发货计划 HTTP：200 + 重放同键返回同一计划，不重复建发货单 | `backend/server/src/test/java/com/erp/api/SalesClosedLoopApiIT.java` |
+| `TC-API-075` | 扫码 HTTP：错条码 400；正确条码累计并最终 PICKED | `backend/server/src/test/java/com/erp/api/SalesClosedLoopApiIT.java` |
+| `TC-API-076` | 发货确认 HTTP：幂等重放 200；新键 409；库存只扣一次 | `backend/server/src/test/java/com/erp/api/SalesClosedLoopApiIT.java` |
+| `TC-API-077` | 收款核销不守恒 HTTP：409 SAL_RECEIPT_UNBALANCED，不生成收款单 | `backend/server/src/test/java/com/erp/api/SalesClosedLoopApiIT.java` |
+| `TC-API-078` | 核销超额 HTTP：409 SAL_RECEIPT_OVER_ALLOCATED，余额不变 | `backend/server/src/test/java/com/erp/api/SalesClosedLoopApiIT.java` |
+| `TC-API-079` | 应收查询 HTTP：summary 与列表返回余额字段 | `backend/server/src/test/java/com/erp/api/SalesClosedLoopApiIT.java` |
+| `TC-API-080` | 信用 HTTP：GET 默认 / PUT 调整生效 / 负数 400 | `backend/server/src/test/java/com/erp/api/SalesClosedLoopApiIT.java` |
+| `TC-API-081` | 未登录访问报价列表：401 IAM_UNAUTHENTICATED | `backend/server/src/test/java/com/erp/api/SalesClosedLoopApiIT.java` |
+| `TC-API-082` | VIEWER 无 sal:quote：建报价 403 IAM_FORBIDDEN | `backend/server/src/test/java/com/erp/api/SalesClosedLoopApiIT.java` |
+| `TC-API-083` | 写接口缺 X-Request-Id：400 SYS_VALIDATION_ERROR | `backend/server/src/test/java/com/erp/api/SalesClosedLoopApiIT.java` |
+| `TC-API-084` | 主数据扩展 HTTP：SKU 季节筛选、仓库 priority 排序 | `backend/server/src/test/java/com/erp/api/SalesClosedLoopApiIT.java` |
 | `TC-API-016` | ★ 结算 HTTP 端到端：日清 items/totals → 月结 CLOSED → 对账 balanced，字段符合契约 | `backend/server/src/test/java/com/erp/api/SettlementApiIT.java` |
 | `TC-API-017` | ★★ 结算守卫：锁账后开单 409；FINANCE 可结算不可开单；缺幂等键/非法账期是 400 不是 500 | `backend/server/src/test/java/com/erp/api/SettlementApiIT.java` |
 | `TC-SET-015` | ★ 只有 set:read 的临时账号能拿到非空账期列表，且月结结果刷新后逐字段还在；同一账号 POST 日清仍 403 | `backend/server/src/test/java/com/erp/api/SettlementPeriodApiIT.java` |
@@ -301,6 +316,13 @@
 | `TC-MDM-017` | ★ 折扣率越界（0 / 10001 / 负数）必须被拒绝：0 等于白送，不允许 | `backend/server/src/test/java/com/erp/mdm/MasterDataIT.java` |
 | `TC-MDM-018` | 数据库 CHECK 兜底：即使绕过应用层，折扣率也无法写成 0 或超过 10000 | `backend/server/src/test/java/com/erp/mdm/MasterDataIT.java` |
 | `TC-MDM-019` | 仓库 CRUD + 编码唯一 + onlyEnabled 过滤 | `backend/server/src/test/java/com/erp/mdm/MasterDataIT.java` |
+| `TC-MDM-020` | SKU 创建写入季节/波段/上市日期，年份由上市日期派生 | `backend/server/src/test/java/com/erp/mdm/SalesMasterDataDimensionsIT.java` |
+| `TC-MDM-021` | SKU 更新维度：只改季节/波段不丢基础字段，null 表示保持原值 | `backend/server/src/test/java/com/erp/mdm/SalesMasterDataDimensionsIT.java` |
+| `TC-MDM-022` | 按季节编码筛选：只返回匹配 SKU | `backend/server/src/test/java/com/erp/mdm/SalesMasterDataDimensionsIT.java` |
+| `TC-MDM-023` | 按波段 + 上市日期区间筛选 | `backend/server/src/test/java/com/erp/mdm/SalesMasterDataDimensionsIT.java` |
+| `TC-MDM-024` | 按年份筛选：seasonYear 从 launch_date 派生，不需要冗余列 | `backend/server/src/test/java/com/erp/mdm/SalesMasterDataDimensionsIT.java` |
+| `TC-MDM-025` | 仓库优先级：创建/更新生效，列表按 priority 降序；缺省为 100 | `backend/server/src/test/java/com/erp/mdm/SalesMasterDataDimensionsIT.java` |
+| `TC-MDM-026` | SKU 全量更新：基础字段与季节/波段同时更新，编码不变 | `backend/server/src/test/java/com/erp/mdm/SalesMasterDataDimensionsIT.java` |
 | `TC-NL-004` | ★ tool_call 映射为意图与参数；请求带 Authorization、tools 与 tool_choice=auto | `backend/server/src/test/java/com/erp/nl/OpenAiNlCommandParserTest.java` |
 | `TC-NL-005` | ★ 无 tool call → 422；上游 500 → 503；缺 key → 503 且提示 ERP_NL_API_KEY | `backend/server/src/test/java/com/erp/nl/OpenAiNlCommandParserTest.java` |
 | `TC-NL-001` | 中文/键值对指令解析为正确意图与参数（库存/列表/详情/主数据/帮助） | `backend/server/src/test/java/com/erp/nl/StubNlCommandParserTest.java` |
@@ -412,6 +434,40 @@
 | `TC-RPT-011` | ★ 无 N+1：分组数从 1 涨到 8，每张报表仍只发一条聚合 SQL | `backend/server/src/test/java/com/erp/rpt/ReportIT.java` |
 | `TC-RPT-012` | ★ 两种口径不许混：单据 biz_date vs 流水 occurred_at，跨天执行各归各的 | `backend/server/src/test/java/com/erp/rpt/ReportIT.java` |
 | `TC-RPT-013` | ★ 三条报表计划：事实表各只扫一次、分组在数据库完成、V6 索引可用 | `backend/server/src/test/java/com/erp/rpt/repository/ReportQueryPlanIT.java` |
+| `TC-SAL-081` | 额度 0 = 不设限：大额订单可建，且不写信用快照 | `backend/server/src/test/java/com/erp/sal/CreditControlIT.java` |
+| `TC-SAL-082` | ★★ 信用超额拒单：额度 5000，订单 6000 → 拒单且预占/订单/快照全部为 0 | `backend/server/src/test/java/com/erp/sal/CreditControlIT.java` |
+| `TC-SAL-083` | 敞口包含未出货订单：额度 10000，先 6000 再过 5000 → 第二单被拒，第一单预占保留 | `backend/server/src/test/java/com/erp/sal/CreditControlIT.java` |
+| `TC-SAL-084` | 敞口包含应收余额：6000 出货后仍未回款，再下 5000 单被拒 | `backend/server/src/test/java/com/erp/sal/CreditControlIT.java` |
+| `TC-SAL-085` | 边界值：敞口 == 额度允许；超出 1 分拒绝 | `backend/server/src/test/java/com/erp/sal/CreditControlIT.java` |
+| `TC-SAL-086` | 信用快照：日期来自 ClockProvider，记录额度/敞口/本单金额/订单号 | `backend/server/src/test/java/com/erp/sal/CreditControlIT.java` |
+| `TC-SAL-087` | 调整额度/账期后立即生效：1000 拒 2000 单，提到 5000 后允许 | `backend/server/src/test/java/com/erp/sal/CreditControlIT.java` |
+| `TC-SAL-088` | ★ 并发授信：额度 10000，两笔 8000 并发 → 只成功一笔，另一笔超额 | `backend/server/src/test/java/com/erp/sal/CreditControlIT.java` |
+| `TC-SAL-089` | ★ 套装+自动选仓超额：拒单且两个仓的组件预占都为 0 | `backend/server/src/test/java/com/erp/sal/CreditControlIT.java` |
+| `TC-SAL-068` | ★ 出货即生成应收：shipped=10000，balance=10000，到期日=时钟今天+30天 | `backend/server/src/test/java/com/erp/sal/ReceivableIT.java` |
+| `TC-SAL-069` | ★ 部分收款：收 3000 核销 3000 → balance 7000，核销明细合计 == 收款金额 | `backend/server/src/test/java/com/erp/sal/ReceivableIT.java` |
+| `TC-SAL-070` | 一张收款单核销多张应收：10000 + 5000 → 第一张结清、第二张余 5000 | `backend/server/src/test/java/com/erp/sal/ReceivableIT.java` |
+| `TC-SAL-071` | ★ 核销守恒：Σ分配 3000 ≠ 收款 5000 → SAL_RECEIPT_UNBALANCED，无收款单 | `backend/server/src/test/java/com/erp/sal/ReceivableIT.java` |
+| `TC-SAL-072` | ★ 超额核销：应收余额 10000，核销 10001 → SAL_RECEIPT_OVER_ALLOCATED，余额不变 | `backend/server/src/test/java/com/erp/sal/ReceivableIT.java` |
+| `TC-SAL-073` | 跨客户核销：应收不属于收款客户 → SAL_RECEIVABLE_NOT_FOUND，无收款单 | `backend/server/src/test/java/com/erp/sal/ReceivableIT.java` |
+| `TC-SAL-074` | 同一应收在一张收款单里出现两次 → SYS_VALIDATION_ERROR | `backend/server/src/test/java/com/erp/sal/ReceivableIT.java` |
+| `TC-SAL-075` | 收款幂等：同键重放返回首次收款单，不重复核销 | `backend/server/src/test/java/com/erp/sal/ReceivableIT.java` |
+| `TC-SAL-076` | ★ 退货联动：退 2 件 → returned_amount 2000、balance 8000，恒等式仍成立 | `backend/server/src/test/java/com/erp/sal/ReceivableIT.java` |
+| `TC-SAL-077` | 全额收款 → SETTLED / balance 0；再核销任何金额 → OVER_ALLOCATED | `backend/server/src/test/java/com/erp/sal/ReceivableIT.java` |
+| `TC-SAL-078` | ★ 已收款不可红冲：SAL_STATUS_ILLEGAL，订单/库存/应收均不变 | `backend/server/src/test/java/com/erp/sal/ReceivableIT.java` |
+| `TC-SAL-079` | 未收款红冲：应收置 VOIDED、余额 0，库存回补，恒等式仍成立 | `backend/server/src/test/java/com/erp/sal/ReceivableIT.java` |
+| `TC-SAL-080` | ★ 账龄：时钟推进 31 天 → 汇总 overdueAmount == balance，逾期筛选命中 | `backend/server/src/test/java/com/erp/sal/ReceivableIT.java` |
+| `TC-SAL-037` | ★ 套装可用量 = min(组件可用 ÷ 配比)：A 10/2=5，B 15/3=5 → 5 | `backend/server/src/test/java/com/erp/sal/SalesBundleIT.java` |
+| `TC-SAL-038` | 套装可用量取短板：A 7/2=3（向下取整），B 20/3=6 → 3 | `backend/server/src/test/java/com/erp/sal/SalesBundleIT.java` |
+| `TC-SAL-046` | 跨仓汇总口径 = min(Σ组件可用 ÷ 配比)，与单仓 min 不同 | `backend/server/src/test/java/com/erp/sal/SalesBundleIT.java` |
+| `TC-SAL-039` | ★ 卖 2 套 → 展开为组件行：A 4 件、B 6 件；组件被预占，套装不建库存行 | `backend/server/src/test/java/com/erp/sal/SalesBundleIT.java` |
+| `TC-SAL-040` | ★★ INV-16：出货 2 套 → A 扣 4、B 扣 6；组件 shippedQty == 套数×配比 | `backend/server/src/test/java/com/erp/sal/SalesBundleIT.java` |
+| `TC-SAL-041` | INV-16 聚合：同一订单两组套装（1 套 + 2 套）→ 组件累计 3 套×配比 | `backend/server/src/test/java/com/erp/sal/SalesBundleIT.java` |
+| `TC-SAL-042` | ★ 套装库存不足：组件 A 只够 1 套，买 2 套 → 拒单且无任何预占 | `backend/server/src/test/java/com/erp/sal/SalesBundleIT.java` |
+| `TC-SAL-043` | 停用套装不能建单：MDM_BUNDLE_DISABLED，且无预占 | `backend/server/src/test/java/com/erp/sal/SalesBundleIT.java` |
+| `TC-SAL-044` | 套装定义校验：配比 <=0 / 组件重复 / 组件不存在 → 拒绝 | `backend/server/src/test/java/com/erp/sal/SalesBundleIT.java` |
+| `TC-SAL-045` | 套装明细不写金额：组件行按组件零售价与折扣计价，合计 == 行金额之和 | `backend/server/src/test/java/com/erp/sal/SalesBundleIT.java` |
+| `TC-SAL-090` | 套装维护：更新配比/价格、按关键字查询、停用、编码重复拒绝 | `backend/server/src/test/java/com/erp/sal/SalesBundleIT.java` |
+| `TC-SAL-091` | 建单行校验：SKU 与套装二选一；负单价拒绝且无预占 | `backend/server/src/test/java/com/erp/sal/SalesBundleIT.java` |
 | `TC-SAL-001` | 建单即预占：单据为 DRAFT，但库存已被锁住（实存不变、预占增加） | `backend/server/src/test/java/com/erp/sal/SalesOrderIT.java` |
 | `TC-SAL-002` | 多行建单：每行独立预占（requestId 按行拆分，不会互相幂等吞掉） | `backend/server/src/test/java/com/erp/sal/SalesOrderIT.java` |
 | `TC-SAL-003` | ★★ 库存不足时整单回滚：3 行明细第 3 行不足 → 前 2 行的预占必须一起回滚 | `backend/server/src/test/java/com/erp/sal/SalesOrderIT.java` |
@@ -435,6 +491,39 @@
 | `TC-SAL-021` | ★ 红冲后原单上待入库的退货单不能再入库（否则会二次回补库存） | `backend/server/src/test/java/com/erp/sal/SalesOrderReversalIT.java` |
 | `TC-SAL-022` | ★ PARTIAL 红冲：已出货行回补实存，未出货行的 ACTIVE 预占必须一起释放 | `backend/server/src/test/java/com/erp/sal/SalesOrderReversalIT.java` |
 | `TC-SAL-023` | ★ 并发红冲（异键）：只有一个成功，库存只回补一次 | `backend/server/src/test/java/com/erp/sal/SalesOrderReversalIT.java` |
+| `TC-SAL-025` | ★ 建报价单：DRAFT、金额按万分比折扣计算、不预占库存、不生成出货单 | `backend/server/src/test/java/com/erp/sal/SalesQuoteIT.java` |
+| `TC-SAL-026` | 报价建单幂等：同 requestId 返回同一张报价单，不重复建行 | `backend/server/src/test/java/com/erp/sal/SalesQuoteIT.java` |
+| `TC-SAL-027` | 报价校验：空明细/数量非正/重复 SKU/折扣越界/有效期早于报价日 → 400，无残留 | `backend/server/src/test/java/com/erp/sal/SalesQuoteIT.java` |
+| `TC-SAL-028` | 报价状态机：DRAFT→SUBMITTED→APPROVED；DRAFT 直接审核非法 | `backend/server/src/test/java/com/erp/sal/SalesQuoteIT.java` |
+| `TC-SAL-029` | ★ 转化：行不丢（数量/单价/折扣/金额一致），调用建单预占，报价单 COMPLETED | `backend/server/src/test/java/com/erp/sal/SalesQuoteIT.java` |
+| `TC-SAL-030` | 转化幂等：同键返回首次订单且不重复预占；新键再转化 → 409 | `backend/server/src/test/java/com/erp/sal/SalesQuoteIT.java` |
+| `TC-SAL-031` | 未审核报价不可转化：DRAFT/SUBMITTED → 409，库存不变 | `backend/server/src/test/java/com/erp/sal/SalesQuoteIT.java` |
+| `TC-SAL-032` | 已过期报价不可转化：报价保持 APPROVED，无订单/预占 | `backend/server/src/test/java/com/erp/sal/SalesQuoteIT.java` |
+| `TC-SAL-033` | ★ 转化时库存不足：整单回滚，报价单保持 APPROVED，无订单/预占 | `backend/server/src/test/java/com/erp/sal/SalesQuoteIT.java` |
+| `TC-SAL-034` | ★ 转化时信用超额：报价保持 APPROVED，无订单/预占（FR-SAL-09 联动） | `backend/server/src/test/java/com/erp/sal/SalesQuoteIT.java` |
+| `TC-SAL-035` | 转化省略 warehouseId：按优先级自动选仓/拆单，报价单完成 | `backend/server/src/test/java/com/erp/sal/SalesQuoteIT.java` |
+| `TC-SAL-036` | 作废已审核报价：状态 VOIDED，之后不能转化 | `backend/server/src/test/java/com/erp/sal/SalesQuoteIT.java` |
+| `TC-SAL-055` | ★ 计划守恒：单仓订单生成一张发货单，Σ拣货行 == 未出量 | `backend/server/src/test/java/com/erp/sal/ShipmentIT.java` |
+| `TC-SAL-056` | 计划幂等：同键重放返回首次计划，不重复拆行/不重复占用预占 | `backend/server/src/test/java/com/erp/sal/ShipmentIT.java` |
+| `TC-SAL-057` | 不同键重复计划同一批预占 → SAL_STATUS_ILLEGAL（防重复占用） | `backend/server/src/test/java/com/erp/sal/ShipmentIT.java` |
+| `TC-SAL-058` | ★ 扫码累计：部分扫码 → PICKING；超过计划 → SAL_SHIPMENT_OVER_PICK 且数量不变 | `backend/server/src/test/java/com/erp/sal/ShipmentIT.java` |
+| `TC-SAL-059` | 扫码条码校验：匹配则累计，不匹配必须拒绝且不累计 | `backend/server/src/test/java/com/erp/sal/ShipmentIT.java` |
+| `TC-SAL-060` | 未全部扫码不能确认发货；扫满后状态 PICKED | `backend/server/src/test/java/com/erp/sal/ShipmentIT.java` |
+| `TC-SAL-061` | ★ 确认发货：实存扣减、预占转 CONSUMED、订单 COMPLETED、流水可追溯、INV-2 成立 | `backend/server/src/test/java/com/erp/sal/ShipmentIT.java` |
+| `TC-SAL-062` | 确认幂等：同键重放不重复扣减；已完成换新键 → 409 | `backend/server/src/test/java/com/erp/sal/ShipmentIT.java` |
+| `TC-SAL-063` | ★ 跨仓拆单发货：两张发货单分别确认，两仓各自扣减且总量守恒 | `backend/server/src/test/java/com/erp/sal/ShipmentIT.java` |
+| `TC-SAL-064` | 部分发货：先确认一张仓单 → 订单 PARTIAL；再确认另一张 → COMPLETED | `backend/server/src/test/java/com/erp/sal/ShipmentIT.java` |
+| `TC-SAL-065` | 状态守卫：DRAFT 不能确认；COMPLETED 不能再扫码 | `backend/server/src/test/java/com/erp/sal/ShipmentIT.java` |
+| `TC-SAL-066` | 订单已完成后再生成发货计划 → SAL_STATUS_ILLEGAL | `backend/server/src/test/java/com/erp/sal/ShipmentIT.java` |
+| `TC-SAL-067` | ★ 确认发货同步登记应收：金额 == 本次出货金额，余额 == 出货 − 回款，到期日走 ClockProvider | `backend/server/src/test/java/com/erp/sal/ShipmentIT.java` |
+| `TC-SAL-047` | ★ 单仓足够不拆：高优先仓有 20 件，买 15 → 只有一个仓的分配与一张发货单 | `backend/server/src/test/java/com/erp/sal/WarehouseAllocationIT.java` |
+| `TC-SAL-048` | ★ 单仓不足才拆：高优先仓 10，普通仓 10，买 15 → 10+5，低优先仓不动 | `backend/server/src/test/java/com/erp/sal/WarehouseAllocationIT.java` |
+| `TC-SAL-049` | 优先级顺序：高优先仓先吃满，再吃普通仓（两仓各 5 件买 10） | `backend/server/src/test/java/com/erp/sal/WarehouseAllocationIT.java` |
+| `TC-SAL-050` | 所有启用仓合计不足：整单回滚，无订单/预占/发货计划 | `backend/server/src/test/java/com/erp/sal/WarehouseAllocationIT.java` |
+| `TC-SAL-051` | 停用仓不参与自动选仓：高优先仓停用且有 100 件，仍从普通仓出 | `backend/server/src/test/java/com/erp/sal/WarehouseAllocationIT.java` |
+| `TC-SAL-052` | ★ 套装自动选仓：按每仓成套量吃量，组件同仓成套（高优 2 套 + 普通 2 套） | `backend/server/src/test/java/com/erp/sal/WarehouseAllocationIT.java` |
+| `TC-SAL-053` | 多行自动选仓：每行各自守恒，互不吞量 | `backend/server/src/test/java/com/erp/sal/WarehouseAllocationIT.java` |
+| `TC-SAL-054` | ★ 跨仓拆单：订单 15 拆成 10+5 → 两张发货单，Σ拣货行 == 原订单行数量 | `backend/server/src/test/java/com/erp/sal/WarehouseAllocationIT.java` |
 | `TC-SET-001` | ★ 日清（单仓）：采购/销售/退货的数量与金额按单据 biz_date 正确汇总 | `backend/server/src/test/java/com/erp/set/SettlementIT.java` |
 | `TC-SET-002` | 日清省略 warehouseId：按仓库返回 items，再给出跨仓 totals，跨仓不串数 | `backend/server/src/test/java/com/erp/set/SettlementIT.java` |
 | `TC-SET-003` | ★ 日清幂等：同日重复执行结果一致且仍只有一行；重跑是覆盖而不是累加 | `backend/server/src/test/java/com/erp/set/SettlementIT.java` |
@@ -557,4 +646,4 @@
 | `TC-SYS-078` | OTHER 只作为兜底存在，不参与路径映射（避免它变成常用分支） | `backend/server/src/test/java/com/erp/sys/domain/AuditEnumsTest.java` |
 | `TC-SYS-079` | 动作名长度不超过数据库列宽 VARCHAR(32) | `backend/server/src/test/java/com/erp/sys/domain/AuditEnumsTest.java` |
 
-共 552 条用例。
+共 641 条用例。

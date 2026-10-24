@@ -22,6 +22,7 @@
 | GET | `/products` | `listProducts` | 查询商品列表 |
 | POST | `/products` | `createProduct` | 新建商品（款式） |
 | GET | `/products/{id}` | `getProduct` | 商品详情 |
+| PUT | `/products/{id}` | `updateProduct` | 更新商品（编码不可改） |
 | GET | `/skus` | `listSkus` | 查询 SKU 列表 |
 | POST | `/skus` | `createSku` | 新建 SKU（或按颜色×尺码矩阵批量生成） |
 | GET | `/inventory` | `queryInventory` | 实时库存查询（多仓/多SKU） |
@@ -94,4 +95,46 @@
 | GET | `/audits/by-trace` | `auditByTrace` | 按 traceId 取该请求产生的全部审计（FR-SYS-08 贯穿性的落库侧证据） |
 | GET | `/dicts` | `listDictTypes` | 字典类型列表（只读） |
 | GET | `/dicts/{typeCode}/items` | `listDictItems` | 某类型的字典项（按 sortNo 升序） |
+| POST | `/auth/login` | `login` | 登录换取 JWT |
+| GET | `/auth/me` | `getCurrentUser` | 当前登录用户（刷新页面后恢复权限菜单） |
+| POST | `/auth/change-password` | `changePassword` | 修改自己的密码（密码过期状态下唯一可用的写接口） |
+| GET | `/iam/users` | `listIamUsers` | 账号清单 |
+| POST | `/iam/users` | `createIamUser` | 创建账号 |
+| GET | `/iam/users/{id}` | `getIamUser` | 账号详情 |
+| PUT | `/iam/users/{id}/roles` | `replaceIamUserRoles` | 改角色（覆盖式） |
+| POST | `/iam/users/{id}/enabled` | `setIamUserEnabled` | 启停账号 |
+| POST | `/iam/users/{id}/reset-password` | `resetIamUserPassword` | 管理员重置密码 |
+| GET | `/iam/roles` | `listIamRoles` | 角色清单（返回数组，不分页） |
+| POST | `/iam/roles` | `createIamRole` | 创建角色 |
+| GET | `/iam/roles/{id}/permissions` | `getIamRolePermissions` | 角色权限（角色信息 + 权限码数组） |
+| PUT | `/iam/roles/{id}/permissions` | `replaceIamRolePermissions` | 覆盖式设置角色权限（授权即时生效的触发点） |
+| GET | `/iam/users/{id}/data-scopes` | `getIamUserDataScopes` | 账号的数据权限（直配 + 角色继承） |
+| PUT | `/iam/users/{id}/data-scopes` | `replaceIamUserDataScopes` | 覆盖式设置账号的数据权限 |
+| GET | `/iam/roles/{id}/data-scopes` | `getIamRoleDataScopes` | 角色的数据范围配置 |
+| PUT | `/iam/roles/{id}/data-scopes` | `replaceIamRoleDataScopes` | 覆盖式设置角色的数据范围 |
+| GET | `/approvals` | `listApprovals` | 审批列表 |
+| POST | `/approvals` | `submitApproval` | 提交审批 |
+| GET | `/approvals/{id}` | `getApproval` | 审批详情（含节点快照） |
+| POST | `/approvals/{id}/approve` | `approveApproval` | 同意当前节点 |
+| POST | `/approvals/{id}/reject` | `rejectApproval` | 驳回（终止审批） |
+| POST | `/approvals/{id}/withdraw` | `withdrawApproval` | 撤回（仅发起人本人） |
+| POST | `/approvals/{id}/transfer` | `transferApproval` | 转办 |
+| POST | `/approvals/{id}/accept-transfer` | `acceptApprovalTransfer` | 接办（转办的目标人确认接手） |
+| GET | `/approvals/flows` | `listApprovalFlows` | 流程定义（含节点，只读） |
+| POST | `/approvals/flows/{id}/enabled` | `setApprovalFlowEnabled` | 启停审批流程 |
+| POST | `/products/{id}/disable` | `disableProduct` | 停用商品（软删） |
+| GET | `/skus/{id}` | `getSku` | SKU 详情 |
+| PUT | `/skus/{id}` | `updateSku` | 更新 SKU（颜色/尺码不可改） |
+| POST | `/skus/matrix` | `createSkuMatrix` | 颜色 × 尺码矩阵批量生成 SKU |
+| POST | `/skus/{id}/disable` | `disableSku` | 停用 SKU（软删） |
+| POST | `/inventory/receipts` | `internalReceiveStock` | 入库（内部控制端点） |
+| POST | `/inventory/shipments` | `internalShipStock` | 出库（FEFO，内部控制端点） |
+| GET | `/inventory/consistency-check` | `checkInventoryConsistency` | 不变量校验 · 实存 == 流水净和（运维/对账端点） |
+| POST | `/purchase-orders/{id}/submit` | `submitPurchaseOrder` | 提交进货单（DRAFT → SUBMITTED） |
+| POST | `/purchase-orders/{id}/approve` | `approvePurchaseOrder` | 审核进货单（SUBMITTED → APPROVED） |
+| POST | `/purchase-orders/{id}/reject` | `rejectPurchaseOrder` | 驳回进货单（SUBMITTED → REJECTED） |
+| GET | `/sales-orders/{id}` | `getSalesOrder` | 出货单详情 |
+| POST | `/sales-orders/{id}/submit` | `submitSalesOrder` | 提交出货单（DRAFT → SUBMITTED） |
+| POST | `/sales-orders/{id}/approve` | `approveSalesOrder` | 审核出货单（SUBMITTED → APPROVED） |
+| POST | `/sales-orders/{id}/reject` | `rejectSalesOrder` | 驳回出货单（SUBMITTED → REJECTED） |
 
