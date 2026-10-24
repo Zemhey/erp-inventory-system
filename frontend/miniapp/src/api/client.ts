@@ -531,3 +531,308 @@ export const salApi = {
   ship: (id: number) =>
     request<SalesOrder>(`/sales-orders/${id}/ship`, { method: 'POST' }),
 }
+
+// ─────────────────────────── V2-D1：销售闭环与审批搬到移动端 ───────────────────────────
+//
+// ★ 类型的事实源是 Controller 的 toMap 与领域 record，不是 openapi.yaml
+//   （本批并行泳道正在改契约）。列表接口多数直接把领域记录交给 Jackson 序列化，
+//   详情接口才走 toMap —— 两者字段集合不同，下面的可选字段就是这个分歧，
+//   不是「后端可能返回」的猜测。页面不得假设列表里有只在详情出现的派生值。
+
+/** 报价单明细行（SalesQuoteController:143 与 SalesQuoteLine 字段一致）。 */
+export interface QuoteLine {
+  id: number
+  lineNo: number
+  skuId: number
+  qty: number
+  /** 整数分 */
+  unitPriceAmount: number
+  /** 整数万分比：10000 = 不打折 */
+  discountRate: number
+  /** 整数分 */
+  amount: number
+}
+
+/**
+ * 报价单头。状态是共享单据七态（DocumentStatus），转化后变 COMPLETED。
+ *
+ * - `convertedOrderId`：详情 toMap 给出；
+ * - `convertRequestId` / `version`：只有列表（领域记录）给出；
+ * - 转化成功的判据是 `status === 'COMPLETED' && convertedOrderId != null`
+ *   （后端 converted() 就是这个式子，SaleQuote:22）。
+ */
+export interface SalesQuote {
+  id: number
+  quoteNo: string
+  status: string
+  customerId: number
+  bizDate: string | null
+  validUntil: string | null
+  totalAmount: number
+  totalQty: number
+  remark: string | null
+  convertedOrderId?: number | null
+  convertRequestId?: string | null
+  version?: number
+  lines: QuoteLine[]
+}
+
+export interface QuoteCreateLine {
+  skuId: number
+  qty: number
+  unitPriceAmount: number
+  discountRate?: number
+}
+
+/**
+ * 报价单（FR-SAL-05）：列表 / 详情 / 提交 / 审核 / 驳回 / 作废 / 转出货单。
+ *
+ * 建单留在 Web（多行 + SKU 选择 + 折扣是桌面表单）。
+ * `convert` 只有 APPROVED 且未过期可转；warehouseId 省略时后端按仓库 priority 自动拆单。
+ */
+export const quoteApi = {
+  list: (params: {
+    status?: string
+    customerId?: number
+    page?: number
+    size?: number
+  } = {}) => request<PageData<SalesQuote>>('/sales-quotes', { query: params }),
+  get: (id: number) => request<SalesQuote>(`/sales-quotes/${id}`),
+  submit: (id: number) => request<SalesQuote>(`/sales-quotes/${id}/submit`, { method: 'POST' }),
+  approve: (id: number) => request<SalesQuote>(`/sales-quotes/${id}/approve`, { method: 'POST' }),
+  reject: (id: number) => request<SalesQuote>(`/sales-quotes/${id}/reject`, { method: 'POST' }),
+  voidQuote: (id: number) => request<SalesQuote>(`/sales-quotes/${id}/void`, { method: 'POST' }),
+  convert: (id: number, body: { warehouseId?: number; remark?: string } = {}) =>
+    request<SalesOrder>(`/sales-quotes/${id}/convert`, { method: 'POST', data: body }),
+}
+
+/**
+ * 发货拣货行。
+ * 详情 toMap 额外给了 `shipmentLineId` 作为 `id` 的别名（给扫码回传用的），
+ * 列表是领域记录、没有这个别名 —— 页面取值要用 `line.shipmentLineId ?? line.id`。
+ */
+export interface ShipmentLine {
+  id: number
+  shipmentLineId?: number
+  lineNo: number
+  salesOrderLineId: number
+  skuId: number
+  reservationId: number
+  batchNo: string | null
+  plannedQty: number
+  pickedQty: number
+}
+
+/** 发货单：状态是 ShipmentStatus 五态（不是单据七态），不参与收付款/账期统计。 */
+export interface Shipment {
+  id: number
+  shipmentNo: string
+  planId: number
+  salesOrderId: number
+  warehouseId: number
+  status: string
+  lines: ShipmentLine[]
+  confirmRequestId?: string | null
+  version?: number
+}
+
+/** 发货计划头：一张出货单一个计划，跨仓时 plan.shipments 会有多张。 */
+export interface ShipmentPlan {
+  planId: number
+  planNo: string
+  salesOrderId: number
+  shipments: Shipment[]
+}
+
+/**
+ * 发货作业（FR-SAL-06）：为出货单生成计划 → 逐行扫码 → 整单确认。
+ *
+ * `scan` 不带幂等键要求，但仍由拦截器统一注入；条码非空时后端逐字比对 SKU 条码，
+ * 不匹配即报错（扫码枪与手录走的是同一个接口，降级不放松校验）。
+ * `confirm` 要求全部行扫满（状态 PICKED），一次出库并登记应收。
+ */
+export const shipmentApi = {
+  createPlan: (salesOrderId: number) =>
+    request<ShipmentPlan>(`/sales-orders/${salesOrderId}/shipments`, { method: 'POST' }),
+  list: (params: {
+    status?: string
+    salesOrderId?: number
+    page?: number
+    size?: number
+  } = {}) => request<PageData<Shipment>>('/shipments', { query: params }),
+  get: (id: number) => request<Shipment>(`/shipments/${id}`),
+  scan: (id: number, body: { shipmentLineId: number; qty: number; barcode?: string }) =>
+    request<Shipment>(`/shipments/${id}/scan`, { method: 'POST', data: body }),
+  confirm: (id: number) => request<Shipment>(`/shipments/${id}/confirm`, { method: 'POST' }),
+}
+
+/**
+ * 客户应收。恒等式 `balance = shipped − returned − received` 由数据库 CHECK 兜底。
+ *
+ * `overdue` 只在详情给出（后端按当天判定）；列表是领域记录，只有 `version`。
+ * status 取值 OPEN / SETTLED / VOIDED（ReceivableRepository 的 CASE 表达式）。
+ */
+export interface Receivable {
+  id: number
+  salesOrderId: number
+  customerId: number
+  bizDate: string | null
+  dueDate: string | null
+  shippedAmount: number
+  returnedAmount: number
+  receivedAmount: number
+  balance: number
+  status: string
+  overdue?: boolean
+  version?: number
+}
+
+/** 客户应收汇总（/receivables/summary）：balance 由后端算，页面只复述不自算。 */
+export interface ReceivableSummary {
+  customerId: number
+  shippedAmount: number
+  returnedAmount: number
+  receivedAmount: number
+  balance: number
+  overdueAmount: number
+}
+
+export interface ReceiptAllocation {
+  id: number
+  receivableId: number
+  amount: number
+}
+
+/** 收款单。核销守恒：Σ allocations == amount（精确相等，少一分多一分都拒）。 */
+export interface CustomerReceipt {
+  id: number
+  receiptNo: string
+  customerId: number
+  amount: number
+  bizDate: string | null
+  remark: string | null
+  allocations: ReceiptAllocation[]
+}
+
+/** 应收（FR-SAL-07）：只读列表 / 汇总 / 详情。 */
+export const receivableApi = {
+  list: (params: {
+    customerId?: number
+    status?: string
+    overdue?: boolean
+    page?: number
+    size?: number
+  } = {}) => request<PageData<Receivable>>('/receivables', { query: params }),
+  summary: (customerId: number) =>
+    request<ReceivableSummary>('/receivables/summary', { query: { customerId } }),
+  get: (id: number) => request<Receivable>(`/receivables/${id}`),
+}
+
+/**
+ * 收款登记（FR-SAL-08）。
+ *
+ * 超额核销会被后端拒成 `SAL_RECEIPT_OVER_ALLOCATED`，消息里带应收 id、余额与本次核销额 ——
+ * 页面必须**逐字**显示，不能自己拼一句"金额太大"（那是第二套口径）。
+ */
+export const receiptApi = {
+  create: (body: {
+    customerId: number
+    amount: number
+    bizDate?: string
+    remark?: string
+    allocations: Array<{ receivableId: number; amount: number }>
+  }) => request<CustomerReceipt>('/customer-receipts', { method: 'POST', data: body }),
+  list: (params: { customerId?: number; page?: number; size?: number } = {}) =>
+    request<PageData<CustomerReceipt>>('/customer-receipts', { query: params }),
+  get: (id: number) => request<CustomerReceipt>(`/customer-receipts/${id}`),
+}
+
+/**
+ * 审批节点（实例快照态）。
+ * `approverPermission` 是这个节点要求的权限码 —— 「待我审批」就是按它判定的。
+ */
+export interface ApprovalStepInfo {
+  stepNo: number
+  name: string
+  approverPermission: string
+  approveMode: string
+  requiredApprovals: number
+  thresholdAmount: number
+  status: string
+  approvedBy: number[]
+  decidedAt: string | null
+  decisionBy: number | null
+  remark: string | null
+}
+
+/**
+ * 审批实例。★ 状态是 ApprovalStatus 七态，与单据七态是**两套状态机**，
+ * 同名不同义（APPROVED 在这里是「审批通过」、在单据侧是「已审核」）。
+ */
+export interface ApprovalInstance {
+  id: number
+  flowId: number
+  bizType: string
+  bizId: number
+  bizRefNo: string
+  amount: number
+  currentStep: number
+  status: string
+  initiatorId: number
+  steps: ApprovalStepInfo[]
+}
+
+/**
+ * 审批流（FR-APS-02）：列表 / 详情 / 提交 / 同意 / 驳回 / 撤回 / 转办 / 接办。
+ *
+ * ★ 后端 `GET /approvals` **没有**「按当前人」的过滤参数（只有 status / bizType），
+ *   逐节点资格在应用层按 approverPermission 判 —— 所以「待我审批」是客户端按
+ *   「实例在飞 且 我有当前节点的 approverPermission」筛出来的，最终能否执行仍由后端 403 兜底。
+ * 动作权限码各不相同：approve / reject / transfer 要 aps:approve，
+ * withdraw 要 aps:withdraw 且只有发起人本人才走得通。
+ */
+export const approvalApi = {
+  list: (params: {
+    status?: string
+    bizType?: string
+    page?: number
+    size?: number
+  } = {}) => request<PageData<ApprovalInstance>>('/approvals', { query: params }),
+  get: (id: number) => request<ApprovalInstance>(`/approvals/${id}`),
+  submit: (body: { bizType: string; bizId: number; bizRefNo: string; amount: number }) =>
+    request<ApprovalInstance>('/approvals', { method: 'POST', data: body }),
+  approve: (id: number, remark?: string) =>
+    request<ApprovalInstance>(`/approvals/${id}/approve`, {
+      method: 'POST',
+      data: remark ? { remark } : undefined,
+    }),
+  reject: (id: number, remark?: string) =>
+    request<ApprovalInstance>(`/approvals/${id}/reject`, {
+      method: 'POST',
+      data: remark ? { remark } : undefined,
+    }),
+  withdraw: (id: number, remark?: string) =>
+    request<ApprovalInstance>(`/approvals/${id}/withdraw`, {
+      method: 'POST',
+      data: remark ? { remark } : undefined,
+    }),
+  transfer: (id: number, body: { targetUserId: number; remark?: string }) =>
+    request<ApprovalInstance>(`/approvals/${id}/transfer`, { method: 'POST', data: body }),
+  acceptTransfer: (id: number) =>
+    request<ApprovalInstance>(`/approvals/${id}/accept-transfer`, { method: 'POST' }),
+}
+
+/** 账号（只为转办选人存在；iam:read 才拿得到，页面按权限降级为手输 ID）。 */
+export interface IamUser {
+  id: number
+  username: string
+  displayName: string
+  enabled: boolean
+  roles: string[]
+  permissions: string[]
+}
+
+export const iamApi = {
+  listUsers: (params: { keyword?: string; page?: number; size?: number } = {}) =>
+    request<PageData<IamUser>>('/iam/users', { query: params }),
+}
