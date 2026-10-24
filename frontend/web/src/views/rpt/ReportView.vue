@@ -1693,3 +1693,18 @@ function onTabChange(name: string | number) {
   }
 }
 </style>
+
+<style>
+/* 打印时隐藏应用骨架（侧栏/顶栏），只保留报表内容。仅 @media print 生效。 */
+@media print {
+  .layout > .aside,
+  .layout > .el-container > .header {
+    display: none !important;
+  }
+
+  .layout > .el-container > .main {
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+}
+</style>
