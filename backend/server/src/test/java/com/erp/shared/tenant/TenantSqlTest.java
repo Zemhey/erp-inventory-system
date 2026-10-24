@@ -89,15 +89,16 @@ class TenantSqlTest {
 
         @Test
         @CaseId("TC-TNT-005")
-        @DisplayName("★ JOIN 的 ON 不被改动：LEFT JOIN 语义不因改写而改变")
-        void joinOnUntouched() {
-            String sql = rw("""
+        @DisplayName("★ LEFT JOIN：右表谓词写进 ON（保住外连接语义），左表谓词仍在 WHERE")
+        void leftJoinOnScoped() {
+            assertThat(norm(rw("""
                     SELECT l.id FROM inventory_ledger l
                       LEFT JOIN return_orders ro ON ro.order_no = l.biz_ref_no
-                     WHERE l.sku_id = ?""");
-            assertThat(sql)
-                    .contains("LEFT JOIN return_orders ro ON ro.order_no = l.biz_ref_no")
-                    .doesNotContain("ON ro.order_no = l.biz_ref_no AND");
+                     WHERE l.sku_id = ?""")))
+                    .isEqualTo("SELECT l.id FROM inventory_ledger l"
+                            + " LEFT JOIN return_orders ro"
+                            + " ON ro.tenant_id = 7 AND ro.order_no = l.biz_ref_no"
+                            + " WHERE l.sku_id = ? AND l.tenant_id = 7");
         }
 
         @Test
@@ -168,12 +169,54 @@ class TenantSqlTest {
 
         @Test
         @CaseId("TC-TNT-011")
-        @DisplayName("UNION 的两个分支各自带谓词（不会被追加到 UNION 之后）")
+        @DisplayName("UNION 的两个分支各自带谓词（谓词留在各自分支内，不跨作用域）")
         void union() {
-            String sql = rw("SELECT code FROM warehouses WHERE enabled UNION SELECT code FROM suppliers");
-            assertThat(sql)
-                    .contains("AND warehouses.tenant_id = 7 UNION SELECT code FROM suppliers")
-                    .contains("AND suppliers.tenant_id = 7");
+            assertThat(rw("SELECT code FROM warehouses WHERE enabled UNION SELECT code FROM suppliers"))
+                    .isEqualTo("SELECT code FROM warehouses WHERE enabled"
+                            + " AND warehouses.tenant_id = 7"
+                            + " UNION SELECT code FROM suppliers"
+                            + " WHERE 1 = 1 AND suppliers.tenant_id = 7");
+        }
+
+        @Test
+        @CaseId("TC-TNT-030")
+        @DisplayName("★ UNION ALL + 第二分支联表：每个分支按各自的表追加别名谓词")
+        void unionAllWithJoin() {
+            String sql = rw("""
+                    SELECT scope_type, scope_value
+                      FROM data_scopes
+                     WHERE user_id = ?
+                     UNION ALL
+                    SELECT ds.scope_type, ds.scope_value
+                      FROM data_scopes ds
+                      JOIN app_user_roles ur ON ur.role_id = ds.role_id
+                     WHERE ur.user_id = ?""");
+            assertThat(norm(sql)).isEqualTo(
+                    "SELECT scope_type, scope_value FROM data_scopes WHERE user_id = ?"
+                            + " AND data_scopes.tenant_id = 7"
+                            + " UNION ALL SELECT ds.scope_type, ds.scope_value"
+                            + " FROM data_scopes ds JOIN app_user_roles ur"
+                            + " ON ur.role_id = ds.role_id WHERE ur.user_id = ?"
+                            + " AND ds.tenant_id = 7 AND ur.tenant_id = 7");
+        }
+
+        @Test
+        @CaseId("TC-TNT-049")
+        @DisplayName("★ LEFT JOIN 的右表谓词进 ON（写进 WHERE 会把外连接退化成内连接）")
+        void leftJoinPredicateGoesIntoOn() {
+            String sql = rw("""
+                    SELECT l.id, so.order_no
+                      FROM inventory_ledger l
+                      LEFT JOIN return_orders ro
+                             ON l.biz_type = 'RETURN_IN' AND ro.order_no = l.biz_ref_no
+                      LEFT JOIN sales_orders so ON so.id = ro.origin_sales_order_id""");
+            assertThat(norm(sql)).isEqualTo(
+                    "SELECT l.id, so.order_no FROM inventory_ledger l"
+                            + " LEFT JOIN return_orders ro ON ro.tenant_id = 7"
+                            + " AND l.biz_type = 'RETURN_IN' AND ro.order_no = l.biz_ref_no"
+                            + " LEFT JOIN sales_orders so ON so.tenant_id = 7"
+                            + " AND so.id = ro.origin_sales_order_id"
+                            + " WHERE 1 = 1 AND l.tenant_id = 7");
         }
 
         @Test
@@ -267,16 +310,57 @@ class TenantSqlTest {
 
         @Test
         @CaseId("TC-TNT-019")
-        @DisplayName("★ INSERT … SELECT：列清单不动（触发器填充），但源表必须被过滤")
+        @DisplayName("★ INSERT … SELECT：列清单补列、SELECT 列表补值，源表也被过滤")
         void insertSelect() {
-            String sql = rw("""
+            // ★ 为什么不靠 BEFORE INSERT 触发器填充：会话变量 erp.tenant_id 从来没被设置过
+            //   （TenantContext 只活在 JVM 里），触发器取到的是 NULL，随后 NOT NULL 约束会报错。
+            //   因此列清单必须显式补 tenant_id、SELECT 列表必须显式补值。
+            assertThat(norm(rw("""
                     INSERT INTO app_user_roles (user_id, role_id)
-                    SELECT ?, id FROM app_roles WHERE code = ?""");
-            assertThat(sql)
-                    .as("源表被过滤，杜绝把别租户的角色挂到本租户用户上")
-                    .contains("FROM app_roles WHERE code = ? AND app_roles.tenant_id = 7")
-                    .as("列清单不动：目标行的租户由 BEFORE INSERT 触发器按会话租户填充")
-                    .contains("INSERT INTO app_user_roles (user_id, role_id)");
+                    SELECT ?, id FROM app_roles WHERE code = ?""")))
+                    .as("源表被过滤，杜绝把别租户的角色挂到本租户用户上；"
+                            + "目标列与值都显式写入，不依赖未设置的会话变量")
+                    .isEqualTo("INSERT INTO app_user_roles (user_id, role_id, tenant_id)"
+                            + " SELECT ?, id, 7 FROM app_roles"
+                            + " WHERE code = ? AND app_roles.tenant_id = 7");
+        }
+
+        @Test
+        @CaseId("TC-TNT-050")
+        @DisplayName("★ 已显式带 tenant_id 的 INSERT，仍要修 ON CONFLICT 目标（否则复合唯一匹配不上）")
+        void explicitTenantStillFixesConflictTarget() {
+            assertThat(norm(rw("""
+                    INSERT INTO app_roles (code, name, description, tenant_id)
+                    VALUES (?, ?, ?, 1) ON CONFLICT (code) DO NOTHING""")))
+                    .isEqualTo("INSERT INTO app_roles (code, name, description, tenant_id)"
+                            + " VALUES (?, ?, ?, 1) ON CONFLICT (tenant_id, code) DO NOTHING");
+        }
+
+        @Test
+        @CaseId("TC-TNT-051")
+        @DisplayName("★ 发货计划的 request_id 幂等目标补 tenant_id，并保留（非部分）索引可用的谓词")
+        void shipmentPlanConflictTarget() {
+            assertThat(norm(rw("""
+                    INSERT INTO so_shipment_plans (plan_no, sales_order_id, request_id)
+                    VALUES (?, ?, ?) ON CONFLICT (request_id) DO NOTHING RETURNING id""")))
+                    .isEqualTo("INSERT INTO so_shipment_plans"
+                            + " (plan_no, sales_order_id, request_id, tenant_id)"
+                            + " VALUES (?, ?, ?, 7)"
+                            + " ON CONFLICT (tenant_id, request_id)"
+                            + " WHERE request_id IS NOT NULL DO NOTHING RETURNING id");
+        }
+
+        @Test
+        @CaseId("TC-TNT-052")
+        @DisplayName("★ INSERT … SELECT + ON CONFLICT：SELECT 列表与 ON CONFLICT 之间必须有空白（防 1ON）")
+        void insertSelectWithConflictKeepsTokenBoundary() {
+            assertThat(norm(rw("""
+                    INSERT INTO app_user_roles (user_id, role_id)
+                    SELECT ?, id FROM app_roles WHERE code = ? ON CONFLICT DO NOTHING""")))
+                    .isEqualTo("INSERT INTO app_user_roles (user_id, role_id, tenant_id)"
+                            + " SELECT ?, id, 7 FROM app_roles"
+                            + " WHERE code = ? AND app_roles.tenant_id = 7"
+                            + " ON CONFLICT DO NOTHING");
         }
 
         @Test
