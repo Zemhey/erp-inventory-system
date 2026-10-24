@@ -852,7 +852,7 @@ class ArchitectureTest {
      * 无法区分"规则失效"与"探针写错"。
      */
     @org.junit.jupiter.api.Test
-    @CaseId("TC-ARCH-010")
+    @CaseId("TC-ARCH-011")
     @org.junit.jupiter.api.DisplayName("★ 规则自检：sys 只依赖 shared 的规则必须拦住依赖业务模块")
     void 规则自检_审计模块隔离规则必须生效() {
         var classes = compileProbe("com.erp.sys.application.BadSysDependencyProbe", """
@@ -881,7 +881,7 @@ class ArchitectureTest {
      * 规则被改窄（例如只查 {@code AuditLogRepository} 一个类名）时，本用例立刻红。
      */
     @org.junit.jupiter.api.Test
-    @CaseId("TC-ARCH-011")
+    @CaseId("TC-ARCH-012")
     @org.junit.jupiter.api.DisplayName("★ 规则自检：审计仓储不得存在改删方法的规则必须拦住 deleteById")
     void 规则自检_审计不可篡改规则必须生效() {
         var classes = compileProbe("com.erp.sys.repository.BadAuditRepositoryProbe", """
@@ -913,7 +913,7 @@ class ArchitectureTest {
      * 合法写法不被误伤，非法写法不被放过。
      */
     @org.junit.jupiter.api.Test
-    @CaseId("TC-ARCH-012")
+    @CaseId("TC-ARCH-013")
     @org.junit.jupiter.api.DisplayName("★ 规则自检（反向）：只有 insert 的审计仓储必须通过不可篡改规则")
     void 规则自检_审计不可篡改规则不得误伤纯追加仓储() {
         var classes = compileProbe("com.erp.sys.repository.GoodAuditRepositoryProbe", """
@@ -944,7 +944,7 @@ class ArchitectureTest {
      * 若规则把 {@code shared} 也算违规，实现者只能复制一套错误码 —— 那才是灾难。
      */
     @org.junit.jupiter.api.Test
-    @CaseId("TC-ARCH-013")
+    @CaseId("TC-ARCH-014")
     @org.junit.jupiter.api.DisplayName("★ 规则自检（反向）：sys 依赖 shared 必须合法")
     void 规则自检_审计模块隔离规则不得误伤shared依赖() {
         var classes = compileProbe("com.erp.sys.application.GoodSharedDependencyProbe", """
