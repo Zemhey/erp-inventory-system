@@ -39,6 +39,8 @@ tags:
     description: 自然语言操作（意图解析 + 调度既有业务服务，FR-SYS-04）
   - name: cst
     description: 成本与毛利（移动加权成本 / 月结转 / 毛利分析）
+  - name: sys
+    description: 审计与可观测（审计查询 / 字典，FR-SYS-06~09，全部只读）
 
 paths:
   # ─────────────────────────── MDM ───────────────────────────
@@ -1879,6 +1881,209 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
 
+  # ─────────────────────────── SYS · 审计与可观测（V2-5 追加式） ───────────────────────────
+  /audits:
+    get:
+      tags: [sys]
+      summary: 审计查询（FR-SYS-07，按人/单据/时间/操作类型，只读）
+      description: |
+        - **只读**：审计表是追加型的，本资源<b>只有 GET</b>；对任何写方法返回 405
+          （不会反过来往审计表里写一行）。
+        - **四个查询维度可任意组合**：`actorId`/`actorName`（按人）、`bizRefNo`（按单据）、
+          `from`/`to`（按时间，**半开区间 [from, to)**）、`action`/`result`（按操作类型与结果）。
+        - **时间区间倒置**（`from >= to`）返回 `400 SYS_AUDIT_QUERY_INVALID`，
+          而不是静默返回空列表 —— 后者会让人误以为"那天没有操作"。
+        - 非法 `action` / `result` 取值同样返回 400，不返回 500。
+        - **只读接口不需要 `X-Request-Id`**。权限：`sys:read`（ADMIN / VIEWER / FINANCE）。
+        - 数据权限（能否看别人的审计）属 V2-6，本期不做。
+      operationId: listAudits
+      parameters:
+        - name: actorId
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: actorName
+          in: query
+          schema: { type: string, maxLength: 64 }
+        - name: action
+          in: query
+          description: 审计动作枚举（以 AuditAction 为准）
+          schema: { type: string }
+        - name: resourceType
+          in: query
+          schema: { type: string, maxLength: 64 }
+        - name: resourceId
+          in: query
+          schema: { type: string, maxLength: 64 }
+        - name: bizRefNo
+          in: query
+          description: 业务单据号（如 PO20250601-0001）
+          schema: { type: string, maxLength: 64 }
+        - name: result
+          in: query
+          schema: { type: string, enum: [SUCCESS, FAIL] }
+        - name: from
+          in: query
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          description: 上界**不含**（半开区间），便于按天查询不漏最后一毫秒
+          schema: { type: string, format: date-time }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: 审计分页列表（按 occurredAt 倒序）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiPageResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/AuditLog' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+        '403':
+          description: 缺少 sys:read 权限（IAM_FORBIDDEN）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+  /audits/{id}:
+    get:
+      tags: [sys]
+      summary: 审计详情（FR-SYS-07）
+      operationId: getAudit
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: 单条审计
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/AuditLog' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /audits/timeline:
+    get:
+      tags: [sys]
+      summary: 某张业务单据的审计轨迹（FR-SYS-07，按时间正序）
+      description: |
+        拿一个单号回答"这张单谁建的、谁审的、谁改的"。
+        **正序**返回（建单在前），与列表默认的倒序不同 —— 读一张单的经历时人是从头看的。
+      operationId: auditTimeline
+      parameters:
+        - name: bizRefNo
+          in: query
+          required: true
+          schema: { type: string, maxLength: 64 }
+      responses:
+        '200':
+          description: 该单据的审计轨迹
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/AuditLog' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /audits/by-trace:
+    get:
+      tags: [sys]
+      summary: 按 traceId 取该请求产生的全部审计（FR-SYS-08 贯穿性的落库侧证据）
+      operationId: auditByTrace
+      parameters:
+        - name: traceId
+          in: query
+          required: true
+          schema: { type: string, maxLength: 64 }
+      responses:
+        '200':
+          description: 该 traceId 的全部审计
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/AuditLog' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /dicts:
+    get:
+      tags: [sys]
+      summary: 字典类型列表（只读）
+      description: 本期字典只读：种子由 Flyway 迁移写入，维护界面与权限留到 V2-7。
+      operationId: listDictTypes
+      parameters:
+        - name: onlyEnabled
+          in: query
+          schema: { type: boolean, default: true }
+      responses:
+        '200':
+          description: 字典类型列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/DictType' }
+        '403':
+          description: 缺少 sys:read 权限（IAM_FORBIDDEN）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+  /dicts/{typeCode}/items:
+    get:
+      tags: [sys]
+      summary: 某类型的字典项（按 sortNo 升序）
+      operationId: listDictItems
+      parameters:
+        - name: typeCode
+          in: path
+          required: true
+          schema: { type: string, maxLength: 64 }
+        - name: onlyEnabled
+          in: query
+          schema: { type: boolean, default: true }
+      responses:
+        '200':
+          description: 字典项列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/DictItem' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
 components:
   parameters:
     RequestId:
@@ -3023,3 +3228,79 @@ components:
             properties:
               payableId: { type: integer, format: int64 }
               amount: { type: integer, format: int64 }
+
+    # ─────────────────────────── SYS · 审计与可观测（V2-5 追加式） ───────────────────────────
+
+    AuditLog:
+      type: object
+      description: |
+        一条操作审计（FR-SYS-06）。审计表是**追加型**的：没有 updated_at，
+        数据库触发器拒绝任何 UPDATE/DELETE —— 写入后<b>不可篡改</b>。
+      required: [id, action, resourceType, occurredAt, result]
+      properties:
+        id: { type: integer, format: int64 }
+        actorId:
+          type: integer
+          format: int64
+          description: 操作者 id；匿名操作（如登录失败）为 null
+        actorName: { type: string, nullable: true, example: purchase_admin }
+        action:
+          type: string
+          description: |
+            动作语义（按**路径语义**归类，不是 HTTP 方法）：
+            `POST /products/42/disable` 是 `DISABLE` 而不是 `CREATE`。
+          enum: [CREATE, UPDATE, DELETE, DISABLE, SUBMIT, APPROVE, REJECT, VOID,
+                 RECEIVE, SHIP, RESERVE, RELEASE, SETTLE_DAILY, SETTLE_MONTHLY,
+                 LOGIN, COMMAND, OTHER]
+        resourceType: { type: string, example: PURCHASE_ORDER }
+        resourceId: { type: string, nullable: true, example: "42" }
+        bizRefNo:
+          type: string
+          nullable: true
+          description: 业务单据号，按单据追溯"这张单被谁动过"的入口
+          example: PO20250601-0001
+        beforeJson:
+          type: string
+          nullable: true
+          description: |
+            变更前字段值快照（JSON 文本）。取自该资源**上一次成功审计的 after_json**，
+            因此历史快照片段首尾相接、可沿链回溯。首次创建为 null（如实表达"之前不存在"）。
+            敏感字段（password/token/secret/apiKey）已脱敏为 `***`。
+        afterJson:
+          type: string
+          nullable: true
+          description: 变更后字段值快照（取自本次响应 data）。超大响应不记录（null），不截断。
+        traceId:
+          type: string
+          nullable: true
+          description: 与请求头 X-Trace-Id / MDC / 响应头同值
+        ip: { type: string, nullable: true }
+        occurredAt: { type: string, format: date-time }
+        result: { type: string, enum: [SUCCESS, FAIL] }
+        errorCode:
+          type: string
+          nullable: true
+          description: 失败时的业务错误码（与 ApiError.code 一致，不是编造的）
+          example: SYS_NOT_FOUND
+
+    DictType:
+      type: object
+      required: [id, code, name, enabled]
+      properties:
+        id: { type: integer, format: int64 }
+        code: { type: string, example: COLOR }
+        name: { type: string, example: 颜色 }
+        description: { type: string, nullable: true }
+        enabled: { type: boolean, example: true }
+
+    DictItem:
+      type: object
+      required: [id, typeCode, code, label, sortNo, enabled]
+      properties:
+        id: { type: integer, format: int64 }
+        typeCode: { type: string, example: COLOR }
+        code: { type: string, example: BLACK }
+        label: { type: string, example: 黑色 }
+        sortNo: { type: integer, example: 10 }
+        enabled: { type: boolean, example: true }
+

@@ -110,7 +110,17 @@ public enum ErrorCode {
     /** 意图已识别，但参数缺失/类型非法/枚举取值非法。 */
     NL_COMMAND_INVALID_ARGUMENT(400),
     /** 配置为真实 LLM 但解析器不可用：key 缺失、网络/超时、上游响应非法。 */
-    NL_PARSER_UNAVAILABLE(503);
+    NL_PARSER_UNAVAILABLE(503),
+
+    // ── 审计与可观测（V2-5 / FR-SYS-06~09）──
+    // ★ 只追加在末尾，不重排任何既有码：本批多条泳道同时改本文件，
+    //   只有"纯追加"git 才能自动合并（见 .plan/V2-5-计划书.md §2.3）。
+    /** 审计记录不存在（按 id 查）。 */
+    SYS_AUDIT_NOT_FOUND(404),
+    /** 审计查询条件非法（时间区间倒置、单据号为空等）。 */
+    SYS_AUDIT_QUERY_INVALID(400),
+    /** 字典类型不存在。 */
+    SYS_DICT_TYPE_NOT_FOUND(404);
 
     private final int httpStatus;
 

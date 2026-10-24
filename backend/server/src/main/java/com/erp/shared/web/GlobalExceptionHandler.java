@@ -153,6 +153,26 @@ public class GlobalExceptionHandler {
                 null, traceId));
     }
 
+    /**
+     * 请求方法不被该路径支持（例如对只读的 {@code GET /audits} 发 POST）。
+     *
+     * <p><b>为什么必须单独处理</b>：Spring 抛 {@code HttpRequestMethodNotSupportedException}
+     * 时若不拦，会落到下面的 {@code Exception} 兜底分支 —— 客户端用错方法
+     * 却被报成 <b>500 服务器内部错误</b>。这与本类上面几个 handler 处理的是同一类归因错误：
+     * 4xx 的客户端问题被伪装成服务端故障，既误导排查方向，也污染 5xx 告警与错误率看板。
+     *
+     * <p>V2-5 的审计泳道实测撞到：对只读的审计端点发 POST/DELETE 得到 500。
+     * 契约要求"只读接口不可改"，那么用错方法就应当得到一个明确的 405。
+     */
+    @ExceptionHandler(org.springframework.web.HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<Map<String, Object>> handleMethodNotSupported(Exception ex,
+                                                                        HttpServletRequest request) {
+        String traceId = traceId(request);
+        return ResponseEntity.status(405).body(body("SYS_METHOD_NOT_ALLOWED",
+                "%s 不支持 %s 方法：该资源是只读的".formatted(request.getRequestURI(),
+                        request.getMethod()), null, traceId));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleUnexpected(Exception ex,
                                                                HttpServletRequest request) {

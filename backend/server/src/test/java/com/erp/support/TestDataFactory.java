@@ -97,7 +97,8 @@ public class TestDataFactory {
                          daily_settlements, settlement_periods,
                          document_sequences, idempotency_keys,
                          skus, products, warehouses, suppliers, customers,
-                         app_user_roles, app_users
+                         app_user_roles, app_users,
+                         audit_logs
                 RESTART IDENTITY CASCADE
                 """);
     }
