@@ -357,6 +357,26 @@ paths:
           in: query
           description: 尺码筛选（S/M/L）。**不能叫 size**：`size` 是全项目统一的分页条数参数。
           schema: { type: string }
+        - name: seasonCode
+          in: query
+          description: FR-MDM-08 季节编码精确匹配（`SkuController.java:85`）
+          schema: { type: string }
+        - name: bandCode
+          in: query
+          description: FR-MDM-08 波段编码精确匹配（`SkuController.java:86`）
+          schema: { type: string }
+        - name: launchDateFrom
+          in: query
+          description: 上市日期下界（含）（`SkuController.java:87`）
+          schema: { type: string, format: date }
+        - name: launchDateTo
+          in: query
+          description: 上市日期上界（含）（`SkuController.java:88`）
+          schema: { type: string, format: date }
+        - name: seasonYear
+          in: query
+          description: 上市年份（由 `launchDate` 派生）（`SkuController.java:89`）
+          schema: { type: integer }
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/Size'
       responses:
@@ -1728,10 +1748,15 @@ paths:
             schema: { $ref: '#/components/schemas/PurchaseRequisitionConvertRequest' }
       responses:
         '200':
-          description: 生成的进货单（草稿）
+          description: 生成的进货单（草稿），`ApiResponse` 包裹
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/PurchaseOrder' }
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/PurchaseOrder' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
@@ -3262,7 +3287,7 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/ReceiveRequest' }
+            schema: { $ref: '#/components/schemas/InventoryReceiveRequest' }
       responses:
         '200':
           description: 入库后的余额行
@@ -4896,6 +4921,12 @@ components:
         name: { type: string, example: 上海仓 }
         address: { type: string, nullable: true }
         enabled: { type: boolean, example: true }
+        priority:
+          type: integer
+          minimum: 0
+          description: |
+            拣货优先级，越小越先被自动选仓（`SalesQuoteConvert` / `auto-split` 的分配顺序）。
+            实现在 `WarehouseController.java:108`（`toMap` 的 `m.put("priority", w.priority())`）。
 
     WarehouseCreate:
       type: object
@@ -4905,6 +4936,7 @@ components:
         name: { type: string, minLength: 1, maxLength: 64, example: 上海仓 }
         address: { type: string, maxLength: 200 }
         enabled: { type: boolean, default: true }
+        priority: { type: integer, minimum: 0, description: 省略时按实现默认值（`WarehouseController.java:41` `@Min(0)`） }
 
     WarehouseUpdate:
       type: object
@@ -4913,6 +4945,7 @@ components:
         name: { type: string, minLength: 1, maxLength: 64 }
         address: { type: string, maxLength: 200 }
         enabled: { type: boolean, default: true, description: 省略时后端按 true 处理 }
+        priority: { type: integer, minimum: 0, description: 拣货优先级；省略则保持原值 }
 
     Supplier:
       type: object
@@ -5017,6 +5050,10 @@ components:
           format: int64
           minimum: 0
           description: 零售价（**整数分**，见 ADR-0005）
+        enabled: { type: boolean, default: true, description: 省略时后端按 true 处理（`SkuController.java:54`） }
+        seasonCode: { type: string, maxLength: 32, description: FR-MDM-08 季节编码（`SkuController.java:55` `@Size(max = 32)`） }
+        bandCode: { type: string, maxLength: 32, description: FR-MDM-08 波段编码（`SkuController.java:56` `@Size(max = 32)`） }
+        launchDate: { type: string, format: date, description: 上市日期；`seasonYear` 由它派生（`SkuController.java:57`） }
 
     ReserveRequest:
       type: object
@@ -5245,14 +5282,39 @@ components:
               batchNo: { type: string, maxLength: 64 }
               productionDate: { type: string, format: date }
               expiryDate: { type: string, format: date, description: FEFO 依据 }
+              qcQty: { type: integer, minimum: 0, description: 质检合格量（`PurchaseOrderController.java:141` `@Min(0)`）；省略表示全检合格 }
+              qcNote: { type: string, maxLength: 500, description: 质检备注（`PurchaseOrderController.java:142` `@Size(max = 500)`） }
+
+    InventoryReceiveRequest:
+      type: object
+      description: |
+        `POST /inventory/receipts` 的**单行**入库请求（内部端点，一次一行）。
+        与 `ReceiveRequest` 不是同一个形状：那个是单据级「一批明细」，这个是「一条库存」。
+        **两者不能共用一张 schema** —— 本仓有两个同名的 `ReceiveRequest` 记录类
+        （`InventoryController.java:138` 与 `PurchaseOrderController.java:142`），
+        V2-C2 之前契约只写了一个，于是 `/inventory/receipts` 一直声明着错误的请求体
+        （多一个 `lines` 数组、少 6 个真实字段）。V2-C3 按实现拆成两张。
+      required: [skuId, warehouseId, qty, bizRefNo]
+      properties:
+        skuId: { type: integer, format: int64 }
+        warehouseId: { type: integer, format: int64 }
+        batchNo: { type: string, description: 省略/空串表示无批次 }
+        productionDate: { type: string, format: date }
+        expiryDate: { type: string, format: date }
+        qty: { type: integer, minimum: 1, description: '`@NotNull @Min(1)`（`InventoryController.java:144`）' }
+        bizRefNo: { type: string, description: '业务引用号，落 `inventory_ledger.biz_ref_no`（`@NotBlank`，`InventoryController.java:145`）' }
+        unitCostAmount: { type: integer, format: int64, description: 单位成本（分）；省略表示按 0 处理 }
 
     PurchaseOrderCreate:
       type: object
-      required: [supplierId, warehouseId, bizDate, lines]
+      required: [supplierId, warehouseId, lines]
+      description: |
+        `bizDate` **不是必填**：省略时实现取 `clock.today()`
+        （`PurchaseOrderApplicationService.java:158`），与 `SalesOrderCreate` 同一套规则。
       properties:
         supplierId: { type: integer, format: int64 }
         warehouseId: { type: integer, format: int64 }
-        bizDate: { type: string, format: date, description: 业务日期（可指定，不依赖系统时间） }
+        bizDate: { type: string, format: date, description: 业务日期；省略时取当天（`PurchaseOrderApplicationService.java:158`） }
         remark: { type: string, maxLength: 500 }
         lines:
           type: array
@@ -5267,28 +5329,40 @@ components:
 
     SalesOrderCreate:
       type: object
-      required: [customerId, warehouseId, bizDate, lines]
+      required: [customerId, warehouseId, lines]
+      description: |
+        `bizDate` **不是必填**：省略时实现取 `clock.today()`
+        （`SalesOrderApplicationService.java:162`）。
       properties:
         customerId: { type: integer, format: int64 }
         warehouseId: { type: integer, format: int64 }
-        bizDate: { type: string, format: date }
+        bizDate: { type: string, format: date, description: 省略时取当天（`SalesOrderApplicationService.java:162`） }
         remark: { type: string, maxLength: 500 }
         lines:
           type: array
           minItems: 1
           items:
             type: object
-            required: [skuId, qty, unitPriceAmount]
+            required: [qty, unitPriceAmount]
+            description: |
+              每行**必须且只能**指定 `skuId` 或 `bundleId` 之一 —— 这条互斥规则由
+              `SalesOrderApplicationService.prepareLines` 在服务层校验（`SYS_VALIDATION_ERROR`），
+              不在 `@NotNull` 里表达，所以契约也不能把它写成 `required: [skuId]`。
             properties:
-              skuId: { type: integer, format: int64 }
+              skuId: { type: integer, format: int64, description: 与 `bundleId` 二选一（`SalesOrderController.java:47`） }
+              bundleId: { type: integer, format: int64, description: 套装行：与 `skuId` 二选一，组件按零售价计价 }
               qty: { type: integer, minimum: 1 }
               unitPriceAmount: { type: integer, format: int64, minimum: 0 }
               discountRate:
                 type: integer
-                minimum: 0
+                minimum: 1
                 maximum: 10000
                 default: 10000
-                description: 折扣率，**整数万分比**（9000 = 9 折），禁止浮点（ADR-0005）
+                description: |
+                  折扣率，**整数万分比**（9000 = 9 折），禁止浮点（ADR-0005）。
+                  实现是 `@Min(1) @Max(10000)`（`SalesOrderController.java:53`）＋服务层
+                  `rate <= 0 || rate > 10000` 兜底（`SalesOrderApplicationService.java:510-513`），
+                  所以下界是 **1** 而不是 0。
 
     SalesOrder:
       type: object
@@ -5549,7 +5623,8 @@ components:
         expiryDate: { type: string, format: date }
         onHandQty: { type: integer, minimum: 0, description: 实存量（不变量 INV-1） }
         reservedQty: { type: integer, minimum: 0, description: 预占量 }
-        availableQty: { type: integer, description: '= onHandQty − reservedQty（不变量 INV-3）' }
+        frozenQty: { type: integer, minimum: 0, description: 冻结量（`InventoryController.toMap:218`；`availableQty` 已扣减它） }
+        availableQty: { type: integer, description: '= onHandQty − reservedQty − frozenQty（不变量 INV-3）' }
 
     InventoryLedgerEntry:
       type: object
@@ -5760,6 +5835,49 @@ components:
             properties:
               lineId: { type: integer, format: int64 }
               qty: { type: integer, minimum: 1 }
+
+    PurchaseOrderLine:
+      type: object
+      description: 进货单明细（含到货/质检进度）。事实源：`PurchaseRequisitionController.orderMap:175-192`。
+      required: [id, lineNo, skuId, qty, receivedQty, qcQty, qcStatus, rejectedQty,
+                 openQty, unitPriceAmount, amount]
+      properties:
+        id: { type: integer, format: int64 }
+        lineNo: { type: integer, minimum: 1 }
+        skuId: { type: integer, format: int64 }
+        qty: { type: integer, minimum: 1 }
+        receivedQty: { type: integer, minimum: 0, description: 已入库量 }
+        qcQty: { type: integer, minimum: 0, description: 质检合格量 }
+        qcStatus: { type: string, description: 质检状态（`QcStatus.name()`，UNCHECKED / PASSED / PARTIAL / FAILED） }
+        qcNote: { type: string, nullable: true }
+        rejectedQty: { type: integer, minimum: 0, description: 质检不合格量 }
+        openQty: { type: integer, minimum: 0, description: 未入库量 = qty - receivedQty }
+        unitPriceAmount: { type: integer, format: int64, minimum: 0 }
+        amount: { type: integer, format: int64, minimum: 0 }
+
+    PurchaseOrder:
+      type: object
+      description: |
+        进货单（`purchase_orders`）。这张 schema 迟到了：
+        `POST /purchase-requisitions/{id}/convert` 的 200 从 V2-C2 起就 `$ref` 它，
+        但定义一直不存在（悬空引用，V2-C3 补上）。字段以
+        `PurchaseRequisitionController.orderMap:162-195` 的 `put` 键为准 ——
+        转单响应就是这张 Map。
+      required: [id, orderNo, status, supplierId, warehouseId, totalQty, totalAmount, lines]
+      properties:
+        id: { type: integer, format: int64 }
+        orderNo: { type: string, example: PO20261023-0001 }
+        status: { $ref: '#/components/schemas/DocumentStatus' }
+        supplierId: { type: integer, format: int64 }
+        warehouseId: { type: integer, format: int64 }
+        bizDate: { type: string, format: date }
+        totalAmount: { type: integer, format: int64, description: 分 }
+        totalQty: { type: integer }
+        period: { type: string, nullable: true }
+        remark: { type: string, nullable: true }
+        lines:
+          type: array
+          items: { $ref: '#/components/schemas/PurchaseOrderLine' }
 
     PurchaseReceipt:
       type: object
@@ -6379,6 +6497,13 @@ components:
           minimum: 0
           description: 零售价（分）
         enabled: { type: boolean }
+        seasonCode: { type: string, nullable: true, maxLength: 32, description: FR-MDM-08 季节编码（`SkuController.toMap:162`） }
+        bandCode: { type: string, nullable: true, maxLength: 32, description: FR-MDM-08 波段编码（`SkuController.toMap:163`） }
+        launchDate: { type: string, format: date, nullable: true, description: 上市日期（`SkuController.toMap:164`，`LocalDate.toString()`） }
+        seasonYear:
+          type: integer
+          nullable: true
+          description: 上市年份，由 `launchDate` 派生（`SkuController.toMap:165`）；无上市日期时为 null
 
     SkuUpdate:
       type: object
@@ -6389,6 +6514,9 @@ components:
         barcode: { type: string, maxLength: 64 }
         retailPriceAmount: { type: integer, format: int64, minimum: 0 }
         enabled: { type: boolean }
+        seasonCode: { type: string, maxLength: 32 }
+        bandCode: { type: string, maxLength: 32 }
+        launchDate: { type: string, format: date }
 
     SkuMatrixCreate:
       type: object
@@ -6556,10 +6684,12 @@ components:
           minItems: 1
           items:
             type: object
-            required: [qty]
+            required: [qty, unitPriceAmount]
             description: |
               每行**必须且只能**指定 `skuId` 或 `bundleId` 之一：
               两者都给或都不给 → `SYS_VALIDATION_ERROR`（"每行必须且只能指定 skuId 或 bundleId 之一"）
+              `unitPriceAmount` 与 `SalesOrderCreate` 共用同一个 `LineRequest`，
+              带 `@NotNull @Min(0)`（`SalesOrderController.java:50`），所以**套装行也要给**（给 0 即可）。
             properties:
               skuId: { type: integer, format: int64, description: 单品行 }
               bundleId:
