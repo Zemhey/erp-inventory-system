@@ -216,6 +216,38 @@ ORDER BY 1;
 DELETE FROM return_order_lines WHERE order_id IN (SELECT id FROM e2e_ro);
 DELETE FROM return_orders WHERE id IN (SELECT id FROM e2e_ro);
 
+-- V2-3 销售闭环：发货/应收/报价/套装都引用 sales_orders 与其行，必须先于出货/进货删除。
+DELETE FROM shipment_lines
+ WHERE sales_order_line_id IN (SELECT id FROM sales_order_lines WHERE order_id IN (SELECT id FROM e2e_so))
+    OR sku_id IN (SELECT id FROM e2e_skus);
+DELETE FROM so_shipments
+ WHERE sales_order_id IN (SELECT id FROM e2e_so)
+    OR warehouse_id IN (SELECT id FROM e2e_warehouses)
+    OR plan_id IN (SELECT id FROM so_shipment_plans WHERE sales_order_id IN (SELECT id FROM e2e_so));
+DELETE FROM so_shipment_plans WHERE sales_order_id IN (SELECT id FROM e2e_so);
+DELETE FROM receivable_allocations
+ WHERE receipt_id IN (SELECT id FROM customer_receipts WHERE customer_id IN (SELECT id FROM e2e_customers))
+    OR receivable_id IN (SELECT id FROM customer_receivables
+                          WHERE customer_id IN (SELECT id FROM e2e_customers)
+                             OR sales_order_id IN (SELECT id FROM e2e_so));
+DELETE FROM customer_receivables
+ WHERE customer_id IN (SELECT id FROM e2e_customers) OR sales_order_id IN (SELECT id FROM e2e_so);
+DELETE FROM customer_receipts WHERE customer_id IN (SELECT id FROM e2e_customers);
+DELETE FROM customer_credit_snapshots
+ WHERE customer_id IN (SELECT id FROM e2e_customers) OR sales_order_id IN (SELECT id FROM e2e_so);
+DELETE FROM sales_quote_lines
+ WHERE quote_id IN (SELECT id FROM sales_quotes WHERE customer_id IN (SELECT id FROM e2e_customers))
+    OR sku_id IN (SELECT id FROM e2e_skus);
+DELETE FROM sales_quotes
+ WHERE customer_id IN (SELECT id FROM e2e_customers)
+    OR converted_order_id IN (SELECT id FROM e2e_so);
+DELETE FROM bundle_items
+ WHERE component_sku_id IN (SELECT id FROM e2e_skus)
+    OR bundle_id IN (SELECT i.bundle_id FROM bundle_items i
+                      WHERE i.component_sku_id IN (SELECT id FROM e2e_skus));
+DELETE FROM product_bundles
+ WHERE id IN (SELECT bundle_id FROM bundle_items WHERE component_sku_id IN (SELECT id FROM e2e_skus));
+
 DELETE FROM sales_order_line_reservations
  WHERE line_id IN (SELECT id FROM sales_order_lines WHERE order_id IN (SELECT id FROM e2e_so));
 DELETE FROM sales_order_lines WHERE order_id IN (SELECT id FROM e2e_so);
@@ -240,28 +272,19 @@ DELETE FROM purchase_orders WHERE id IN (SELECT id FROM e2e_po);
 DELETE FROM daily_settlements WHERE id IN (SELECT id FROM e2e_daily);
 DELETE FROM settlement_periods WHERE period IN (SELECT period FROM e2e_periods);
 
--- 取号行不是业务数据，但也会变化；只有当天已无任何单据时才删（避免重置后撞号）
+-- 取号行不是业务数据，但会计入基线核对。波 A 之后前缀远不止 PO/SO/RO
+-- （TO/ST/AJ/PR/GR/AP/PY/RT/QT/SH/RC…），逐个列举一定会漏；改为
+-- "本轮触碰过的日期 + 今天，且当天已无任何单据" 时通配删除。
 DELETE FROM document_sequences ds
- WHERE ds.doc_prefix = 'PO'
-   AND ds.day_key IN (SELECT to_char(biz_date, 'YYYYMMDD') FROM e2e_po)
-   AND NOT EXISTS (
-     SELECT 1 FROM purchase_orders po
-      WHERE to_char(po.biz_date, 'YYYYMMDD') = ds.day_key
-   );
-DELETE FROM document_sequences ds
- WHERE ds.doc_prefix = 'SO'
-   AND ds.day_key IN (SELECT to_char(biz_date, 'YYYYMMDD') FROM e2e_so)
-   AND NOT EXISTS (
-     SELECT 1 FROM sales_orders so
-      WHERE to_char(so.biz_date, 'YYYYMMDD') = ds.day_key
-   );
-DELETE FROM document_sequences ds
- WHERE ds.doc_prefix = 'RO'
-   AND ds.day_key IN (SELECT to_char(biz_date, 'YYYYMMDD') FROM e2e_ro)
-   AND NOT EXISTS (
-     SELECT 1 FROM return_orders ro
-      WHERE to_char(ro.biz_date, 'YYYYMMDD') = ds.day_key
-   );
+ WHERE ds.day_key IN (
+     SELECT to_char(biz_date, 'YYYYMMDD') FROM e2e_po
+     UNION SELECT to_char(biz_date, 'YYYYMMDD') FROM e2e_so
+     UNION SELECT to_char(biz_date, 'YYYYMMDD') FROM e2e_ro
+     UNION SELECT to_char(CURRENT_DATE, 'YYYYMMDD')
+   )
+   AND NOT EXISTS (SELECT 1 FROM purchase_orders po WHERE to_char(po.biz_date, 'YYYYMMDD') = ds.day_key)
+   AND NOT EXISTS (SELECT 1 FROM sales_orders so WHERE to_char(so.biz_date, 'YYYYMMDD') = ds.day_key)
+   AND NOT EXISTS (SELECT 1 FROM return_orders ro WHERE to_char(ro.biz_date, 'YYYYMMDD') = ds.day_key);
 
 DELETE FROM inventory_ledger
  WHERE sku_id IN (SELECT id FROM e2e_skus)

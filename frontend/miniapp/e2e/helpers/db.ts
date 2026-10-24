@@ -256,6 +256,38 @@ UNION ALL SELECT 'reservations', count(*) FROM e2e_reservations
 UNION ALL SELECT 'balances', count(*) FROM e2e_balances
 ORDER BY 1;
 
+-- V2-3 销售闭环：发货/应收/报价/套装都引用 sales_orders 与其行，必须先于出货/进货删除。
+DELETE FROM shipment_lines
+ WHERE sales_order_line_id IN (SELECT id FROM sales_order_lines WHERE order_id IN (SELECT id FROM e2e_so))
+    OR sku_id IN (SELECT id FROM e2e_skus);
+DELETE FROM so_shipments
+ WHERE sales_order_id IN (SELECT id FROM e2e_so)
+    OR warehouse_id IN (SELECT id FROM e2e_warehouses)
+    OR plan_id IN (SELECT id FROM so_shipment_plans WHERE sales_order_id IN (SELECT id FROM e2e_so));
+DELETE FROM so_shipment_plans WHERE sales_order_id IN (SELECT id FROM e2e_so);
+DELETE FROM receivable_allocations
+ WHERE receipt_id IN (SELECT id FROM customer_receipts WHERE customer_id IN (SELECT id FROM e2e_customers))
+    OR receivable_id IN (SELECT id FROM customer_receivables
+                          WHERE customer_id IN (SELECT id FROM e2e_customers)
+                             OR sales_order_id IN (SELECT id FROM e2e_so));
+DELETE FROM customer_receivables
+ WHERE customer_id IN (SELECT id FROM e2e_customers) OR sales_order_id IN (SELECT id FROM e2e_so);
+DELETE FROM customer_receipts WHERE customer_id IN (SELECT id FROM e2e_customers);
+DELETE FROM customer_credit_snapshots
+ WHERE customer_id IN (SELECT id FROM e2e_customers) OR sales_order_id IN (SELECT id FROM e2e_so);
+DELETE FROM sales_quote_lines
+ WHERE quote_id IN (SELECT id FROM sales_quotes WHERE customer_id IN (SELECT id FROM e2e_customers))
+    OR sku_id IN (SELECT id FROM e2e_skus);
+DELETE FROM sales_quotes
+ WHERE customer_id IN (SELECT id FROM e2e_customers)
+    OR converted_order_id IN (SELECT id FROM e2e_so);
+DELETE FROM bundle_items
+ WHERE component_sku_id IN (SELECT id FROM e2e_skus)
+    OR bundle_id IN (SELECT i.bundle_id FROM bundle_items i
+                      WHERE i.component_sku_id IN (SELECT id FROM e2e_skus));
+DELETE FROM product_bundles
+ WHERE id IN (SELECT bundle_id FROM bundle_items WHERE component_sku_id IN (SELECT id FROM e2e_skus));
+
 DELETE FROM sales_order_line_reservations
  WHERE line_id IN (SELECT id FROM sales_order_lines WHERE order_id IN (SELECT id FROM e2e_so));
 DELETE FROM sales_order_lines WHERE order_id IN (SELECT id FROM e2e_so);
