@@ -81,7 +81,7 @@ public class WarehouseRepository {
         String sql = """
                 SELECT id, code, name, address, enabled, priority
                   FROM warehouses
-                """ + (onlyEnabled ? " WHERE enabled" : "") + " ORDER BY priority, id";
+                """ + (onlyEnabled ? " WHERE enabled" : "") + " ORDER BY priority DESC, id";
         return jdbc.query(sql, MAPPER);
     }
 
@@ -101,12 +101,12 @@ public class WarehouseRepository {
                 """, name, address, enabled, priority, id) == 1;
     }
 
-    /** 启用的仓库按发货优先级排序（FR-SAL-11）：数值越小越优先。 */
+    /** 启用的仓库按发货优先级排序（FR-SAL-11）：与 V9 一致，数值越大越优先。 */
     public List<Warehouse> findEnabledByPriority() {
         return jdbc.query("""
                 SELECT id, code, name, address, enabled, priority
                   FROM warehouses WHERE enabled
-                 ORDER BY priority, id
+                 ORDER BY priority DESC, id
                 """, MAPPER);
     }
 

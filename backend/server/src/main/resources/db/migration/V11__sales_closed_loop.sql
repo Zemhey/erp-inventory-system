@@ -23,8 +23,8 @@
 ALTER TABLE warehouses
     ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 100;
 COMMENT ON COLUMN warehouses.priority IS
-    '发货选仓优先级：数值越小越优先（默认 100）。与 V9 双保险，谁先合谁建';
-CREATE INDEX IF NOT EXISTS idx_warehouse_priority ON warehouses (priority, id);
+    '仓库优先级：数值越大越优先（FR-INV-12 预警/补货 + FR-SAL-11 发货选仓共用）。与 V9 双保险，谁先合谁建';
+CREATE INDEX IF NOT EXISTS idx_warehouse_priority ON warehouses (priority DESC, id);
 
 ALTER TABLE customers
     ADD COLUMN credit_limit BIGINT NOT NULL DEFAULT 0
