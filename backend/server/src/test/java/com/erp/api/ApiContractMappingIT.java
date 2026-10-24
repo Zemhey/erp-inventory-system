@@ -71,98 +71,51 @@ class ApiContractMappingIT extends PostgresTestBase {
     private static final Map<String, String> UNDOCUMENTED_DEBT = new LinkedHashMap<>();
 
     static {
-        // 认证：M1 才引入 IAM，契约尚未补
-        UNDOCUMENTED_DEBT.put("POST /api/v1/auth/login", "IAM 契约待补");
-        UNDOCUMENTED_DEBT.put("GET /api/v1/auth/me", "IAM 契约待补");
-
-        // 库存内部能力：M0/M1 为联调与校验暴露
-        UNDOCUMENTED_DEBT.put("POST /api/v1/inventory/receipts", "内部控制端点，待决定是否对外");
-        UNDOCUMENTED_DEBT.put("POST /api/v1/inventory/shipments", "内部控制端点，待决定是否对外");
-        UNDOCUMENTED_DEBT.put("GET /api/v1/inventory/consistency-check", "运维/对账端点，待补契约");
-
-        // 主数据：CRUD 的更新/停用/详情
-        UNDOCUMENTED_DEBT.put("PUT /api/v1/products/{}", "商品更新，契约待补");
-        UNDOCUMENTED_DEBT.put("POST /api/v1/products/{}/disable", "商品停用，契约待补");
-        UNDOCUMENTED_DEBT.put("GET /api/v1/skus/{}", "SKU 详情，契约待补");
-        UNDOCUMENTED_DEBT.put("POST /api/v1/skus/matrix", "SKU 矩阵生成，契约待补");
-        UNDOCUMENTED_DEBT.put("PUT /api/v1/skus/{}", "SKU 更新，契约待补");
-        UNDOCUMENTED_DEBT.put("POST /api/v1/skus/{}/disable", "SKU 停用，契约待补");
-
-        // 单据工作流动作：M1 实现，契约只写了 receive/ship/void
-        UNDOCUMENTED_DEBT.put("POST /api/v1/purchase-orders/{}/submit", "进货工作流，契约待补");
-        UNDOCUMENTED_DEBT.put("POST /api/v1/purchase-orders/{}/approve", "进货工作流，契约待补");
-        UNDOCUMENTED_DEBT.put("POST /api/v1/purchase-orders/{}/reject", "进货工作流，契约待补");
-        UNDOCUMENTED_DEBT.put("GET /api/v1/sales-orders/{}", "出货单详情，契约待补");
-        UNDOCUMENTED_DEBT.put("POST /api/v1/sales-orders/{}/submit", "出货工作流，契约待补");
-        UNDOCUMENTED_DEBT.put("POST /api/v1/sales-orders/{}/approve", "出货工作流，契约待补");
-        UNDOCUMENTED_DEBT.put("POST /api/v1/sales-orders/{}/reject", "出货工作流，契约待补");
+        // ══ 2026-10-24「契约清偿」批已清零 43 条（legacy 17 + V2-6 26）══
+        // 它们全部写进 openapi.yaml，契约 90 → 133，与实现侧一一对应。
+        // 明细见 .plan/契约清偿-报告.md（差集输出 + 三向交叉验证）。
+        //
+        // ★ 保持空集是新的 DoD（ADR-0008「OpenAPI 是单一接口事实源」）：
+        //   新增实现接口必须【直接改契约】，不允许再往这里加条目。
+        //   这 43 条的成因是"一次登记合理，5 条泳道各自登记 = 欠账复利"——
+        //   所以这里刻意不留任何豁免。
+        //
+        // ★ 唯一例外：V2-3 销售闭环的 28 个端点。该泳道在契约清偿【之后】才合并
+        //   （时序问题，非设计问题），其端点尚未落入契约。按同样纪律临时登记，
+        //   待「契约清偿 2」写入后必须整段删除。
 
         // ── V2-3 销售闭环（feat/v23-sal-loop）──
-        // 本泳道不是契约 owner：以下条目仅为本地门禁放行，
+        // 本泳道不是契约 owner：以下条目仅为本地门禁放行。
         // 合并时由清场删除 debt 并把 .plan/V2-3-契约申请.md 落进 openapi.yaml。
-        UNDOCUMENTED_DEBT.put("GET /api/v1/sales-quotes", "V2-3 报价单，合并时由清场删除 debt 并落契约");
-        UNDOCUMENTED_DEBT.put("POST /api/v1/sales-quotes", "V2-3 报价单，合并时由清场删除 debt 并落契约");
-        UNDOCUMENTED_DEBT.put("GET /api/v1/sales-quotes/{}", "V2-3 报价单，合并时由清场删除 debt 并落契约");
-        UNDOCUMENTED_DEBT.put("POST /api/v1/sales-quotes/{}/submit", "V2-3 报价单，合并时由清场删除 debt 并落契约");
-        UNDOCUMENTED_DEBT.put("POST /api/v1/sales-quotes/{}/approve", "V2-3 报价单，合并时由清场删除 debt 并落契约");
-        UNDOCUMENTED_DEBT.put("POST /api/v1/sales-quotes/{}/reject", "V2-3 报价单，合并时由清场删除 debt 并落契约");
-        UNDOCUMENTED_DEBT.put("POST /api/v1/sales-quotes/{}/void", "V2-3 报价单，合并时由清场删除 debt 并落契约");
-        UNDOCUMENTED_DEBT.put("POST /api/v1/sales-quotes/{}/convert", "V2-3 报价转化，合并时由清场删除 debt 并落契约");
-        UNDOCUMENTED_DEBT.put("POST /api/v1/sales-orders/auto-split", "V2-3 自动选仓，合并时由清场删除 debt 并落契约");
-        UNDOCUMENTED_DEBT.put("GET /api/v1/product-bundles", "V2-3 套装，合并时由清场删除 debt 并落契约");
-        UNDOCUMENTED_DEBT.put("POST /api/v1/product-bundles", "V2-3 套装，合并时由清场删除 debt 并落契约");
-        UNDOCUMENTED_DEBT.put("GET /api/v1/product-bundles/{}", "V2-3 套装，合并时由清场删除 debt 并落契约");
-        UNDOCUMENTED_DEBT.put("PUT /api/v1/product-bundles/{}", "V2-3 套装，合并时由清场删除 debt 并落契约");
-        UNDOCUMENTED_DEBT.put("POST /api/v1/product-bundles/{}/disable", "V2-3 套装，合并时由清场删除 debt 并落契约");
-        UNDOCUMENTED_DEBT.put("GET /api/v1/product-bundles/{}/availability", "V2-3 套装可用量，合并时由清场删除 debt 并落契约");
-        UNDOCUMENTED_DEBT.put("GET /api/v1/shipments", "V2-3 发货作业，合并时由清场删除 debt 并落契约");
-        UNDOCUMENTED_DEBT.put("GET /api/v1/shipments/{}", "V2-3 发货作业，合并时由清场删除 debt 并落契约");
-        UNDOCUMENTED_DEBT.put("POST /api/v1/sales-orders/{}/shipments", "V2-3 发货计划，合并时由清场删除 debt 并落契约");
-        UNDOCUMENTED_DEBT.put("POST /api/v1/shipments/{}/scan", "V2-3 扫码，合并时由清场删除 debt 并落契约");
-        UNDOCUMENTED_DEBT.put("POST /api/v1/shipments/{}/confirm", "V2-3 发货确认，合并时由清场删除 debt 并落契约");
-        UNDOCUMENTED_DEBT.put("GET /api/v1/receivables", "V2-3 应收，合并时由清场删除 debt 并落契约");
-        UNDOCUMENTED_DEBT.put("GET /api/v1/receivables/summary", "V2-3 应收，合并时由清场删除 debt 并落契约");
-        UNDOCUMENTED_DEBT.put("GET /api/v1/receivables/{}", "V2-3 应收，合并时由清场删除 debt 并落契约");
-        UNDOCUMENTED_DEBT.put("POST /api/v1/customer-receipts", "V2-3 收款核销，合并时由清场删除 debt 并落契约");
-        UNDOCUMENTED_DEBT.put("GET /api/v1/customer-receipts", "V2-3 收款核销，合并时由清场删除 debt 并落契约");
-        UNDOCUMENTED_DEBT.put("GET /api/v1/customer-receipts/{}", "V2-3 收款核销，合并时由清场删除 debt 并落契约");
-        UNDOCUMENTED_DEBT.put("GET /api/v1/customers/{}/credit", "V2-3 信用，合并时由清场删除 debt 并落契约");
-        UNDOCUMENTED_DEBT.put("PUT /api/v1/customers/{}/credit", "V2-3 信用，合并时由清场删除 debt 并落契约");
-        // ── V2-6 权限深化与审批流 ──
-        // 本泳道**不是契约 owner**（任务书纪律 7）：需要的新端点一律先登记在这里，
-        // 并同时提交一份《契约变更申请单》给契约 owner。契约补齐后这些行必须删除
-        // （本类的第 ③ 段会反向校验清单是否过期）。
-        // 认证：改密 + 登录响应三字段（FR-IAM-06）
-        UNDOCUMENTED_DEBT.put("POST /api/v1/auth/change-password", "V2-6 契约变更申请 · FR-IAM-06");
-        // 用户与角色管理（FR-IAM-05）
-        UNDOCUMENTED_DEBT.put("GET /api/v1/iam/users", "V2-6 契约变更申请 · FR-IAM-05");
-        UNDOCUMENTED_DEBT.put("GET /api/v1/iam/users/{}", "V2-6 契约变更申请 · FR-IAM-05");
-        UNDOCUMENTED_DEBT.put("POST /api/v1/iam/users", "V2-6 契约变更申请 · FR-IAM-05");
-        UNDOCUMENTED_DEBT.put("PUT /api/v1/iam/users/{}/roles", "V2-6 契约变更申请 · FR-IAM-05");
-        UNDOCUMENTED_DEBT.put("POST /api/v1/iam/users/{}/enabled", "V2-6 契约变更申请 · FR-IAM-05");
-        UNDOCUMENTED_DEBT.put("POST /api/v1/iam/users/{}/reset-password", "V2-6 契约变更申请 · FR-IAM-05");
-        UNDOCUMENTED_DEBT.put("GET /api/v1/iam/roles", "V2-6 契约变更申请 · FR-IAM-05");
-        UNDOCUMENTED_DEBT.put("POST /api/v1/iam/roles", "V2-6 契约变更申请 · FR-IAM-05");
-        UNDOCUMENTED_DEBT.put("GET /api/v1/iam/roles/{}/permissions", "V2-6 契约变更申请 · FR-IAM-05");
-        UNDOCUMENTED_DEBT.put("PUT /api/v1/iam/roles/{}/permissions", "V2-6 契约变更申请 · FR-IAM-05");
-        // 数据权限（FR-IAM-04）
-        UNDOCUMENTED_DEBT.put("GET /api/v1/iam/users/{}/data-scopes", "V2-6 契约变更申请 · FR-IAM-04");
-        UNDOCUMENTED_DEBT.put("PUT /api/v1/iam/users/{}/data-scopes", "V2-6 契约变更申请 · FR-IAM-04");
-        UNDOCUMENTED_DEBT.put("GET /api/v1/iam/roles/{}/data-scopes", "V2-6 契约变更申请 · FR-IAM-04");
-        UNDOCUMENTED_DEBT.put("PUT /api/v1/iam/roles/{}/data-scopes", "V2-6 契约变更申请 · FR-IAM-04");
-        // 审批流（FR-APS-01/02、FR-IAM-07）
-        UNDOCUMENTED_DEBT.put("GET /api/v1/approvals", "V2-6 契约变更申请 · FR-APS-02");
-        UNDOCUMENTED_DEBT.put("POST /api/v1/approvals", "V2-6 契约变更申请 · FR-APS-02");
-        UNDOCUMENTED_DEBT.put("GET /api/v1/approvals/{}", "V2-6 契约变更申请 · FR-APS-02");
-        UNDOCUMENTED_DEBT.put("POST /api/v1/approvals/{}/approve", "V2-6 契约变更申请 · FR-APS-02");
-        UNDOCUMENTED_DEBT.put("POST /api/v1/approvals/{}/reject", "V2-6 契约变更申请 · FR-APS-02");
-        UNDOCUMENTED_DEBT.put("POST /api/v1/approvals/{}/withdraw", "V2-6 契约变更申请 · FR-APS-02");
-        UNDOCUMENTED_DEBT.put("POST /api/v1/approvals/{}/transfer", "V2-6 契约变更申请 · FR-APS-02");
-        UNDOCUMENTED_DEBT.put("POST /api/v1/approvals/{}/accept-transfer", "V2-6 契约变更申请 · FR-APS-02");
-        UNDOCUMENTED_DEBT.put("GET /api/v1/approvals/flows", "V2-6 契约变更申请 · FR-APS-01");
-        UNDOCUMENTED_DEBT.put("POST /api/v1/approvals/flows/{}/enabled", "V2-6 契约变更申请 · FR-APS-01");
-        // V2-2 采购闭环：16 个端点已落入 openapi.yaml（2026-10-24），debt 已清偿
-        // V2-4 成本毛利：4 个端点已落入 openapi.yaml（2026-10-24），debt 已清偿
+        UNDOCUMENTED_DEBT.put("GET /api/v1/sales-quotes", "V2-3 报价单，待契约清偿 2");
+        UNDOCUMENTED_DEBT.put("POST /api/v1/sales-quotes", "V2-3 报价单，待契约清偿 2");
+        UNDOCUMENTED_DEBT.put("GET /api/v1/sales-quotes/{}", "V2-3 报价单，待契约清偿 2");
+        UNDOCUMENTED_DEBT.put("POST /api/v1/sales-quotes/{}/submit", "V2-3 报价单，待契约清偿 2");
+        UNDOCUMENTED_DEBT.put("POST /api/v1/sales-quotes/{}/approve", "V2-3 报价单，待契约清偿 2");
+        UNDOCUMENTED_DEBT.put("POST /api/v1/sales-quotes/{}/reject", "V2-3 报价单，待契约清偿 2");
+        UNDOCUMENTED_DEBT.put("POST /api/v1/sales-quotes/{}/void", "V2-3 报价单，待契约清偿 2");
+        UNDOCUMENTED_DEBT.put("POST /api/v1/sales-quotes/{}/convert", "V2-3 报价转化，待契约清偿 2");
+        UNDOCUMENTED_DEBT.put("POST /api/v1/sales-orders/auto-split", "V2-3 自动选仓，待契约清偿 2");
+        UNDOCUMENTED_DEBT.put("GET /api/v1/product-bundles", "V2-3 套装，待契约清偿 2");
+        UNDOCUMENTED_DEBT.put("POST /api/v1/product-bundles", "V2-3 套装，待契约清偿 2");
+        UNDOCUMENTED_DEBT.put("GET /api/v1/product-bundles/{}", "V2-3 套装，待契约清偿 2");
+        UNDOCUMENTED_DEBT.put("PUT /api/v1/product-bundles/{}", "V2-3 套装，待契约清偿 2");
+        UNDOCUMENTED_DEBT.put("POST /api/v1/product-bundles/{}/disable", "V2-3 套装，待契约清偿 2");
+        UNDOCUMENTED_DEBT.put("GET /api/v1/product-bundles/{}/availability", "V2-3 套装可用量，待契约清偿 2");
+        UNDOCUMENTED_DEBT.put("GET /api/v1/shipments", "V2-3 发货作业，待契约清偿 2");
+        UNDOCUMENTED_DEBT.put("GET /api/v1/shipments/{}", "V2-3 发货作业，待契约清偿 2");
+        UNDOCUMENTED_DEBT.put("POST /api/v1/sales-orders/{}/shipments", "V2-3 发货计划，待契约清偿 2");
+        UNDOCUMENTED_DEBT.put("POST /api/v1/shipments/{}/scan", "V2-3 扫码，待契约清偿 2");
+        UNDOCUMENTED_DEBT.put("POST /api/v1/shipments/{}/confirm", "V2-3 发货确认，待契约清偿 2");
+        UNDOCUMENTED_DEBT.put("GET /api/v1/receivables", "V2-3 应收，待契约清偿 2");
+        UNDOCUMENTED_DEBT.put("GET /api/v1/receivables/summary", "V2-3 应收，待契约清偿 2");
+        UNDOCUMENTED_DEBT.put("GET /api/v1/receivables/{}", "V2-3 应收，待契约清偿 2");
+        UNDOCUMENTED_DEBT.put("POST /api/v1/customer-receipts", "V2-3 收款核销，待契约清偿 2");
+        UNDOCUMENTED_DEBT.put("GET /api/v1/customer-receipts", "V2-3 收款核销，待契约清偿 2");
+        UNDOCUMENTED_DEBT.put("GET /api/v1/customer-receipts/{}", "V2-3 收款核销，待契约清偿 2");
+        UNDOCUMENTED_DEBT.put("GET /api/v1/customers/{}/credit", "V2-3 信用，待契约清偿 2");
+        UNDOCUMENTED_DEBT.put("PUT /api/v1/customers/{}/credit", "V2-3 信用，待契约清偿 2");
+        // ══ V2-3 段到此结束，下方不得再新增任何条目 ══
     }
 
     @Autowired
