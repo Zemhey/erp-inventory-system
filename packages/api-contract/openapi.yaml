@@ -37,6 +37,10 @@ tags:
     description: 报表统计
   - name: nl
     description: 自然语言操作（意图解析 + 调度既有业务服务，FR-SYS-04）
+  - name: cst
+    description: 成本与毛利（移动加权成本 / 月结转 / 毛利分析）
+  - name: sys
+    description: 审计与可观测（审计查询 / 字典，FR-SYS-06~09，全部只读）
 
 paths:
   # ─────────────────────────── MDM ───────────────────────────
@@ -464,6 +468,287 @@ paths:
           $ref: '#/components/responses/SingleResponse'
         '404':
           $ref: '#/components/responses/NotFound'
+
+  # ─────────────── INV 作业（V2-1：调拨 / 盘点 / 调整 / 冻结 / 洞察） ───────────────
+
+  /inventory/transfers:
+    get:
+      tags: [inv]
+      summary: 调拨单列表（FR-INV-07）
+      operationId: listInventoryTransfers
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [IN_TRANSIT, COMPLETED] }
+        - name: fromWarehouseId
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: toWarehouseId
+          in: query
+          schema: { type: integer, format: int64 }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          $ref: '#/components/responses/PageResponse'
+    post:
+      tags: [inv]
+      summary: 建调拨单并立即调出（两段式第一段）
+      description: |
+        建单即从源仓扣减实存并转入在途；库存不足整单回滚。
+        守恒（INV-7）：源仓流水 + 在途 + 目的仓流水 == 0。
+      operationId: createInventoryTransfer
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InventoryTransferCreate' }
+      responses:
+        '200':
+          description: 调拨单（duplicate=true 表示幂等命中）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/InventoryTransfer' }
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /inventory/transfers/{id}/receive:
+    post:
+      tags: [inv]
+      summary: 调拨到货（两段式第二段）
+      description: 在途量结清、目的仓实存增加；同键重放返回首次结果。
+      operationId: receiveInventoryTransfer
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /inventory/stocktakes:
+    get:
+      tags: [inv]
+      summary: 盘点单列表（FR-INV-08）
+      operationId: listStocktakes
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [DRAFT, POSTED] }
+        - name: warehouseId
+          in: query
+          schema: { type: integer, format: int64 }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          $ref: '#/components/responses/PageResponse'
+    post:
+      tags: [inv]
+      summary: 建盘点单（快照账面量）
+      operationId: createStocktake
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StocktakeCreate' }
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /inventory/stocktakes/{id}/post:
+    post:
+      tags: [inv]
+      summary: 盘点过账（差异生成 ADJUST_IN/OUT 流水）
+      description: |
+        差异为 0 的行不产生调整流水；整单全部为 0 时返回 `INV_STOCKTAKE_NO_DIFFERENCE`。
+      operationId: postStocktake
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /inventory/adjustments:
+    get:
+      tags: [inv]
+      summary: 库存调整列表（FR-INV-09）
+      operationId: listInventoryAdjustments
+      parameters:
+        - name: skuId
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: warehouseId
+          in: query
+          schema: { type: integer, format: int64 }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          $ref: '#/components/responses/PageResponse'
+    post:
+      tags: [inv]
+      summary: 库存调整（原因必填）
+      operationId: createInventoryAdjustment
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InventoryAdjustmentCreate' }
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '400':
+          description: 原因缺失 / 数量为 0
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /inventory/freezes:
+    get:
+      tags: [inv]
+      summary: 冻结记录列表（FR-INV-10）
+      operationId: listInventoryFreezes
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [ACTIVE, RELEASED, EXPIRED] }
+        - name: skuId
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: warehouseId
+          in: query
+          schema: { type: integer, format: int64 }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          $ref: '#/components/responses/PageResponse'
+    post:
+      tags: [inv]
+      summary: 冻结库存（冻结量不进可用量）
+      operationId: createInventoryFreeze
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InventoryFreezeCreate' }
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /inventory/freezes/{id}/release:
+    post:
+      tags: [inv]
+      summary: 解冻库存（人工）
+      operationId: releaseInventoryFreeze
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /inventory/balance-dimensions:
+    get:
+      tags: [inv]
+      summary: 五维结存查询（仓 × SKU × 批次 × 状态 × 权属，FR-INV-11）
+      description: |
+        每条余额按状态拆成 AVAILABLE / RESERVED / FROZEN 三行；
+        对任一 (仓, SKU, 批次, 权属)，Σ各状态 == totals.onHandQty。
+      operationId: queryBalanceDimensions
+      parameters:
+        - name: skuId
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: warehouseId
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: batchNo
+          in: query
+          schema: { type: string }
+        - name: status
+          in: query
+          schema: { type: string, enum: [AVAILABLE, RESERVED, FROZEN] }
+        - name: ownership
+          in: query
+          schema: { type: string, enum: [SELF], default: SELF }
+      responses:
+        '200':
+          $ref: '#/components/responses/ListResponse'
+
+  /inventory/alerts:
+    get:
+      tags: [inv]
+      summary: 库存预警（安全库存 / 滞销 / 临期，FR-INV-12）
+      description: 临期与滞销边界由服务端注入时钟计算，不接受客户端时间。
+      operationId: queryInventoryAlerts
+      parameters:
+        - name: warehouseId
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: type
+          in: query
+          schema: { type: string, enum: [SAFETY, SLOW_MOVING, EXPIRING] }
+        - name: expiringDays
+          in: query
+          description: 临期阈值（天），默认 30
+          schema: { type: integer, minimum: 0, default: 30 }
+        - name: slowMovingDays
+          in: query
+          description: 滞销阈值（天），默认 90
+          schema: { type: integer, minimum: 0, default: 90 }
+      responses:
+        '200':
+          $ref: '#/components/responses/ListResponse'
+
+  /inventory/replenishment:
+    get:
+      tags: [inv]
+      summary: 补货建议（min/max 阈值档，FR-INV-13）
+      description: |
+        可用量低于 min_level 时建议补到 max_level；
+        同仓同 SKU 已有 APPROVED/PARTIAL 未到货进货行时不重复建议。
+        纯查询、不落表，重复调用结果一致。
+      operationId: queryReplenishment
+      parameters:
+        - name: warehouseId
+          in: query
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          $ref: '#/components/responses/ListResponse'
 
   # ─────────────────────────── PUR ───────────────────────────
   /purchase-orders:
@@ -1224,6 +1509,581 @@ paths:
                     code: NL_PARSER_UNAVAILABLE
                     message: "自然语言解析器不可用：未配置 ERP_NL_API_KEY（erp.nl.parser=openai）"
 
+  # ─────────────────────── 成本与毛利（V2-4） ───────────────────────
+  /cost/recalculate:
+    post:
+      tags: [cst]
+      summary: 全量重算成本层（FR-CST-01，INV-11）
+      operationId: recalculateCost
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: 重算结果；balanced=true 表示 INBOUND == OUTBOUND + ENDING
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/CostRecalculateResult' }
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /cost/monthly:
+    post:
+      tags: [cst]
+      summary: 成本月结（FR-CST-02，幂等）
+      operationId: runCostMonthly
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CostMonthlyRequest' }
+      responses:
+        '200':
+          description: 月结结果；同账期无变化时 duplicate=true
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/CostMonthlyResult' }
+        '400':
+          description: period 非法
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '409':
+          $ref: '#/components/responses/Conflict'
+    get:
+      tags: [cst]
+      summary: 查询成本月结（FR-CST-02）
+      operationId: listCostMonthly
+      parameters:
+        - name: period
+          in: query
+          required: true
+          schema: { type: string, pattern: '^\d{4}-\d{2}$', example: '2026-10' }
+      responses:
+        '200':
+          description: 月结明细
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/CostMonthlyListResult' }
+        '400':
+          description: period 非法
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+  /reports/profit:
+    get:
+      tags: [rpt, cst]
+      summary: 毛利分析（FR-CST-03 / FR-RPT-04）
+      operationId: getProfitReport
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, pattern: '^\d{4}-\d{2}$', example: '2026-10' }
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, pattern: '^\d{4}-\d{2}$', example: '2026-12' }
+        - name: groupBy
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [product, customer, period]
+            default: product
+      responses:
+        '200':
+          description: 按维度聚合的毛利；金额单位分，毛利率为万分比
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/ProfitReportResult' }
+        '400':
+          description: 参数非法（from > to / groupBy 非法 / 格式错误）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+  /purchase-requisitions:
+    get:
+      tags: [pur]
+      summary: 查询请购单
+      operationId: listPurchaseRequisitions
+      parameters:
+        - $ref: '#/components/parameters/StatusFilter'
+        - name: supplierId
+          in: query
+          schema: { type: integer, format: int64 }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200': { $ref: '#/components/responses/PageResponse' }
+    post:
+      tags: [pur]
+      summary: 创建请购单（草稿）
+      operationId: createPurchaseRequisition
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PurchaseRequisitionCreate' }
+      responses:
+        '201': { $ref: '#/components/responses/SingleResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /purchase-requisitions/{id}:
+    get:
+      tags: [pur]
+      summary: 请购单详情
+      operationId: getPurchaseRequisition
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200': { $ref: '#/components/responses/SingleResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /purchase-requisitions/{id}/submit:
+    post:
+      tags: [pur]
+      summary: 提交请购单
+      operationId: submitPurchaseRequisition
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200': { $ref: '#/components/responses/SingleResponse' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /purchase-requisitions/{id}/approve:
+    post:
+      tags: [pur]
+      summary: 审核请购单
+      operationId: approvePurchaseRequisition
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200': { $ref: '#/components/responses/SingleResponse' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /purchase-requisitions/{id}/convert:
+    post:
+      tags: [pur]
+      summary: 请购转采购订单
+      description: |
+        必须覆盖请购单全部明细（行不丢），每行数量 1..申请数量（数量不超）。
+        转化成功后请购单状态 COMPLETED 且不可再改；同 X-Request-Id 重放返回首次订单。
+      operationId: convertPurchaseRequisition
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PurchaseRequisitionConvertRequest' }
+      responses:
+        '200':
+          description: 生成的进货单（草稿）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PurchaseOrder' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /purchase-orders/{id}/receipts:
+    get:
+      tags: [pur]
+      summary: 到货/质检记录
+      operationId: listPurchaseReceipts
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: 到货单列表（按 id 升序）
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/PurchaseReceipt' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /purchase-returns:
+    get:
+      tags: [pur]
+      summary: 查询采购退货单
+      operationId: listPurchaseReturns
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [DRAFT, COMPLETED, VOIDED] }
+        - name: supplierId
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: purchaseOrderId
+          in: query
+          schema: { type: integer, format: int64 }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200': { $ref: '#/components/responses/PageResponse' }
+    post:
+      tags: [pur]
+      summary: 创建采购退货单（草稿，不动库存/应付）
+      operationId: createPurchaseReturn
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PurchaseReturnCreate' }
+      responses:
+        '201': { $ref: '#/components/responses/SingleResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /purchase-returns/{id}:
+    get:
+      tags: [pur]
+      summary: 采购退货单详情
+      operationId: getPurchaseReturn
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200': { $ref: '#/components/responses/SingleResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /purchase-returns/{id}/approve:
+    post:
+      tags: [pur]
+      summary: 执行采购退货（扣库存 + 冲应付）
+      description: |
+        按原到货批次扣减实存并写 `PURCHASE_RETURN` 负流水，同时冲减该到货单应付。
+        库存不足 → INV_NEGATIVE_NOT_ALLOWED；退货超过应付余额 → PUR_RETURN_EXCEED_PAYABLE。
+        同 X-Request-Id 重放返回首次结果，不重复扣减。
+      operationId: approvePurchaseReturn
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200': { $ref: '#/components/responses/SingleResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /purchase-returns/{id}/void:
+    post:
+      tags: [pur]
+      summary: 作废采购退货草稿
+      operationId: voidPurchaseReturn
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200': { $ref: '#/components/responses/SingleResponse' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /supplier-payables:
+    get:
+      tags: [pur]
+      summary: 查询供应商应付单
+      operationId: listSupplierPayables
+      parameters:
+        - name: supplierId
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: status
+          in: query
+          schema: { type: string, enum: [OPEN, PARTIAL, SETTLED] }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200': { $ref: '#/components/responses/PageResponse' }
+
+  /supplier-payables/reconcile:
+    get:
+      tags: [pur]
+      summary: 应付余额与核销守恒核对
+      description: |
+        实时聚合，不读缓存：
+        `balance == purchaseAmount - returnAmount - paidAmount`；
+        `paymentTotal == allocationTotal == paidAmount`。
+      operationId: reconcileSupplierPayables
+      parameters:
+        - name: supplierId
+          in: query
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: 核对结果
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PayableReconcile' }
+
+  /supplier-payables/{id}:
+    get:
+      tags: [pur]
+      summary: 应付单详情（含核销明细）
+      operationId: getSupplierPayable
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200': { $ref: '#/components/responses/SingleResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /supplier-payments:
+    post:
+      tags: [pur]
+      summary: 付款并核销（支持部分核销、多应付、超额拒绝）
+      description: |
+        核销明细合计必须等于付款金额，否则 400 PUR_PAYMENT_AMOUNT_MISMATCH；
+        任一明细超过应付余额 → 409 PUR_PAYMENT_EXCEED_PAYABLE；
+        同 X-Request-Id 重放返回首次核销结果。
+      operationId: createSupplierPayment
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SupplierPaymentRequest' }
+      responses:
+        '201':
+          description: 付款与核销结果
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SupplierPaymentResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  # ─────────────────────────── SYS · 审计与可观测（V2-5 追加式） ───────────────────────────
+  /audits:
+    get:
+      tags: [sys]
+      summary: 审计查询（FR-SYS-07，按人/单据/时间/操作类型，只读）
+      description: |
+        - **只读**：审计表是追加型的，本资源<b>只有 GET</b>；对任何写方法返回 405
+          （不会反过来往审计表里写一行）。
+        - **四个查询维度可任意组合**：`actorId`/`actorName`（按人）、`bizRefNo`（按单据）、
+          `from`/`to`（按时间，**半开区间 [from, to)**）、`action`/`result`（按操作类型与结果）。
+        - **时间区间倒置**（`from >= to`）返回 `400 SYS_AUDIT_QUERY_INVALID`，
+          而不是静默返回空列表 —— 后者会让人误以为"那天没有操作"。
+        - 非法 `action` / `result` 取值同样返回 400，不返回 500。
+        - **只读接口不需要 `X-Request-Id`**。权限：`sys:read`（ADMIN / VIEWER / FINANCE）。
+        - 数据权限（能否看别人的审计）属 V2-6，本期不做。
+      operationId: listAudits
+      parameters:
+        - name: actorId
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: actorName
+          in: query
+          schema: { type: string, maxLength: 64 }
+        - name: action
+          in: query
+          description: 审计动作枚举（以 AuditAction 为准）
+          schema: { type: string }
+        - name: resourceType
+          in: query
+          schema: { type: string, maxLength: 64 }
+        - name: resourceId
+          in: query
+          schema: { type: string, maxLength: 64 }
+        - name: bizRefNo
+          in: query
+          description: 业务单据号（如 PO20250601-0001）
+          schema: { type: string, maxLength: 64 }
+        - name: result
+          in: query
+          schema: { type: string, enum: [SUCCESS, FAIL] }
+        - name: from
+          in: query
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          description: 上界**不含**（半开区间），便于按天查询不漏最后一毫秒
+          schema: { type: string, format: date-time }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: 审计分页列表（按 occurredAt 倒序）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiPageResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/AuditLog' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+        '403':
+          description: 缺少 sys:read 权限（IAM_FORBIDDEN）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+  /audits/{id}:
+    get:
+      tags: [sys]
+      summary: 审计详情（FR-SYS-07）
+      operationId: getAudit
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: 单条审计
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/AuditLog' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /audits/timeline:
+    get:
+      tags: [sys]
+      summary: 某张业务单据的审计轨迹（FR-SYS-07，按时间正序）
+      description: |
+        拿一个单号回答"这张单谁建的、谁审的、谁改的"。
+        **正序**返回（建单在前），与列表默认的倒序不同 —— 读一张单的经历时人是从头看的。
+      operationId: auditTimeline
+      parameters:
+        - name: bizRefNo
+          in: query
+          required: true
+          schema: { type: string, maxLength: 64 }
+      responses:
+        '200':
+          description: 该单据的审计轨迹
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/AuditLog' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /audits/by-trace:
+    get:
+      tags: [sys]
+      summary: 按 traceId 取该请求产生的全部审计（FR-SYS-08 贯穿性的落库侧证据）
+      operationId: auditByTrace
+      parameters:
+        - name: traceId
+          in: query
+          required: true
+          schema: { type: string, maxLength: 64 }
+      responses:
+        '200':
+          description: 该 traceId 的全部审计
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/AuditLog' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /dicts:
+    get:
+      tags: [sys]
+      summary: 字典类型列表（只读）
+      description: 本期字典只读：种子由 Flyway 迁移写入，维护界面与权限留到 V2-7。
+      operationId: listDictTypes
+      parameters:
+        - name: onlyEnabled
+          in: query
+          schema: { type: boolean, default: true }
+      responses:
+        '200':
+          description: 字典类型列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/DictType' }
+        '403':
+          description: 缺少 sys:read 权限（IAM_FORBIDDEN）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+  /dicts/{typeCode}/items:
+    get:
+      tags: [sys]
+      summary: 某类型的字典项（按 sortNo 升序）
+      operationId: listDictItems
+      parameters:
+        - name: typeCode
+          in: path
+          required: true
+          schema: { type: string, maxLength: 64 }
+        - name: onlyEnabled
+          in: query
+          schema: { type: boolean, default: true }
+      responses:
+        '200':
+          description: 字典项列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/DictItem' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
 components:
   parameters:
     RequestId:
@@ -1277,6 +2137,12 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ApiError' }
+    BadRequest:
+      description: 参数/状态校验失败
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+
     ReturnOrderResponse:
       description: 退货单响应
       content:
@@ -1493,6 +2359,193 @@ components:
         onHandQty: { type: integer, description: 预占后实存 }
         availableQty: { type: integer, description: 预占后可用量 }
         duplicate: { type: boolean, description: true 表示幂等命中，未产生新变动 }
+
+    InventoryTransferCreate:
+      type: object
+      required: [fromWarehouseId, toWarehouseId, lines]
+      properties:
+        fromWarehouseId: { type: integer, format: int64 }
+        toWarehouseId: { type: integer, format: int64, description: 必须与调出仓不同 }
+        bizDate: { type: string, format: date, description: 省略时取服务端业务日期（ClockProvider） }
+        remark: { type: string, maxLength: 500 }
+        lines:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [skuId, qty]
+            properties:
+              skuId: { type: integer, format: int64 }
+              batchNo: { type: string, maxLength: 64, default: '' }
+              qty: { type: integer, minimum: 1 }
+              unitCostAmount: { type: integer, format: int64, minimum: 0 }
+
+    InventoryTransfer:
+      type: object
+      required: [id, transferNo, fromWarehouseId, toWarehouseId, status, lines]
+      properties:
+        id: { type: integer, format: int64 }
+        transferNo: { type: string, example: TO20261024-0001 }
+        fromWarehouseId: { type: integer, format: int64 }
+        toWarehouseId: { type: integer, format: int64 }
+        status: { type: string, enum: [IN_TRANSIT, COMPLETED] }
+        bizDate: { type: string, format: date }
+        remark: { type: string, nullable: true }
+        inTransitQty: { type: integer, description: 仍在途的数量（INV-7 的在途项） }
+        receivedAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+        lines:
+          type: array
+          items: { $ref: '#/components/schemas/TransferLine' }
+        duplicate: { type: boolean }
+
+    TransferLine:
+      type: object
+      properties:
+        lineNo: { type: integer }
+        skuId: { type: integer, format: int64 }
+        batchNo: { type: string }
+        qty: { type: integer }
+        inTransitQty: { type: integer }
+        productionDate: { type: string, format: date, nullable: true }
+        expiryDate: { type: string, format: date, nullable: true }
+        unitCostAmount: { type: integer, format: int64, nullable: true }
+
+    StocktakeCreate:
+      type: object
+      required: [warehouseId, lines]
+      properties:
+        warehouseId: { type: integer, format: int64 }
+        bizDate: { type: string, format: date }
+        remark: { type: string, maxLength: 500 }
+        lines:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [skuId, countedQty]
+            properties:
+              skuId: { type: integer, format: int64 }
+              batchNo: { type: string, maxLength: 64, default: '' }
+              countedQty: { type: integer, minimum: 0 }
+
+    Stocktake:
+      type: object
+      required: [id, stocktakeNo, warehouseId, status, lines]
+      properties:
+        id: { type: integer, format: int64 }
+        stocktakeNo: { type: string, example: ST20261024-0001 }
+        warehouseId: { type: integer, format: int64 }
+        status: { type: string, enum: [DRAFT, POSTED] }
+        bizDate: { type: string, format: date }
+        remark: { type: string, nullable: true }
+        totalDiffQty: { type: integer, description: 各明细 diff 之和 }
+        postedAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+        lines:
+          type: array
+          items: { $ref: '#/components/schemas/StocktakeLine' }
+        duplicate: { type: boolean }
+
+    StocktakeLine:
+      type: object
+      properties:
+        lineNo: { type: integer }
+        skuId: { type: integer, format: int64 }
+        batchNo: { type: string }
+        bookQty: { type: integer, description: 建单时快照的账面量 }
+        countedQty: { type: integer }
+        diffQty: { type: integer, description: counted - book；0 不产生调整流水 }
+
+    InventoryAdjustmentCreate:
+      type: object
+      required: [skuId, warehouseId, changeQty, reason]
+      properties:
+        skuId: { type: integer, format: int64 }
+        warehouseId: { type: integer, format: int64 }
+        batchNo: { type: string, maxLength: 64, default: '' }
+        changeQty:
+          type: integer
+          description: 有符号数量：正=调增（ADJUST_IN），负=调减（ADJUST_OUT），不得为 0
+        reason: { type: string, minLength: 1, maxLength: 200, description: 必填，审计依据 }
+        unitCostAmount: { type: integer, format: int64, minimum: 0, nullable: true }
+
+    InventoryAdjustment:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        adjustNo: { type: string, example: AJ20261024-0001 }
+        skuId: { type: integer, format: int64 }
+        warehouseId: { type: integer, format: int64 }
+        batchNo: { type: string }
+        changeQty: { type: integer }
+        reason: { type: string }
+        createdAt: { type: string, format: date-time }
+        duplicate: { type: boolean }
+
+    InventoryFreezeCreate:
+      type: object
+      required: [skuId, warehouseId, qty]
+      properties:
+        skuId: { type: integer, format: int64 }
+        warehouseId: { type: integer, format: int64 }
+        batchNo: { type: string, maxLength: 64, default: '' }
+        qty: { type: integer, minimum: 1 }
+        reason: { type: string, maxLength: 200 }
+        expiresAt:
+          type: string
+          format: date-time
+          description: 可选；到期由服务端时钟判断并自动解冻
+
+    InventoryFreeze:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        skuId: { type: integer, format: int64 }
+        warehouseId: { type: integer, format: int64 }
+        batchNo: { type: string }
+        qty: { type: integer }
+        reason: { type: string, nullable: true }
+        status: { type: string, enum: [ACTIVE, RELEASED, EXPIRED] }
+        expiresAt: { type: string, format: date-time, nullable: true }
+        releasedAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+        duplicate: { type: boolean }
+
+    BalanceDimensionRow:
+      type: object
+      properties:
+        warehouseId: { type: integer, format: int64 }
+        skuId: { type: integer, format: int64 }
+        batchNo: { type: string }
+        stockStatus: { type: string, enum: [AVAILABLE, RESERVED, FROZEN] }
+        ownership: { type: string, enum: [SELF] }
+        qty: { type: integer }
+
+    InventoryAlert:
+      type: object
+      properties:
+        type: { type: string, enum: [SAFETY, SLOW_MOVING, EXPIRING] }
+        skuId: { type: integer, format: int64 }
+        warehouseId: { type: integer, format: int64 }
+        batchNo: { type: string, nullable: true }
+        onHandQty: { type: integer }
+        availableQty: { type: integer }
+        threshold: { type: integer, description: 安全库存下限 / 滞销天数 / 临期天数 }
+        expiryDate: { type: string, format: date, nullable: true }
+        lastMovementAt: { type: string, format: date-time, nullable: true }
+        warehousePriority: { type: integer }
+
+    ReplenishmentSuggestion:
+      type: object
+      properties:
+        skuId: { type: integer, format: int64 }
+        warehouseId: { type: integer, format: int64 }
+        availableQty: { type: integer }
+        minLevel: { type: integer }
+        maxLevel: { type: integer }
+        suggestedQty: { type: integer, description: maxLevel - availableQty }
+        warehousePriority: { type: integer }
 
     ReceiveRequest:
       type: object
@@ -1857,3 +2910,397 @@ components:
         data:
           description: 意图对应的业务数据；读意图通常是 items 或分页对象，写意图是建成的单据
           nullable: true
+
+    CostRecalculateResult:
+      type: object
+      required: [layerCount, inboundCostAmount, outboundCostAmount, endingCostAmount, balanced]
+      properties:
+        layerCount: { type: integer, format: int32 }
+        inboundCostAmount: { type: integer, format: int64 }
+        outboundCostAmount: { type: integer, format: int64 }
+        endingCostAmount: { type: integer, format: int64 }
+        balanced: { type: boolean }
+
+    CostMonthlyRequest:
+      type: object
+      required: [period]
+      properties:
+        period: { type: string, pattern: '^\d{4}-\d{2}$', example: '2026-10' }
+
+    CostMonthlyItem:
+      type: object
+      required: [skuId, warehouseId, openingQty, openingCostAmount, inboundQty,
+                 inboundCostAmount, outboundQty, outboundCostAmount, closingQty, closingCostAmount]
+      properties:
+        skuId: { type: integer, format: int64 }
+        warehouseId: { type: integer, format: int64 }
+        openingQty: { type: integer }
+        openingCostAmount: { type: integer, format: int64 }
+        inboundQty: { type: integer }
+        inboundCostAmount: { type: integer, format: int64 }
+        outboundQty: { type: integer }
+        outboundCostAmount: { type: integer, format: int64 }
+        closingQty: { type: integer }
+        closingCostAmount: { type: integer, format: int64 }
+
+    CostMonthlyResult:
+      type: object
+      required: [period, duplicate, items, marginRecordCount]
+      properties:
+        period: { type: string }
+        duplicate: { type: boolean }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/CostMonthlyItem' }
+        marginRecordCount: { type: integer }
+
+    CostMonthlyListResult:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/CostMonthlyItem' }
+
+    ProfitRow:
+      type: object
+      required: [key, label, qty, revenueAmount, costAmount, grossProfitAmount,
+                 grossMarginRateBp, orderCount]
+      properties:
+        key: { type: string }
+        label: { type: string }
+        qty: { type: integer }
+        revenueAmount: { type: integer, format: int64 }
+        costAmount: { type: integer, format: int64 }
+        grossProfitAmount: { type: integer, format: int64 }
+        grossMarginRateBp: { type: integer, description: '万分比，6000 = 60%' }
+        orderCount: { type: integer }
+
+    ProfitReportResult:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/ProfitRow' }
+
+    PurchaseRequisitionCreate:
+      type: object
+      required: [supplierId, warehouseId, lines]
+      properties:
+        supplierId: { type: integer, format: int64 }
+        warehouseId: { type: integer, format: int64 }
+        bizDate: { type: string, format: date, description: 缺省取服务端 ClockProvider 的今天 }
+        remark: { type: string, maxLength: 500 }
+        lines:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [skuId, qty, unitPriceAmount]
+            properties:
+              skuId: { type: integer, format: int64 }
+              qty: { type: integer, minimum: 1 }
+              unitPriceAmount: { type: integer, format: int64, minimum: 0 }
+
+    PurchaseRequisition:
+      type: object
+      required: [id, orderNo, status, supplierId, warehouseId, totalQty, totalAmount, lines]
+      properties:
+        id: { type: integer, format: int64 }
+        orderNo: { type: string, example: PR20261023-0001 }
+        status: { $ref: '#/components/schemas/DocumentStatus' }
+        supplierId: { type: integer, format: int64 }
+        warehouseId: { type: integer, format: int64 }
+        bizDate: { type: string, format: date }
+        totalAmount: { type: integer, format: int64, description: 分 }
+        totalQty: { type: integer }
+        period: { type: string, nullable: true }
+        remark: { type: string, nullable: true }
+        convertedOrderId:
+          type: integer
+          format: int64
+          nullable: true
+          description: 非空 = 已转单；此后请购单不可再改
+        lines:
+          type: array
+          items: { $ref: '#/components/schemas/RequisitionLine' }
+
+    RequisitionLine:
+      type: object
+      required: [id, lineNo, skuId, qty, unitPriceAmount, amount]
+      properties:
+        id: { type: integer, format: int64 }
+        lineNo: { type: integer, minimum: 1 }
+        skuId: { type: integer, format: int64 }
+        qty: { type: integer, minimum: 1 }
+        unitPriceAmount: { type: integer, format: int64, minimum: 0 }
+        amount: { type: integer, format: int64, minimum: 0 }
+
+    PurchaseRequisitionConvertRequest:
+      type: object
+      required: [lines]
+      properties:
+        bizDate: { type: string, format: date, description: 生成的订单业务日期，缺省今天 }
+        remark: { type: string, maxLength: 500 }
+        lines:
+          type: array
+          minItems: 1
+          description: 必须覆盖请购单全部行；数量 1..申请数量
+          items:
+            type: object
+            required: [lineId, qty]
+            properties:
+              lineId: { type: integer, format: int64 }
+              qty: { type: integer, minimum: 1 }
+
+    PurchaseReceipt:
+      type: object
+      required: [id, receiptNo, purchaseOrderId, supplierId, warehouseId,
+                 totalQty, acceptedQty, rejectedQty, acceptedAmount, lines]
+      properties:
+        id: { type: integer, format: int64 }
+        receiptNo: { type: string, example: GR20261023-0001 }
+        purchaseOrderId: { type: integer, format: int64 }
+        supplierId: { type: integer, format: int64 }
+        warehouseId: { type: integer, format: int64 }
+        bizDate: { type: string, format: date }
+        totalQty: { type: integer, description: 本次到货量 }
+        acceptedQty: { type: integer, description: 合格量（入库/应付） }
+        rejectedQty: { type: integer, description: 不合格量（不入库/不生成应付） }
+        acceptedAmount: { type: integer, format: int64, description: 合格金额（分） }
+        lines:
+          type: array
+          items: { $ref: '#/components/schemas/PurchaseReceiptLine' }
+
+    PurchaseReceiptLine:
+      type: object
+      required: [id, lineNo, purchaseOrderLineId, skuId, batchNo,
+                 receivedQty, qcQty, rejectedQty, unitPriceAmount, acceptedAmount, qcStatus]
+      properties:
+        id: { type: integer, format: int64 }
+        lineNo: { type: integer, minimum: 1 }
+        purchaseOrderLineId: { type: integer, format: int64 }
+        skuId: { type: integer, format: int64 }
+        batchNo: { type: string }
+        receivedQty: { type: integer }
+        qcQty: { type: integer }
+        rejectedQty: { type: integer }
+        qcStatus: { type: string, enum: [PASSED, PARTIAL, FAILED] }
+        qcNote: { type: string, nullable: true }
+        unitPriceAmount: { type: integer, format: int64 }
+        acceptedAmount: { type: integer, format: int64 }
+
+    PurchaseReturnCreate:
+      type: object
+      required: [purchaseOrderId, lines]
+      properties:
+        purchaseOrderId: { type: integer, format: int64 }
+        bizDate: { type: string, format: date }
+        remark: { type: string, maxLength: 500 }
+        lines:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [receiptLineId, qty]
+            properties:
+              receiptLineId: { type: integer, format: int64, description: 原到货行 id }
+              qty: { type: integer, minimum: 1, description: 不得超过该行合格量 − 已退量 }
+
+    PurchaseReturn:
+      type: object
+      required: [id, returnNo, purchaseOrderId, supplierId, warehouseId,
+                 status, totalQty, totalAmount, lines]
+      properties:
+        id: { type: integer, format: int64 }
+        returnNo: { type: string, example: RT20261023-0001 }
+        purchaseOrderId: { type: integer, format: int64 }
+        supplierId: { type: integer, format: int64 }
+        warehouseId: { type: integer, format: int64 }
+        bizDate: { type: string, format: date }
+        period: { type: string, nullable: true }
+        status: { type: string, enum: [DRAFT, COMPLETED, VOIDED] }
+        totalQty: { type: integer }
+        totalAmount: { type: integer, format: int64 }
+        remark: { type: string, nullable: true }
+        lines:
+          type: array
+          items: { $ref: '#/components/schemas/PurchaseReturnLine' }
+
+    PurchaseReturnLine:
+      type: object
+      required: [receiptLineId, purchaseOrderLineId, skuId, qty, unitPriceAmount, amount, batchNo]
+      properties:
+        receiptLineId: { type: integer, format: int64 }
+        purchaseOrderLineId: { type: integer, format: int64 }
+        skuId: { type: integer, format: int64 }
+        qty: { type: integer, minimum: 1 }
+        unitPriceAmount: { type: integer, format: int64 }
+        amount: { type: integer, format: int64 }
+        batchNo: { type: string }
+
+    SupplierPayable:
+      type: object
+      required: [id, payableNo, supplierId, purchaseOrderId, orderNo, receiptId,
+                 originalAmount, returnedAmount, paidAmount, balance, status, allocations]
+      properties:
+        id: { type: integer, format: int64 }
+        payableNo: { type: string, example: AP20261023-0001 }
+        supplierId: { type: integer, format: int64 }
+        purchaseOrderId: { type: integer, format: int64 }
+        orderNo: { type: string }
+        receiptId: { type: integer, format: int64 }
+        bizDate: { type: string, format: date }
+        period: { type: string, nullable: true }
+        originalAmount: { type: integer, format: int64, description: 合格到货金额（分） }
+        returnedAmount: { type: integer, format: int64 }
+        paidAmount: { type: integer, format: int64 }
+        balance:
+          type: integer
+          format: int64
+          description: 数据库生成列 = originalAmount − returnedAmount − paidAmount
+        status: { type: string, enum: [OPEN, PARTIAL, SETTLED] }
+        allocations:
+          type: array
+          items: { $ref: '#/components/schemas/PayableAllocation' }
+
+    PayableAllocation:
+      type: object
+      required: [id, paymentNo, amount, paymentAmount, bizDate]
+      properties:
+        id: { type: integer, format: int64 }
+        paymentNo: { type: string, example: PY20261023-0001 }
+        amount: { type: integer, format: int64, description: 本行核销金额 }
+        paymentAmount: { type: integer, format: int64, description: 付款单总额（同组相同） }
+        bizDate: { type: string, format: date }
+        remark: { type: string, nullable: true }
+
+    PayableReconcile:
+      type: object
+      required: [purchaseAmount, returnAmount, paidAmount, balance,
+                 paymentTotal, allocationTotal, balanced, conserved]
+      properties:
+        supplierId: { type: integer, format: int64, nullable: true }
+        purchaseAmount: { type: integer, format: int64 }
+        returnAmount: { type: integer, format: int64 }
+        paidAmount: { type: integer, format: int64 }
+        balance: { type: integer, format: int64 }
+        paymentTotal: { type: integer, format: int64, description: Σ付款单金额 }
+        allocationTotal: { type: integer, format: int64, description: Σ核销明细 }
+        balanced:
+          type: boolean
+          description: balance == purchaseAmount − returnAmount − paidAmount
+        conserved:
+          type: boolean
+          description: paymentTotal == allocationTotal == paidAmount
+
+    SupplierPaymentRequest:
+      type: object
+      required: [supplierId, amount, allocations]
+      properties:
+        supplierId: { type: integer, format: int64 }
+        amount: { type: integer, format: int64, minimum: 1 }
+        bizDate: { type: string, format: date }
+        remark: { type: string, maxLength: 500 }
+        allocations:
+          type: array
+          minItems: 1
+          description: Σamount 必须等于付款金额；同一 payableId 只出现一次
+          items:
+            type: object
+            required: [payableId, amount]
+            properties:
+              payableId: { type: integer, format: int64 }
+              amount: { type: integer, format: int64, minimum: 1 }
+
+    SupplierPaymentResult:
+      type: object
+      required: [paymentNo, paymentAmount, allocations]
+      properties:
+        paymentNo: { type: string, example: PY20261023-0001 }
+        paymentAmount: { type: integer, format: int64 }
+        allocations:
+          type: array
+          items:
+            type: object
+            required: [payableId, amount]
+            properties:
+              payableId: { type: integer, format: int64 }
+              amount: { type: integer, format: int64 }
+
+    # ─────────────────────────── SYS · 审计与可观测（V2-5 追加式） ───────────────────────────
+
+    AuditLog:
+      type: object
+      description: |
+        一条操作审计（FR-SYS-06）。审计表是**追加型**的：没有 updated_at，
+        数据库触发器拒绝任何 UPDATE/DELETE —— 写入后<b>不可篡改</b>。
+      required: [id, action, resourceType, occurredAt, result]
+      properties:
+        id: { type: integer, format: int64 }
+        actorId:
+          type: integer
+          format: int64
+          description: 操作者 id；匿名操作（如登录失败）为 null
+        actorName: { type: string, nullable: true, example: purchase_admin }
+        action:
+          type: string
+          description: |
+            动作语义（按**路径语义**归类，不是 HTTP 方法）：
+            `POST /products/42/disable` 是 `DISABLE` 而不是 `CREATE`。
+          enum: [CREATE, UPDATE, DELETE, DISABLE, SUBMIT, APPROVE, REJECT, VOID,
+                 RECEIVE, SHIP, RESERVE, RELEASE, SETTLE_DAILY, SETTLE_MONTHLY,
+                 LOGIN, COMMAND, OTHER]
+        resourceType: { type: string, example: PURCHASE_ORDER }
+        resourceId: { type: string, nullable: true, example: "42" }
+        bizRefNo:
+          type: string
+          nullable: true
+          description: 业务单据号，按单据追溯"这张单被谁动过"的入口
+          example: PO20250601-0001
+        beforeJson:
+          type: string
+          nullable: true
+          description: |
+            变更前字段值快照（JSON 文本）。取自该资源**上一次成功审计的 after_json**，
+            因此历史快照片段首尾相接、可沿链回溯。首次创建为 null（如实表达"之前不存在"）。
+            敏感字段（password/token/secret/apiKey）已脱敏为 `***`。
+        afterJson:
+          type: string
+          nullable: true
+          description: 变更后字段值快照（取自本次响应 data）。超大响应不记录（null），不截断。
+        traceId:
+          type: string
+          nullable: true
+          description: 与请求头 X-Trace-Id / MDC / 响应头同值
+        ip: { type: string, nullable: true }
+        occurredAt: { type: string, format: date-time }
+        result: { type: string, enum: [SUCCESS, FAIL] }
+        errorCode:
+          type: string
+          nullable: true
+          description: 失败时的业务错误码（与 ApiError.code 一致，不是编造的）
+          example: SYS_NOT_FOUND
+
+    DictType:
+      type: object
+      required: [id, code, name, enabled]
+      properties:
+        id: { type: integer, format: int64 }
+        code: { type: string, example: COLOR }
+        name: { type: string, example: 颜色 }
+        description: { type: string, nullable: true }
+        enabled: { type: boolean, example: true }
+
+    DictItem:
+      type: object
+      required: [id, typeCode, code, label, sortNo, enabled]
+      properties:
+        id: { type: integer, format: int64 }
+        typeCode: { type: string, example: COLOR }
+        code: { type: string, example: BLACK }
+        label: { type: string, example: 黑色 }
+        sortNo: { type: integer, example: 10 }
+        enabled: { type: boolean, example: true }
+

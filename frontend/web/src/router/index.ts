@@ -99,7 +99,40 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/rpt/ReportView.vue'),
         meta: { title: '报表', permission: 'rpt:read' },
       },
-      // V2-3 销售闭环：只追加，通配兜底路由仍在最后
+      // V2-2 采购闭环：只追加，不动上面既有条目；通配兜底仍留在数组最后
+      {
+        path: 'purchase-requisitions',
+        name: 'purchase-requisitions',
+        component: () => import('@/views/pur/PurchaseRequisitionView.vue'),
+        meta: { title: '请购与质检', permission: 'pur:read' },
+      },
+      {
+        path: 'supplier-payables',
+        name: 'supplier-payables',
+        component: () => import('@/views/pur/SupplierPayableView.vue'),
+        meta: { title: '应付与付款', permission: 'pur:payable' },
+      },
+      // V2-1 库存作业：两条路由追加在报表之后，通配兜底路由继续留在数组最后
+      {
+        path: 'inventory-transfers',
+        name: 'inventory-transfers',
+        component: () => import('@/views/inv/TransferView.vue'),
+        meta: { title: '调拨作业', permission: 'inv:read' },
+      },
+      {
+        path: 'inventory-stock-ops',
+        name: 'inventory-stock-ops',
+        component: () => import('@/views/inv/StockOpsView.vue'),
+        meta: { title: '盘点与调整', permission: 'inv:read' },
+      },
+      // V2-4 追加：毛利分析页；通配兜底路由必须继续留在数组最后
+      {
+        path: 'margin',
+        name: 'margin',
+        component: () => import('@/views/cst/MarginView.vue'),
+        meta: { title: '毛利分析', permission: 'cst:read' },
+      },
+      // V2-3 销售闭环：继续追加，通配兜底路由仍在最后
       {
         path: 'sales-quotes',
         name: 'sales-quotes',

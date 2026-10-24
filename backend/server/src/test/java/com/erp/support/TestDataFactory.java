@@ -88,15 +88,22 @@ public class TestDataFactory {
                          shipment_lines, so_shipments, so_shipment_plans,
                          sales_quote_lines, sales_quotes,
                          customer_credit_snapshots,
+                         margin_records, cost_monthly, cost_layers,
+                         transfer_lines, inventory_transfers,
+                         stocktake_lines, stocktakes,
+                         inventory_adjustments, inventory_freezes,
                          inventory_ledger, inventory_reservations, inventory_balances,
                          sales_order_line_reservations, return_order_lines,
+                         payable_allocations, supplier_payables, purchase_returns,
+                         po_receipt_lines, po_receipts,
                          purchase_order_lines, sales_order_lines,
                          return_orders, purchase_orders, sales_orders,
                          bundle_items, product_bundles,
                          daily_settlements, settlement_periods,
                          document_sequences, idempotency_keys,
                          skus, products, warehouses, suppliers, customers,
-                         app_user_roles, app_users
+                         app_user_roles, app_users,
+                         audit_logs
                 RESTART IDENTITY CASCADE
                 """);
     }
@@ -173,6 +180,29 @@ public class TestDataFactory {
 
     public int reserved(long skuId, long warehouseId, String batchNo) {
         return balanceColumn(skuId, warehouseId, batchNo, "reserved_qty");
+    }
+
+    public int frozen(long skuId, long warehouseId, String batchNo) {
+        return balanceColumn(skuId, warehouseId, batchNo, "frozen_qty");
+    }
+
+    /** 设置 SKU 的补货阈值（FR-INV-12/13）。 */
+    public void skuLevels(long skuId, int minLevel, int maxLevel) {
+        jdbc.update("UPDATE skus SET min_level = ?, max_level = ? WHERE id = ?",
+                minLevel, maxLevel, skuId);
+    }
+
+    /** 设置仓库优先级（数值越大越优先）。 */
+    public void warehousePriority(long warehouseId, int priority) {
+        jdbc.update("UPDATE warehouses SET priority = ? WHERE id = ?", priority, warehouseId);
+    }
+
+    /** 按业务类型数流水条数（断言"差异为 0 的行不产生调整流水"）。 */
+    public int ledgerCountByType(String bizRefNo, String bizType) {
+        Integer n = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM inventory_ledger WHERE biz_ref_no = ? AND biz_type = ?
+                """, Integer.class, bizRefNo, bizType);
+        return n == null ? 0 : n;
     }
 
     public int available(long skuId, long warehouseId, String batchNo) {

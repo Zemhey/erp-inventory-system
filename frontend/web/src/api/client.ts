@@ -223,6 +223,99 @@ export const invApi = {
   consistencyCheck: () => http.get<never, { consistent: boolean }>('/inventory/consistency-check'),
 }
 
+/**
+ * 库存作业（V2-1 FR-INV-07~13）：调拨 / 盘点 / 调整 / 冻结 / 洞察。
+ *
+ * 写操作由拦截器自动带 X-Request-Id；页面只负责收集参数。
+ * 所有数量字段都是后端算好的结果，前端不做库存判断。
+ */
+export const invOpsApi = {
+  // ── 调拨 ──
+  listTransfers: (params: {
+    status?: TransferStatus
+    fromWarehouseId?: number
+    toWarehouseId?: number
+    page?: number
+    size?: number
+  }) => http.get<never, PageData<InventoryTransfer>>('/inventory/transfers', { params }),
+  createTransfer: (body: {
+    fromWarehouseId: number
+    toWarehouseId: number
+    bizDate?: string
+    remark?: string
+    lines: { skuId: number; batchNo?: string; qty: number; unitCostAmount?: number }[]
+  }) => http.post<never, InventoryTransfer>('/inventory/transfers', body),
+  receiveTransfer: (id: number) =>
+    http.post<never, InventoryTransfer & { conservationDiff: number }>(
+      `/inventory/transfers/${id}/receive`,
+    ),
+
+  // ── 盘点 ──
+  listStocktakes: (params: { status?: StocktakeStatus; warehouseId?: number; page?: number; size?: number }) =>
+    http.get<never, PageData<Stocktake>>('/inventory/stocktakes', { params }),
+  createStocktake: (body: {
+    warehouseId: number
+    bizDate?: string
+    remark?: string
+    lines: { skuId: number; batchNo?: string; countedQty: number }[]
+  }) => http.post<never, Stocktake>('/inventory/stocktakes', body),
+  postStocktake: (id: number) => http.post<never, Stocktake>(`/inventory/stocktakes/${id}/post`),
+
+  // ── 调整 ──
+  listAdjustments: (params: { skuId?: number; warehouseId?: number; page?: number; size?: number }) =>
+    http.get<never, PageData<InventoryAdjustment>>('/inventory/adjustments', { params }),
+  createAdjustment: (body: {
+    skuId: number
+    warehouseId: number
+    batchNo?: string
+    changeQty: number
+    reason: string
+    unitCostAmount?: number
+  }) => http.post<never, InventoryAdjustment>('/inventory/adjustments', body),
+
+  // ── 冻结 ──
+  listFreezes: (params: {
+    status?: FreezeStatus
+    skuId?: number
+    warehouseId?: number
+    page?: number
+    size?: number
+  }) => http.get<never, PageData<InventoryFreeze>>('/inventory/freezes', { params }),
+  createFreeze: (body: {
+    skuId: number
+    warehouseId: number
+    batchNo?: string
+    qty: number
+    reason?: string
+    expiresAt?: string
+  }) => http.post<never, InventoryFreeze>('/inventory/freezes', body),
+  releaseFreeze: (id: number) =>
+    http.post<never, InventoryFreeze>(`/inventory/freezes/${id}/release`),
+
+  // ── 洞察 ──
+  balanceDimensions: (params: {
+    skuId?: number
+    warehouseId?: number
+    batchNo?: string
+    status?: StockStatus
+    ownership?: 'SELF'
+  }) =>
+    http.get<never, { items: BalanceDimensionRow[]; totals: BalanceDimensionTotals }>(
+      '/inventory/balance-dimensions',
+      { params },
+    ),
+  alerts: (params: {
+    warehouseId?: number
+    type?: AlertType
+    expiringDays?: number
+    slowMovingDays?: number
+  }) => http.get<never, { items: InventoryAlertRow[]; total: number }>('/inventory/alerts', { params }),
+  replenishment: (params: { warehouseId?: number }) =>
+    http.get<never, { items: ReplenishmentSuggestion[]; total: number }>('/inventory/replenishment', {
+      params,
+    }),
+}
+
 /** 进货（FR-PUR-01/02）。 */
 export const purApi = {
   list: (params: { status?: string; supplierId?: number; page?: number; size?: number }) =>
@@ -324,6 +417,27 @@ export const rptApi = {
 }
 
 /**
+ * 成本毛利（V2-4，FR-CST-01/02/03）。
+ *
+ * 端点尚未落 openapi.yaml（本泳道只提契约申请），因此路径以申请单为准。
+ * 写接口的 X-Request-Id 由请求拦截器统一注入。
+ *
+ * ★ 毛利数据来自「成本月结」生成的 margin_records：
+ *   未执行月结的期间查询结果为空，页面必须把这一点说清楚，
+ *   否则用户会以为"卖出去的东西没有毛利"。
+ */
+export const cstApi = {
+  recalculate: () =>
+    http.post<never, CostRecalculateResult>('/cost/recalculate'),
+  closeMonthly: (body: CostMonthlyRequest) =>
+    http.post<never, CostMonthlyResult>('/cost/monthly', body),
+  monthly: (period: string) =>
+    http.get<never, { items: CostMonthlyRow[] }>('/cost/monthly', { params: { period } }),
+  profit: (params: { from: string; to: string; groupBy?: MarginGroupBy }) =>
+    http.get<never, { items: MarginSummaryRow[] }>('/reports/profit', { params }),
+}
+
+/**
  * 自然语言操作（FR-SYS-04）。
  *
  * 后端只做"解析 + 调度既有 ApplicationService"，业务规则与权限都在服务端；
@@ -332,6 +446,67 @@ export const rptApi = {
  */
 export const nlApi = {
   command: (command: string) => http.post<never, NlCommandResult>('/nl/command', { command }),
+}
+
+/**
+ * 请购单（FR-PUR-04）。复用进货单的存储与状态机，但只有"转订单"一个出口。
+ * 转单动作要 `pur:approve`：它把申请变成真实采购承诺。
+ */
+export const requisitionApi = {
+  list: (params: { status?: string; supplierId?: number; page?: number; size?: number }) =>
+    http.get<never, PageData<PurchaseRequisition>>('/purchase-requisitions', { params }),
+  get: (id: number) => http.get<never, PurchaseRequisition>(`/purchase-requisitions/${id}`),
+  create: (body: PurchaseRequisitionCreate) =>
+    http.post<never, PurchaseRequisition>('/purchase-requisitions', body),
+  submit: (id: number) =>
+    http.post<never, PurchaseRequisition>(`/purchase-requisitions/${id}/submit`),
+  approve: (id: number) =>
+    http.post<never, PurchaseRequisition>(`/purchase-requisitions/${id}/approve`),
+  convert: (id: number, body: RequisitionConvertRequest) =>
+    http.post<never, PurchaseOrder>(`/purchase-requisitions/${id}/convert`, body),
+}
+
+/**
+ * 到货/质检记录（FR-PUR-05）。
+ * 不合格量只存在于这里，`acceptedQty` 才是进库存与应付的数量。
+ */
+export const purchaseReceiptApi = {
+  listByOrder: (orderId: number) =>
+    http.get<never, PurchaseReceipt[]>(`/purchase-orders/${orderId}/receipts`),
+}
+
+/** 采购退货（FR-PUR-06）：建单只收到货行与数量，金额由后端派生。 */
+export const purchaseReturnApi = {
+  list: (params: {
+    status?: string
+    supplierId?: number
+    purchaseOrderId?: number
+    page?: number
+    size?: number
+  }) => http.get<never, PageData<PurchaseReturn>>('/purchase-returns', { params }),
+  get: (id: number) => http.get<never, PurchaseReturn>(`/purchase-returns/${id}`),
+  create: (body: PurchaseReturnCreate) =>
+    http.post<never, PurchaseReturn>('/purchase-returns', body),
+  approve: (id: number) => http.post<never, PurchaseReturn>(`/purchase-returns/${id}/approve`),
+  voidReturn: (id: number) => http.post<never, PurchaseReturn>(`/purchase-returns/${id}/void`),
+}
+
+/**
+ * 供应商应付与付款核销（FR-PUR-07/08）。
+ *
+ * `reconcile` 是可重复的余额/守恒校验入口：每次实时聚合，不读缓存。
+ * 付款请求的 `allocations` 合计必须等于 `amount`，否则后端 400 拒绝。
+ */
+export const payableApi = {
+  list: (params: { supplierId?: number; status?: string; page?: number; size?: number }) =>
+    http.get<never, PageData<SupplierPayable>>('/supplier-payables', { params }),
+  get: (id: number) => http.get<never, SupplierPayable>(`/supplier-payables/${id}`),
+  reconcile: (supplierId?: number) =>
+    http.get<never, PayableReconcile>('/supplier-payables/reconcile', {
+      params: { supplierId },
+    }),
+  pay: (body: SupplierPaymentRequest) =>
+    http.post<never, SupplierPaymentResult>('/supplier-payments', body),
 }
 
 // ═══════════════════════ 类型定义（与后端 DTO 对齐） ═══════════════════════
@@ -488,7 +663,134 @@ export interface InventoryBalance {
   expiryDate?: string | null
   onHandQty: number
   reservedQty: number
+  /** 冻结量：不参与可用量（FR-INV-10） */
+  frozenQty: number
   availableQty: number
+}
+
+// ═══════════════════════ 库存作业（V2-1） ═══════════════════════
+
+export type TransferStatus = 'IN_TRANSIT' | 'COMPLETED'
+export type StocktakeStatus = 'DRAFT' | 'POSTED'
+export type FreezeStatus = 'ACTIVE' | 'RELEASED' | 'EXPIRED'
+export type StockStatus = 'AVAILABLE' | 'RESERVED' | 'FROZEN'
+export type AlertType = 'SAFETY' | 'SLOW_MOVING' | 'EXPIRING'
+
+export interface TransferLine {
+  lineNo: number
+  skuId: number
+  batchNo: string
+  qty: number
+  /** 仍在途的数量；到货后为 0 */
+  inTransitQty: number
+  productionDate?: string | null
+  expiryDate?: string | null
+  unitCostAmount?: number | null
+}
+
+export interface InventoryTransfer {
+  id: number
+  transferNo: string
+  fromWarehouseId: number
+  toWarehouseId: number
+  status: TransferStatus
+  bizDate: string
+  remark?: string | null
+  inTransitQty: number
+  receivedAt?: string | null
+  createdAt: string
+  lines: TransferLine[]
+  duplicate?: boolean
+}
+
+export interface StocktakeLine {
+  lineNo: number
+  skuId: number
+  batchNo: string
+  /** 建单时快照的账面量 */
+  bookQty: number
+  countedQty: number
+  /** counted - book；0 表示不产生调整流水 */
+  diffQty: number
+}
+
+export interface Stocktake {
+  id: number
+  stocktakeNo: string
+  warehouseId: number
+  status: StocktakeStatus
+  bizDate: string
+  remark?: string | null
+  totalDiffQty: number
+  postedAt?: string | null
+  createdAt: string
+  lines: StocktakeLine[]
+  duplicate?: boolean
+}
+
+export interface InventoryAdjustment {
+  id: number
+  adjustNo: string
+  skuId: number
+  warehouseId: number
+  batchNo: string
+  /** 正=调增，负=调减 */
+  changeQty: number
+  reason: string
+  createdAt: string
+  duplicate?: boolean
+}
+
+export interface InventoryFreeze {
+  id: number
+  skuId: number
+  warehouseId: number
+  batchNo: string
+  qty: number
+  reason?: string | null
+  status: FreezeStatus
+  expiresAt?: string | null
+  releasedAt?: string | null
+  createdAt: string
+  duplicate?: boolean
+}
+
+export interface BalanceDimensionRow {
+  warehouseId: number
+  skuId: number
+  batchNo: string
+  stockStatus: StockStatus
+  ownership: 'SELF'
+  qty: number
+}
+
+export interface BalanceDimensionTotals {
+  onHandQty: number
+  byStatus: Record<StockStatus, number>
+}
+
+export interface InventoryAlertRow {
+  type: AlertType
+  skuId: number
+  warehouseId: number
+  batchNo?: string | null
+  onHandQty: number
+  availableQty: number
+  /** 安全库存下限 / 滞销天数 / 临期天数 */
+  threshold: number
+  expiryDate?: string | null
+  lastMovementAt?: string | null
+  warehousePriority: number
+}
+
+export interface ReplenishmentSuggestion {
+  skuId: number
+  warehouseId: number
+  availableQty: number
+  minLevel: number
+  maxLevel: number
+  suggestedQty: number
+  warehousePriority: number
 }
 
 export interface LedgerEntry {
@@ -511,6 +813,13 @@ export interface OrderLine {
   unitPriceAmount: number
   amount: number
   receivedQty?: number
+  /** 累计质检合格量（FR-PUR-05）：只有合格量入库存/应付 */
+  qcQty?: number
+  /** NONE / PASSED / PARTIAL / FAILED */
+  qcStatus?: string
+  qcNote?: string | null
+  /** 累计到货但不合格的数量 */
+  rejectedQty?: number
   shippedQty?: number
   /** 累计已退货数量；剩余可退 = shippedQty − returnedQty（退货页用） */
   returnedQty?: number
@@ -552,6 +861,171 @@ export interface ReceiveLine {
   batchNo?: string
   productionDate?: string
   expiryDate?: string
+  /** 本次到货中的合格数量；缺省 = qty（兼容旧调用） */
+  qcQty?: number
+  qcNote?: string
+}
+
+/** 请购明细行（FR-PUR-04）。与进货行同构，但没有到货/质检字段。 */
+export interface RequisitionLine {
+  id: number
+  lineNo: number
+  skuId: number
+  qty: number
+  unitPriceAmount: number
+  amount: number
+}
+
+export interface PurchaseRequisition {
+  id: number
+  orderNo: string
+  status: string
+  supplierId: number
+  warehouseId: number
+  bizDate: string
+  totalAmount: number
+  totalQty: number
+  period?: string | null
+  remark?: string | null
+  /** 非空表示已转单，不能再修改/转化 */
+  convertedOrderId?: number | null
+  lines: RequisitionLine[]
+}
+
+export interface PurchaseRequisitionCreate {
+  supplierId: number
+  warehouseId: number
+  bizDate?: string
+  remark?: string
+  lines: { skuId: number; qty: number; unitPriceAmount: number }[]
+}
+
+/** 转单必须覆盖全部行；数量 ∈ [1, 申请数量] */
+export interface RequisitionConvertRequest {
+  bizDate?: string
+  remark?: string
+  lines: { lineId: number; qty: number }[]
+}
+
+/** 到货行（FR-PUR-05）：received = qc + rejected。 */
+export interface PurchaseReceiptLine {
+  id: number
+  lineNo: number
+  purchaseOrderLineId: number
+  skuId: number
+  batchNo: string
+  receivedQty: number
+  qcQty: number
+  rejectedQty: number
+  qcStatus: 'PASSED' | 'PARTIAL' | 'FAILED'
+  qcNote?: string | null
+  unitPriceAmount: number
+  acceptedAmount: number
+}
+
+export interface PurchaseReceipt {
+  id: number
+  receiptNo: string
+  purchaseOrderId: number
+  supplierId: number
+  warehouseId: number
+  bizDate: string
+  totalQty: number
+  acceptedQty: number
+  rejectedQty: number
+  acceptedAmount: number
+  lines: PurchaseReceiptLine[]
+}
+
+/** 采购退货单（FR-PUR-06）。 */
+export interface PurchaseReturn {
+  id: number
+  returnNo: string
+  purchaseOrderId: number
+  supplierId: number
+  warehouseId: number
+  bizDate: string
+  period?: string | null
+  status: 'DRAFT' | 'COMPLETED' | 'VOIDED'
+  totalQty: number
+  totalAmount: number
+  remark?: string | null
+  lines: PurchaseReturnLine[]
+}
+
+export interface PurchaseReturnLine {
+  receiptLineId: number
+  purchaseOrderLineId: number
+  skuId: number
+  qty: number
+  unitPriceAmount: number
+  amount: number
+  batchNo: string
+}
+
+export interface PurchaseReturnCreate {
+  purchaseOrderId: number
+  bizDate?: string
+  remark?: string
+  lines: { receiptLineId: number; qty: number }[]
+}
+
+/** 应付核销明细（一行 = 一张付款单对一张应付单）。 */
+export interface PayableAllocation {
+  id: number
+  paymentNo: string
+  amount: number
+  paymentAmount: number
+  bizDate: string
+  remark?: string | null
+}
+
+/**
+ * 供应商应付单（FR-PUR-07）。
+ * `balance` 是后端生成列，前端只读、不自行计算。
+ */
+export interface SupplierPayable {
+  id: number
+  payableNo: string
+  supplierId: number
+  purchaseOrderId: number
+  orderNo: string
+  receiptId: number
+  bizDate: string
+  period?: string | null
+  originalAmount: number
+  returnedAmount: number
+  paidAmount: number
+  balance: number
+  status: 'OPEN' | 'PARTIAL' | 'SETTLED'
+  allocations: PayableAllocation[]
+}
+
+/** 余额/核销守恒核对结果（FR-PUR-07/08）。 */
+export interface PayableReconcile {
+  supplierId?: number | null
+  purchaseAmount: number
+  returnAmount: number
+  paidAmount: number
+  balance: number
+  paymentTotal: number
+  allocationTotal: number
+  balanced: boolean
+  conserved: boolean
+}
+
+export interface SupplierPaymentRequest {
+  supplierId: number
+  amount: number
+  bizDate?: string
+  remark?: string
+  allocations: { payableId: number; amount: number }[]
+}
+
+export interface SupplierPaymentResult {
+  paymentNo: string
+  paymentAmount: number
+  allocations: { payableId: number; amount: number }[]
 }
 
 export interface SalesOrder {
@@ -758,6 +1232,61 @@ export interface InventorySummaryRow {
   inboundQty: number
   outboundQty: number
   closingQty: number
+}
+
+/** 毛利分析维度（契约申请 `groupBy`）。 */
+export type MarginGroupBy = 'product' | 'customer' | 'period'
+
+/** 成本重算结果（POST /cost/recalculate）。金额单位：分。 */
+export interface CostRecalculateResult {
+  layerCount: number
+  inboundCostAmount: number
+  outboundCostAmount: number
+  endingCostAmount: number
+  balanced: boolean
+}
+
+export interface CostMonthlyRequest {
+  period: string
+}
+
+/** 成本月结行（cost_monthly），金额单位：分。 */
+export interface CostMonthlyRow {
+  skuId: number
+  warehouseId: number
+  openingQty: number
+  openingCostAmount: number
+  inboundQty: number
+  inboundCostAmount: number
+  outboundQty: number
+  outboundCostAmount: number
+  closingQty: number
+  closingCostAmount: number
+}
+
+/** 成本月结结果；`duplicate=true` 表示本次为幂等命中、未改动账目。 */
+export interface CostMonthlyResult {
+  period: string
+  duplicate: boolean
+  items: CostMonthlyRow[]
+  marginRecordCount: number
+}
+
+/**
+ * 毛利分析行（GET /reports/profit）。
+ *
+ * `grossMarginRateBp` 是万分比（6000 = 60%），不是百分比；
+ * 展示时除以 100 并保留两位小数，不要回传后端。
+ */
+export interface MarginSummaryRow {
+  key: string
+  label: string
+  qty: number
+  revenueAmount: number
+  costAmount: number
+  grossProfitAmount: number
+  grossMarginRateBp: number
+  orderCount: number
 }
 
 /**

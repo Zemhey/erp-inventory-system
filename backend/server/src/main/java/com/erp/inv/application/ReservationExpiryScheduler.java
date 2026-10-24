@@ -8,7 +8,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * 预占超时自动释放的定时入口（BR-INV-05）。
+ * 预占超时自动释放（BR-INV-05）与冻结超时自动解冻（FR-INV-10）的定时入口。
  *
  * <p><b>只做调度，不含业务规则</b>：全部逻辑在
  * {@link InventoryApplicationService#expireOverdueReservations()} 里。
@@ -34,9 +34,12 @@ public class ReservationExpiryScheduler {
     private static final Logger log = LoggerFactory.getLogger(ReservationExpiryScheduler.class);
 
     private final InventoryApplicationService inventory;
+    private final InventoryOperationsApplicationService operations;
 
-    public ReservationExpiryScheduler(InventoryApplicationService inventory) {
+    public ReservationExpiryScheduler(InventoryApplicationService inventory,
+                                      InventoryOperationsApplicationService operations) {
         this.inventory = inventory;
+        this.operations = operations;
     }
 
     /**
@@ -54,6 +57,12 @@ public class ReservationExpiryScheduler {
         int expired = inventory.expireOverdueReservations();
         if (expired > 0) {
             log.info("预占超时自动释放（BR-INV-05）：本次释放 {} 条", expired);
+        }
+        // 冻结超时与预占共用同一个调度装配：两者都是"到期必须回收可用量"的守卫，
+        // 分成两个调度器只会让测试里多一个需要关闭的开关。
+        int unfrozen = operations.expireOverdueFreezes();
+        if (unfrozen > 0) {
+            log.info("冻结超时自动解冻（FR-INV-10）：本次解冻 {} 条", unfrozen);
         }
     }
 }

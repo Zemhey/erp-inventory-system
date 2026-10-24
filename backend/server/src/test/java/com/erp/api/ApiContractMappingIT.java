@@ -128,6 +128,8 @@ class ApiContractMappingIT extends PostgresTestBase {
         UNDOCUMENTED_DEBT.put("GET /api/v1/customer-receipts/{}", "V2-3 收款核销，合并时由清场删除 debt 并落契约");
         UNDOCUMENTED_DEBT.put("GET /api/v1/customers/{}/credit", "V2-3 信用，合并时由清场删除 debt 并落契约");
         UNDOCUMENTED_DEBT.put("PUT /api/v1/customers/{}/credit", "V2-3 信用，合并时由清场删除 debt 并落契约");
+        // V2-2 采购闭环：16 个端点已落入 openapi.yaml（2026-10-24），debt 已清偿
+        // V2-4 成本毛利：4 个端点已落入 openapi.yaml（2026-10-24），debt 已清偿
     }
 
     @Autowired
