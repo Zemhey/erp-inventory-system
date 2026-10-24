@@ -4,7 +4,7 @@
 ![Java](https://img.shields.io/badge/Java-17-007396?logo=openjdk&logoColor=white)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.3-6DB33F?logo=springboot&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-953%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-956%20passing-brightgreen)
 ![Coverage](https://img.shields.io/badge/line%20coverage-86.79%25-brightgreen)
 ![Branch](https://img.shields.io/badge/branch%20coverage-65.72%25-yellowgreen)
 
@@ -85,12 +85,12 @@
 
 ## 项目状态
 
-**当前阶段：M0/M1/M2/M3/M7/M8 完成 ✅，M4 两批、M2.5 红冲与 M6 制品已合并；V2 波 A + 波 B 已合并 V2-1 库存作业、V2-2 采购闭环、V2-3 销售闭环、V2-4 成本毛利、V2-5 审计可观测、V2-6 权限审批（953 条后端用例全绿 · 行 86.79% / 分支 65.72% · 契约 107 路径 / 133 操作 · Web 20 个业务页 + miniapp 18 页 · MCP 6 工具 · 单机版一键包）· 下一步：V2-C2 契约清偿 2 + C1 守卫用例补丁，随后 V2-7 租户隔离独占批次**
+**当前阶段：M0/M1/M2/M3/M7/M8 完成 ✅，M4 两批、M2.5 红冲与 M6 制品已合并；V2 波 A + 波 B 已合并 V2-1 库存作业、V2-2 采购闭环、V2-3 销售闭环、V2-4 成本毛利、V2-5 审计可观测、V2-6 权限审批（956 条后端用例全绿 · 行 86.79% / 分支 65.72% · 契约 130 路径 / 161 操作 · **操作级契约债清零** · Web 20 个业务页 + miniapp 18 页 · MCP 6 工具 · 单机版一键包）· 下一步：V2-C3 字段级契约债 ∥ E1 Web 审计/字典页，随后 V2-7 租户隔离独占批次**
 
 - ✅ 方向与路线确定（行业、技术栈、测试体系）
 - ✅ 规划文档（00~07 + 11 条 ADR）
 - ✅ **M0 交付**：OpenAPI 六资源契约 · Spring Boot 3 骨架 · Flyway schema · 库存纵向切片 · compose 一键起环境 · CI 三道门禁
-- ✅ **M1 交付**：主数据（商品/SKU 矩阵/供应商/客户/仓库）· 进货闭环 · 出货闭环（FEFO）· IAM（JWT + RBAC）· 统一状态机 · 原子取号 · M1 基线 156 条测试（**当前累计 953 条全绿**）
+- ✅ **M1 交付**：主数据（商品/SKU 矩阵/供应商/客户/仓库）· 进货闭环 · 出货闭环（FEFO）· IAM（JWT + RBAC）· 统一状态机 · 原子取号 · M1 基线 156 条测试（**当前累计 956 条全绿**）
 - ✅ **M3 交付**：登录 / 布局 / 工作台 + 商品与 SKU + 供应商 / 客户 / 仓库 + 库存查询（实存·预占·可用 + 流水追溯）+ 进货单（状态机 + 分批入库）+ 出货单（建单即预占 + 折扣 + 出货），**7 个业务页面全齐、无占位页**；S7 全局打磨（空状态、错误态、窄屏适配）；**S8 Playwright E2E 14 条关键路径，真实后端 + 真实 PostgreSQL 连续两遍 15/15 全绿**，测试数据清理后开发库回到基线
 - ✅ **M2 交付**：退货 `FR-RMA-01`（9 个接口，含"可退出货单查询"）· 日清 / 月结锁账 / 对账 / 账期查询 `FR-SET-01~03` · 三类报表 `FR-RPT-01~03` · `BR-INV-05` 预占超时自动释放 —— 16 个新接口全部有实现有测试，`CONTRACT_ONLY` 清零；前端 10 个业务页面（退货/结算/报表三页 + 退货建单接入可退查询 + 结算页账期列表）；M2 验收时后端 **221 条用例全绿**（M2 基线行 **82.6%** / 分支 **60.9%**）；E2E **19 条 + 登录 setup** 连跑两遍全绿；红冲（FR-SAL-04 / FR-PUR-03）与 G5~G13 体验债转 M2.5（计划：[`.plan/M2-计划书.md`](.plan/M2-计划书.md)）
 - 🚧 **M4 两批均已合并**：第一批 `feat/m4-miniapp`（merge `104674e`）—— `frontend/miniapp` uni-app 工程 + 登录 / 工作台 / 库存查询 3 页，`build:h5` / `build:mp-weixin` / `build:app` 通过；第二批 `feat/m4b-pages`（merge `fedca69`）—— 出货 / 进货 / 商品只读共 **7 个新页面**（`pages.json` 实测 **10 页**）+ H5 E2E 工程 **6 spec / 8 test**（唯一前缀造数 + 硬清理）。**未实测**：微信开发者工具联调、Android 打包与真机（需 HBuilderX 与开发者工具）
@@ -111,9 +111,10 @@
 | V2-3 | 销售闭环 | `3e472ef` | `V11` 6 表：报价转单 · 拣货扫码发货 · 应收 · 收款核销 · 信用控制（超额拒单且不预占）· **组合商品拆解（INV-16）** · **发货选仓拆单** · 季节维度 · 3 页 |
 | V2-C1 | MDM 幂等键（契约债清偿） | `fb87ba4` | `V15` 8 列 + 8 条**局部唯一索引**（与既有 `request_id` 同构）；8 个 MDM 写端点**真实消费** `X-Request-Id`（同键重放返回同一资源、零重复写入、不推进单号序列）；`shared/idem` 新包；`contract-check` 8 条错误 → **0**；+25 用例（`TC-MDM-027~041`、`TC-API-085~094`） |
 | V2-D1 | 移动端第三批 | `93fa6b9` | miniapp **10 页 → 18 页**：报价 2 / 发货扫码 2 / 应收收款 2 / 待我审批 2 + 两套独立状态机镜像；H5 E2E **9 → 23 passed**（14 条 `TC-MOB`，含超额核销被拒、只读身份看不到收款表单、转办需 `aps:approve`）；后端零改动；顺带修 `JAVA_TOOL_OPTIONS` 串味导致 BCrypt 脚本误判失败，并让 miniapp E2E 可各用自己的 PG |
-| 契约清偿 | 43 条债务 | `0a1e227` | 契约 **90 → 133 操作 / 107 路径**；确立「`UNDOCUMENTED_DEBT` 保持空集是新的 DoD」；V2-3 的 28 条作为「待清偿 2」保留 |
+| 契约清偿 1 | 43 条债务 | `0a1e227` | 契约 **90 → 133 操作 / 107 路径**；确立「`UNDOCUMENTED_DEBT` 保持空集是新的 DoD」；V2-3 的 28 条当时作为「待清偿 2」保留 |
+| 契约清偿 2 | V2-3 的 28 条 | `78bbb27` | 契约 **133 → 161 操作 / 130 路径 / 133 schema**，豁免集**归零**；语义差集自证纯增量（唯一改动的既有 schema 是 `SalesOrderLine`，只加可选字段）；顺带登记 **4 条字段级缺陷** → V2-C3 |
 
-★ 波 A + 波 B 的基线（含 V2-C1）：**953 条用例 / 行 86.79%（8622/9934）/ 分支 65.72%（2270/3454）**（`fb87ba4` 合并后强制复跑，门限从未降低）；`scripts/contract-check.py` 已 **0 错误**通过。
+★ 当前基线（含 V2-C1/C2/D1）：**956 条用例 / 行 86.79%（8622/9934）/ 分支 65.72%（2270/3454）**（`78bbb27` 合并后强制复跑，门限从未降低）；`scripts/contract-check.py` **0 错误**通过，`UNDOCUMENTED_DEBT` 回到**空集**，契约 **161 操作 / 130 路径 / 133 schema**。
 ★ 本地契约门禁 `scripts/contract-check.py` 现存 **8 条真实过度承诺**（MDM 写端点声明 `X-Request-Id` 而实现不消费）→ V2-C1 补齐实现；V2-3 的 28 条缺口 → V2-C2。进度真相见 [docs/00](docs/00-索引与追踪矩阵.md) 与 [.plan/V2-指挥状态.md](.plan/V2-指挥状态.md)。
 
 ### 工程实践亮点

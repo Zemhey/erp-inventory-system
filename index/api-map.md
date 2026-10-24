@@ -137,4 +137,32 @@
 | POST | `/sales-orders/{id}/submit` | `submitSalesOrder` | 提交出货单（DRAFT → SUBMITTED） |
 | POST | `/sales-orders/{id}/approve` | `approveSalesOrder` | 审核出货单（SUBMITTED → APPROVED） |
 | POST | `/sales-orders/{id}/reject` | `rejectSalesOrder` | 驳回出货单（SUBMITTED → REJECTED） |
+| GET | `/sales-quotes` | `listSalesQuotes` | 查询报价单 |
+| POST | `/sales-quotes` | `createSalesQuote` | 创建报价单（草稿，不预占库存） |
+| GET | `/sales-quotes/{id}` | `getSalesQuote` | 报价单详情（含明细行） |
+| POST | `/sales-quotes/{id}/submit` | `submitSalesQuote` | 提交报价单（DRAFT → SUBMITTED） |
+| POST | `/sales-quotes/{id}/approve` | `approveSalesQuote` | 审核通过报价单（SUBMITTED → APPROVED） |
+| POST | `/sales-quotes/{id}/reject` | `rejectSalesQuote` | 驳回报价单（SUBMITTED → REJECTED） |
+| POST | `/sales-quotes/{id}/void` | `voidSalesQuote` | 作废报价单（→ VOIDED） |
+| POST | `/sales-quotes/{id}/convert` | `convertSalesQuote` | 报价单转化为出货单（同时预占库存） |
+| POST | `/sales-orders/auto-split` | `createSalesOrderAutoSplit` | 自动选仓建出货单（逐仓吃量拆分配） |
+| GET | `/product-bundles` | `listProductBundles` | 查询套装 |
+| POST | `/product-bundles` | `createProductBundle` | 创建套装 |
+| GET | `/product-bundles/{id}` | `getProductBundle` | 套装详情（含组件配比） |
+| PUT | `/product-bundles/{id}` | `updateProductBundle` | 修改套装（整体替换组件清单） |
+| POST | `/product-bundles/{id}/disable` | `disableProductBundle` | 停用套装 |
+| GET | `/product-bundles/{id}/availability` | `getProductBundleAvailability` | 套装可用量（min(组件可用量 ÷ 配比)） |
+| POST | `/sales-orders/{id}/shipments` | `createShipmentPlan` | 为出货单生成发货计划（按预占所在仓拆单） |
+| GET | `/shipments` | `listShipments` | 查询发货单 |
+| GET | `/shipments/{id}` | `getShipment` | 发货单详情（含拣货行与累计已扫量） |
+| POST | `/shipments/{id}/scan` | `scanShipment` | 扫码拣货（累计已扫数量） |
+| POST | `/shipments/{id}/confirm` | `confirmShipment` | 确认发货（出库 + 消费预占 + 累计已出量 + 登记应收） |
+| GET | `/receivables` | `listReceivables` | 查询客户应收单 |
+| GET | `/receivables/summary` | `getReceivableSummary` | 客户应收汇总（对账口径） |
+| GET | `/receivables/{id}` | `getReceivable` | 应收单详情 |
+| GET | `/customer-receipts` | `listCustomerReceipts` | 查询收款单 |
+| POST | `/customer-receipts` | `createCustomerReceipt` | 登记收款并核销应收 |
+| GET | `/customer-receipts/{id}` | `getCustomerReceipt` | 收款单详情（含核销明细） |
+| GET | `/customers/{id}/credit` | `getCustomerCredit` | 客户信用视图（额度、敞口、可用额度、逾期） |
+| PUT | `/customers/{id}/credit` | `updateCustomerCredit` | 调整客户信用额度与账期 |
 

@@ -4,6 +4,8 @@
 
 | 用例ID | 用例名称 | 所在文件 |
 |---|---|---|
+| `TC-API-095` | ★ 文档债豁免集保持空集；V2-3 的 28 个操作确实写在契约里且结构完整（契约清偿 2 的 DoD） | `backend/server/src/test/java/com/erp/api/ApiContractMappingIT.java` |
+| `TC-API-096` | ★ V2-3 写操作的 X-Request-Id：契约声明 ⇔ 实现消费，两个方向都必须对上 | `backend/server/src/test/java/com/erp/api/ApiContractMappingIT.java` |
 | `TC-API-040` | POST /cost/recalculate：返回成本层数与守恒标志 | `backend/server/src/test/java/com/erp/api/CostApiIT.java` |
 | `TC-API-041` | POST /cost/monthly：月结字段完整，重复执行 duplicate=true | `backend/server/src/test/java/com/erp/api/CostApiIT.java` |
 | `TC-API-042` | GET /cost/monthly：按账期查询月结行 | `backend/server/src/test/java/com/erp/api/CostApiIT.java` |
@@ -35,6 +37,32 @@
 | `TC-API-008` | ★ 客户折扣率：越界 400（契约层校验），合法 9 折成功 | `backend/server/src/test/java/com/erp/api/MasterDataApiIT.java` |
 | `TC-API-009` | 仓库：列表返回数组（非分页）；onlyEnabled 过滤生效 | `backend/server/src/test/java/com/erp/api/MasterDataApiIT.java` |
 | `TC-API-010` | 缺少 X-Request-Id 的写接口 → 400（契约要求写操作必须带幂等键） | `backend/server/src/test/java/com/erp/api/MasterDataApiIT.java` |
+| `TC-API-085` | POST /warehouses：同键重放返回同一 id，表里只有一行 | `backend/server/src/test/java/com/erp/api/MdmIdempotencyIT.java` |
+| `TC-API-086` | POST /suppliers：同键重放返回同一 id，表里只有一行 | `backend/server/src/test/java/com/erp/api/MdmIdempotencyIT.java` |
+| `TC-API-087` | POST /customers：同键重放返回同一 id，表里只有一行 | `backend/server/src/test/java/com/erp/api/MdmIdempotencyIT.java` |
+| `TC-API-088` | POST /products：同键重放返回同一 id，表里只有一行 | `backend/server/src/test/java/com/erp/api/MdmIdempotencyIT.java` |
+| `TC-API-089` | POST /skus：同键重放返回同一 id，且不撞变体唯一约束 | `backend/server/src/test/java/com/erp/api/MdmIdempotencyIT.java` |
+| `TC-API-090` | POST /warehouses/{id}/disable：同键重放结果相同、零写入、零新增审计 | `backend/server/src/test/java/com/erp/api/MdmIdempotencyIT.java` |
+| `TC-API-091` | POST /suppliers/{id}/disable：同键重放结果相同、零写入 | `backend/server/src/test/java/com/erp/api/MdmIdempotencyIT.java` |
+| `TC-API-092` | POST /customers/{id}/disable：同键重放结果相同、零写入 | `backend/server/src/test/java/com/erp/api/MdmIdempotencyIT.java` |
+| `TC-API-093` | 缺 X-Request-Id 或幂等键为空白 → 400 SYS_VALIDATION_ERROR，且失败也要留痕 | `backend/server/src/test/java/com/erp/api/MdmIdempotencyIT.java` |
+| `TC-API-094` | ★ 重放不重复写 audit_logs：5 个创建端点各 1 条 CREATE，重放后仍是 1 条 | `backend/server/src/test/java/com/erp/api/MdmIdempotencyIT.java` |
+| `TC-MDM-027` | ★ 重放返回资源的当前状态，不是当时的响应快照（选方案 b 的理由） | `backend/server/src/test/java/com/erp/api/MdmIdempotencyIT.java` |
+| `TC-MDM-028` | ★ 同键第二次 INSERT 被数据库唯一索引拦住（绕过应用层，证明守卫不活在进程里） | `backend/server/src/test/java/com/erp/api/MdmIdempotencyIT.java` |
+| `TC-MDM-029` | V15 的 8 个局部唯一索引真实存在，且都带 IS NOT NULL 谓词 | `backend/server/src/test/java/com/erp/api/MdmIdempotencyIT.java` |
+| `TC-MDM-030` | 幂等键不稀释编码唯一：不同键 + 同编码，仍然 409 MDM_CODE_DUPLICATED | `backend/server/src/test/java/com/erp/api/MdmIdempotencyIT.java` |
+| `TC-MDM-031` | 同键 + 不同编码：返回首次那一行（重放语义优先于业务字段差异） | `backend/server/src/test/java/com/erp/api/MdmIdempotencyIT.java` |
+| `TC-MDM-032` | 不带键的内部写入彼此永不冲突（局部索引不约束 NULL） | `backend/server/src/test/java/com/erp/api/MdmIdempotencyIT.java` |
+| `TC-MDM-033` | 停用后被重新启用、再用原键停用：这是真实变更，必须真的生效并留痕 | `backend/server/src/test/java/com/erp/api/MdmIdempotencyIT.java` |
+| `TC-MDM-034` | 已是停用态时用新键再停一次：状态已达成，不写第二遍 | `backend/server/src/test/java/com/erp/api/MdmIdempotencyIT.java` |
+| `TC-MDM-035` | 同一个停用键打到两个不同资源 → 409 SYS_DUPLICATE_REQUEST（返回「已停用」是错的） | `backend/server/src/test/java/com/erp/api/MdmIdempotencyIT.java` |
+| `TC-MDM-036` | ★ MDM 写入永不占用单号序列；重放同样不进位（含正向对照） | `backend/server/src/test/java/com/erp/api/MdmIdempotencyIT.java` |
+| `TC-MDM-037` | 重放不改任何一张 MDM 表的行数（五个创建端点各重放一次） | `backend/server/src/test/java/com/erp/api/MdmIdempotencyIT.java` |
+| `TC-MDM-038` | 幂等键按表命名空间：同一个键打到不同资源类型互不干扰 | `backend/server/src/test/java/com/erp/api/MdmIdempotencyIT.java` |
+| `TC-MDM-039` | 重放响应体与首次逐字段一致（创建 + 停用两类都验） | `backend/server/src/test/java/com/erp/api/MdmIdempotencyIT.java` |
+| `TC-MDM-040` | ★ 五张创建表的数据库守卫逐表生效：同键第二次 INSERT 一律被自己的索引拦住 | `backend/server/src/test/java/com/erp/api/MdmIdempotencyIT.java` |
+| `TC-MDM-041` | 停用键的冲突判定对 suppliers / customers 同样生效（不只是仓库） | `backend/server/src/test/java/com/erp/api/MdmIdempotencyIT.java` |
+| `TC-MDM-042` | ★ 首次调用恰好 1 行审计、重放 0 行新增（兜底过滤器不得补写 FAIL） | `backend/server/src/test/java/com/erp/api/MdmIdempotencyIT.java` |
 | `TC-NL-006` | ★ 查询库存：三量正确；未登录 401 —— NL 不会成为绕过认证的旁路 | `backend/server/src/test/java/com/erp/api/NlCommandApiIT.java` |
 | `TC-NL-007` | ★ 单据列表/详情：中文状态与分页生效，详情 id 与列表行一致 | `backend/server/src/test/java/com/erp/api/NlCommandApiIT.java` |
 | `TC-NL-008` | ★ 写意图：建进货草稿成功；同 X-Request-Id 重放只有一张单；缺键 400 | `backend/server/src/test/java/com/erp/api/NlCommandApiIT.java` |
@@ -646,4 +674,4 @@
 | `TC-SYS-078` | OTHER 只作为兜底存在，不参与路径映射（避免它变成常用分支） | `backend/server/src/test/java/com/erp/sys/domain/AuditEnumsTest.java` |
 | `TC-SYS-079` | 动作名长度不超过数据库列宽 VARCHAR(32) | `backend/server/src/test/java/com/erp/sys/domain/AuditEnumsTest.java` |
 
-共 641 条用例。
+共 669 条用例。
