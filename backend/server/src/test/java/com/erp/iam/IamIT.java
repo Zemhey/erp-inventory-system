@@ -19,6 +19,7 @@ import com.erp.support.TestDataFactory;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
 import java.util.Map;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -215,7 +216,7 @@ class IamIT extends PostgresTestBase {
         mvc.perform(get("/api/v1/products").header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk());
 
-        mvc.perform(post("/api/v1/products")
+        mvc.perform(post("/api/v1/products").header("X-Request-Id", UUID.randomUUID().toString())
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(Map.of("code", "P-X", "name", "测试"))))
@@ -256,7 +257,7 @@ class IamIT extends PostgresTestBase {
         // 管理员：mdm:write 放开
         data.user("root", "Correct1!", "ADMIN", encoder);
         String admin = authentication.login("root", "Correct1!").token();
-        mvc.perform(post("/api/v1/products")
+        mvc.perform(post("/api/v1/products").header("X-Request-Id", UUID.randomUUID().toString())
                         .header("Authorization", "Bearer " + admin)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(Map.of("code", "P-ADM", "name", "管理员建的商品"))))
@@ -270,7 +271,7 @@ class IamIT extends PostgresTestBase {
         long id = data.user("henry", "Correct1!", "ADMIN", encoder);
         String token = authentication.login("henry", "Correct1!").token();
 
-        mvc.perform(post("/api/v1/products")
+        mvc.perform(post("/api/v1/products").header("X-Request-Id", UUID.randomUUID().toString())
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(Map.of("code", "P-BEFORE", "name", "撤权前"))))
@@ -279,7 +280,7 @@ class IamIT extends PostgresTestBase {
         // 撤掉全部角色（token 本身仍然有效）
         jdbc.update("DELETE FROM app_user_roles WHERE user_id = ?", id);
 
-        mvc.perform(post("/api/v1/products")
+        mvc.perform(post("/api/v1/products").header("X-Request-Id", UUID.randomUUID().toString())
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(Map.of("code", "P-AFTER", "name", "撤权后"))))
