@@ -3528,6 +3528,1237 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ApiError' }
 
+  # ═══════════════════════════════════════════════════════════════════════
+  # V2-C2「契约清偿 2」补写：V2-3 销售闭环 28 个操作（FR-SAL-05~11 / FR-MDM-08）
+  #   来源：.plan/V2-3-契约申请.md + 实现侧扫描（com/erp/sal/api 6 个 Controller）
+  #   与调用侧扫描（frontend/web/src/api/salesV23.ts、client.ts）。
+  #   ★ X-Request-Id 只在实现真正 @RequestHeader 消费的操作上声明（scripts/contract-check.py 双向核对）。
+  # ═══════════════════════════════════════════════════════════════════════
+
+  # ─────────────────────────── SAL · 报价单（FR-SAL-05） ───────────────────────────
+  /sales-quotes:
+    get:
+      tags: [sal]
+      summary: 查询报价单
+      description: |
+        报价单是**未预占库存**的意向单据（与出货单的分界：出货单建单即预占）。
+        分页返回单据头字段（含 `totalAmount`/`totalQty`/`convertedOrderId`）；
+        `lines` 仅在详情与写操作响应中出现。排序 `id DESC`。
+      operationId: listSalesQuotes
+      parameters:
+        - $ref: '#/components/parameters/StatusFilter'
+        - name: customerId
+          in: query
+          schema: { type: integer, format: int64 }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: 报价单分页列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiPageResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/SalesQuote' }
+    post:
+      tags: [sal]
+      summary: 创建报价单（草稿，不预占库存）
+      description: |
+        - 明细至少一行；同一 SKU 不能重复成两行；数量必须为正、单价不能为负
+        - `discountRate` 是**整数万分比**（1~10000，10000 = 不打折，禁止浮点 ADR-0005）
+        - 客户必须存在且启用；每行 SKU 必须存在且启用
+        - `validUntil` 省略表示不限有效期；不能早于 `bizDate`（省略时取当天）
+        - 幂等：同一 `X-Request-Id` 重放**返回首次创建的报价单**，不重复建单、不报错
+        - `bizDate` 所在账期已月结锁账 → `SET_PERIOD_CLOSED`
+      operationId: createSalesQuote
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SalesQuoteCreate' }
+      responses:
+        '201':
+          description: 建单成功（状态 DRAFT）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/SalesQuote' }
+        '400':
+          description: '`SYS_VALIDATION_ERROR`（明细为空 / 数量非正 / 单价为负 / 折扣越界 / 同 SKU 重复成行 / 客户或 SKU 已停用 / 有效期早于报价日期）'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '404':
+          description: '`SYS_NOT_FOUND`（客户不存在）/ `MDM_SKU_NOT_FOUND`（SKU 不存在）'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '409':
+          description: '`SET_PERIOD_CLOSED`（报价日期所在账期已锁账）'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+              examples:
+                periodClosed:
+                  value:
+                    code: SET_PERIOD_CLOSED
+                    message: "账期 2026-10 已月结锁账（业务日期 2026-10-01 落在该期间），不允许再新增或变更该期间的单据"
+
+  /sales-quotes/{id}:
+    get:
+      tags: [sal]
+      summary: 报价单详情（含明细行）
+      operationId: getSalesQuote
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: 报价单
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/SalesQuote' }
+        '404':
+          description: '`SAL_QUOTE_NOT_FOUND`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+  /sales-quotes/{id}/submit:
+    post:
+      tags: [sal]
+      summary: 提交报价单（DRAFT → SUBMITTED）
+      description: |
+        - 幂等：状态迁移型，由**状态机 + version 条件 UPDATE** 保证，**不消费 `X-Request-Id`**；
+          同键或异键重复提交，第二次一律 `SAL_QUOTE_STATUS_ILLEGAL`
+        - 并发提交由 `status + version` 串行化，只有一个请求推进成功
+        - 报价单业务日期所在账期已锁账 → `SET_PERIOD_CLOSED`
+      operationId: submitSalesQuote
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: 提交后的报价单
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/SalesQuote' }
+        '404':
+          description: '`SAL_QUOTE_NOT_FOUND`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '409':
+          description: '`SAL_QUOTE_STATUS_ILLEGAL`（非法转移 / 并发冲突）/ `SET_PERIOD_CLOSED`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+  /sales-quotes/{id}/approve:
+    post:
+      tags: [sal]
+      summary: 审核通过报价单（SUBMITTED → APPROVED）
+      description: |
+        只有 APPROVED 的报价单可转化为出货单（见 `/sales-quotes/{id}/convert`）。
+        幂等：状态迁移型，由状态机 + version 保证，**不消费 `X-Request-Id`**。
+      operationId: approveSalesQuote
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: 审核后的报价单
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/SalesQuote' }
+        '404':
+          description: '`SAL_QUOTE_NOT_FOUND`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '409':
+          description: '`SAL_QUOTE_STATUS_ILLEGAL` / `SET_PERIOD_CLOSED`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+  /sales-quotes/{id}/reject:
+    post:
+      tags: [sal]
+      summary: 驳回报价单（SUBMITTED → REJECTED）
+      description: |
+        本模块**没有**把 REJECTED 报价单改回 DRAFT 的端点，所以从报价单接口看，
+        REJECTED 之后只能 `/void` 作废离开（共享状态机本身允许 REJECTED → DRAFT，
+        见 `DocumentStatus.TRANSITIONS`；只是报价单模块不暴露这个动作）。
+        幂等：状态迁移型，**不消费 `X-Request-Id`**。
+      operationId: rejectSalesQuote
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: 驳回后的报价单
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/SalesQuote' }
+        '404':
+          description: '`SAL_QUOTE_NOT_FOUND`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '409':
+          description: '`SAL_QUOTE_STATUS_ILLEGAL` / `SET_PERIOD_CLOSED`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+  /sales-quotes/{id}/void:
+    post:
+      tags: [sal]
+      summary: 作废报价单（→ VOIDED）
+      description: |
+        报价单不预占库存，因此作废**不动库存、也不走红冲**，只推进状态。
+        已转化（COMPLETED）的报价单不可作废。
+        幂等：状态迁移型，**不消费 `X-Request-Id`**。
+      operationId: voidSalesQuote
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: 作废后的报价单
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/SalesQuote' }
+        '404':
+          description: '`SAL_QUOTE_NOT_FOUND`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '409':
+          description: '`SAL_QUOTE_STATUS_ILLEGAL`（含已 COMPLETED 不可作废）/ `SET_PERIOD_CLOSED`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+  /sales-quotes/{id}/convert:
+    post:
+      tags: [sal]
+      summary: 报价单转化为出货单（同时预占库存）
+      description: |
+        **转换型写操作**，副作用 = 新建出货单 + 预占库存 + 信用快照，因此必须带 `X-Request-Id`。
+        - 前置：状态 APPROVED、未过期（`validUntil` 未早于当天）、有明细
+        - `warehouseId` 提供 → 固定该仓建单；**省略 → 按 `warehouses.priority` 自动选仓/拆分配**
+          （等价于 `POST /sales-orders/auto-split`）
+        - 订单业务日期取**转化当天**，不用报价日期 —— 避免把今天的转化记进已锁账的报价月
+        - 幂等：同 `X-Request-Id` 重放返回首次生成的出货单；
+          已转化后用**新键**再转化 → `SAL_QUOTE_STATUS_ILLEGAL`
+        - 内部订单幂等键为 `<X-Request-Id>:Q<quoteId>`，与直接建单的键分列
+        - 失败（库存不足 / 信用超额 / 明细非法）**整单回滚**：不产生预占，报价单保持 APPROVED 可重试
+      operationId: convertSalesQuote
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SalesQuoteConvert' }
+      responses:
+        '200':
+          description: 转化生成的出货单（DRAFT，含明细与预占 id）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/SalesOrder' }
+        '400':
+          description: '`SYS_VALIDATION_ERROR`（SKU 已停用 / 仓库已停用 / 明细非法）'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '404':
+          description: '`SAL_QUOTE_NOT_FOUND` / `MDM_SKU_NOT_FOUND` / `MDM_WAREHOUSE_NOT_FOUND`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '409':
+          description: 转化被拒绝，整单回滚（报价单保持 APPROVED）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+              examples:
+                alreadyConverted:
+                  value:
+                    code: SAL_QUOTE_STATUS_ILLEGAL
+                    message: "报价单 SQ20261023-0001 已转化为出货单 100（首次转化请求与本次不同），不能重复转化"
+                notApproved:
+                  value:
+                    code: SAL_QUOTE_STATUS_ILLEGAL
+                    message: "报价单 SQ20261023-0001 当前状态 SUBMITTED 不可转化（仅 APPROVED 可转化）"
+                expired:
+                  value:
+                    code: SAL_QUOTE_STATUS_ILLEGAL
+                    message: "报价单 SQ20261023-0001 已于 2026-11-23 过期，不能转化"
+                creditExceeded:
+                  value:
+                    code: SAL_CREDIT_LIMIT_EXCEEDED
+                    message: "客户 C001 信用超额：额度 200000 分，当前敞口 250000 分（含本单 129000 分）"
+                    details: { customerId: 1, creditLimit: 200000, exposure: 250000, orderAmount: 129000 }
+                insufficientStock:
+                  value:
+                    code: INV_INSUFFICIENT_STOCK
+                    message: "库存不足：SKU 1001 在所有启用仓合计仍差 5 件"
+                    details: { skuId: 1001, shortage: 5 }
+
+  # ─────────────────────────── SAL · 自动选仓建单（FR-SAL-11） ───────────────────────────
+  /sales-orders/auto-split:
+    post:
+      tags: [sal]
+      summary: 自动选仓建出货单（逐仓吃量拆分配）
+      description: |
+        与 `POST /sales-orders` 的唯一区别：**请求体不带 `warehouseId`**，
+        仓位由服务端按 `warehouses.priority DESC, id ASC` 遍历启用仓决定。
+        - 单仓可用量足够 → 只产生**一个** `allocations` 元素；不足才跨仓拆分配
+        - 明细行 `skuId` 与 `bundleId` **二选一**（同时给或都不给 → `SYS_VALIDATION_ERROR`）
+        - 套装行按「每仓可用套装 = min(floor(组件可用量 ÷ 配比))」成套吃量，
+          展开成组件行计价（单价取组件 `retailPriceAmount`，行上保留 `bundleId`/`bundleGroupNo`/`bundleRatio`/`bundleQty`）
+        - 单据头的 `warehouseId` = 第一个分配所在仓（仅为代表值，真实分布在 `lines[].allocations`）
+        - 顺序保证：**信用校验发生在任何预占之前**，超额时不留半成品预占
+        - 幂等：同一 `X-Request-Id` 重放返回首次建好的出货单
+      operationId: createSalesOrderAutoSplit
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SalesOrderAutoSplitCreate' }
+      responses:
+        '201':
+          description: 建单成功；`lines[].allocations` 是拆单结果的可见证据
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/SalesOrder' }
+              examples:
+                splitAcrossWarehouses:
+                  value:
+                    code: OK
+                    message: success
+                    data:
+                      id: 100
+                      orderNo: SO20261023-0001
+                      status: DRAFT
+                      customerId: 1
+                      warehouseId: 2
+                      totalQty: 15
+                      lines:
+                        - id: 11
+                          lineNo: 1
+                          skuId: 1001
+                          qty: 15
+                          openQty: 15
+                          allocations: [{ warehouseId: 2, qty: 10 }, { warehouseId: 1, qty: 5 }]
+                          reservationIds: [7001, 7002]
+        '400':
+          description: '`SYS_VALIDATION_ERROR`（明细为空 / skuId 与 bundleId 未二选一 / 数量非正 / 折扣越界 / SKU·套装·仓库已停用）'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '404':
+          description: '`MDM_SKU_NOT_FOUND` / `MDM_BUNDLE_NOT_FOUND` / `MDM_WAREHOUSE_NOT_FOUND`（无启用仓）/ `SYS_NOT_FOUND`（客户不存在）'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+              examples:
+                noEnabledWarehouse:
+                  value:
+                    code: MDM_WAREHOUSE_NOT_FOUND
+                    message: "没有启用的仓库，无法自动选仓"
+        '409':
+          description: 全部仓合计仍不足 / 信用超额 / 套装停用 / 账期已锁 —— 无任何预占产生
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+              examples:
+                insufficient:
+                  value:
+                    code: INV_INSUFFICIENT_STOCK
+                    message: "库存不足：SKU 1001 在所有启用仓合计仍差 3 件"
+                    details: { skuId: 1001, shortage: 3 }
+                bundleShortage:
+                  value:
+                    code: INV_INSUFFICIENT_STOCK
+                    message: "套装 BUNDLE-DENIM-01 库存不足：还差 1 套（按组件可用量÷配比计算）"
+                    details: { bundleId: 3, shortage: 1 }
+                creditExceeded:
+                  value:
+                    code: SAL_CREDIT_LIMIT_EXCEEDED
+                    message: "客户 C001 信用超额：额度 200000 分，当前敞口 250000 分（含本单 129000 分）"
+                bundleDisabled:
+                  value:
+                    code: MDM_BUNDLE_DISABLED
+                    message: "套装已停用，不能建单：BUNDLE-DENIM-01"
+
+  # ─────────────────────────── SAL · 组合商品/套装（FR-SAL-10） ───────────────────────────
+  /product-bundles:
+    get:
+      tags: [sal]
+      summary: 查询套装
+      description: |
+        套装是「组件 SKU × 配比」的组合定义，**自身没有库存行**（INV-16）；
+        可用量走 `GET /product-bundles/{id}/availability`。
+      operationId: listProductBundles
+      parameters:
+        - name: keyword
+          in: query
+          description: 按编码/名称模糊匹配
+          schema: { type: string }
+        - name: onlyEnabled
+          in: query
+          description: 仅返回启用的套装
+          schema: { type: boolean, default: false }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: 套装分页列表（含组件明细）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiPageResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/ProductBundle' }
+    post:
+      tags: [sal]
+      summary: 创建套装
+      description: |
+        - `items` 至少一个组件；同一组件 SKU 在套装中**只能出现一次**
+        - `ratioQty` 必须为正（整数配比，表示「一套吃几件」）
+        - 组件 SKU 必须存在且启用
+        - 幂等：由 `code` 的 DB 唯一约束保证（重复编码 → `MDM_BUNDLE_DUPLICATED`），
+          **不消费 `X-Request-Id`**
+      operationId: createProductBundle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProductBundleCreate' }
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/ProductBundle' }
+        '400':
+          description: '`SYS_VALIDATION_ERROR`（items 为空 / 配比非正 / 组件 SKU 已停用 / 编码或名称为空 / 价格为负）'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '404':
+          description: '`MDM_SKU_NOT_FOUND`（组件 SKU 不存在）'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '409':
+          description: '`MDM_BUNDLE_DUPLICATED`（套装编码已存在 / 组件 SKU 重复）'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+              examples:
+                duplicatedCode:
+                  value:
+                    code: MDM_BUNDLE_DUPLICATED
+                    message: "套装编码已存在：code=BUNDLE-DENIM-01"
+                duplicatedComponent:
+                  value:
+                    code: MDM_BUNDLE_DUPLICATED
+                    message: "同一组件 SKU 在套装中重复：skuId=1001"
+
+  /product-bundles/{id}:
+    get:
+      tags: [sal]
+      summary: 套装详情（含组件配比）
+      operationId: getProductBundle
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: 套装
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/ProductBundle' }
+        '404':
+          description: '`MDM_BUNDLE_NOT_FOUND`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+    put:
+      tags: [sal]
+      summary: 修改套装（整体替换组件清单）
+      description: |
+        - **不接收 `code`**：编码一经创建不可改（它是唯一键，也是历史单据的溯源线索）
+        - `items` 整体替换（先删后插），校验同创建
+        - 幂等：PUT 全量覆盖，重复提交同一份请求体结果一致，**不消费 `X-Request-Id`**
+      operationId: updateProductBundle
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProductBundleUpdate' }
+      responses:
+        '200':
+          description: 修改后的套装
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/ProductBundle' }
+        '400':
+          description: '`SYS_VALIDATION_ERROR`（items 为空 / 配比非正 / 组件停用 / 名称为空 / 价格为负）'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '404':
+          description: '`MDM_BUNDLE_NOT_FOUND` / `MDM_SKU_NOT_FOUND`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '409':
+          description: '`MDM_BUNDLE_DUPLICATED`（组件 SKU 重复）'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+  /product-bundles/{id}/disable:
+    post:
+      tags: [sal]
+      summary: 停用套装
+      description: |
+        纯开关型端点：只把 `enabled` 置为 false，**不删除**组件行，也不影响历史单据
+        （历史行已按组件展开并计价）。停用后建单/转化 → `MDM_BUNDLE_DISABLED`。
+        幂等由状态本身保证（重复停用结果一致），**不消费 `X-Request-Id`**。
+      operationId: disableProductBundle
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: 停用后的套装（`enabled = false`）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/ProductBundle' }
+        '404':
+          description: '`MDM_BUNDLE_NOT_FOUND`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+  /product-bundles/{id}/availability:
+    get:
+      tags: [sal]
+      summary: 套装可用量（min(组件可用量 ÷ 配比)）
+      description: |
+        **套装本身没有库存行**（不变量 INV-16），可成套数量由组件推导：
+
+        ```
+        availableQty = min over items of floor(component.availableQty ÷ item.ratioQty)
+        ```
+
+        - `warehouseId` 提供 → 只算该仓；**省略 → 全仓汇总口径**（组件可用量先跨仓求和再除配比）
+        - `components[].maxBundles` 给出每个组件单独能撑起的套数，
+          `availableQty` 就是它们的最小值 —— 响应里两者都在，算式可复核
+        - 组件清单为空时 `availableQty = 0`（而不是 `Integer.MAX_VALUE`）
+        - 这里的可用量是**读侧快照**，不预留：真正建单时按同一算式逐仓吃量并预占
+          （见 `POST /sales-orders/auto-split`），两次读取之间可能被别的单据吃掉
+      operationId: getProductBundleAvailability
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - name: warehouseId
+          in: query
+          description: 省略 = 全仓汇总口径
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: 套装可用量与各组件的撑套能力
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/BundleAvailability' }
+              examples:
+                perWarehouse:
+                  value:
+                    code: OK
+                    message: success
+                    data:
+                      bundleId: 3
+                      warehouseId: 1
+                      availableQty: 5
+                      components:
+                        - { componentSkuId: 1001, ratioQty: 2, availableQty: 10, maxBundles: 5 }
+                        - { componentSkuId: 1002, ratioQty: 3, availableQty: 15, maxBundles: 5 }
+                allWarehouses:
+                  value:
+                    code: OK
+                    message: success
+                    data:
+                      bundleId: 3
+                      warehouseId: null
+                      availableQty: 8
+                      components:
+                        - { componentSkuId: 1001, ratioQty: 2, availableQty: 17, maxBundles: 8 }
+                        - { componentSkuId: 1002, ratioQty: 3, availableQty: 30, maxBundles: 10 }
+        '404':
+          description: '`MDM_BUNDLE_NOT_FOUND`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+  # ─────────────────────────── SAL · 拣货/发货作业（FR-SAL-06） ───────────────────────────
+  /sales-orders/{id}/shipments:
+    post:
+      tags: [sal]
+      summary: 为出货单生成发货计划（按预占所在仓拆单）
+      description: |
+        **转换型写操作**（一次计划可产生多张发货单），必须带 `X-Request-Id`。
+        - 计划行来自出货单各行的 **ACTIVE 预占**：按预占所在仓分组，**一仓一张发货单**
+          —— 自动选仓/跨仓拆单的订单会一次生成多张
+        - 只计划 `openQty > 0`（未出量）的行；全部已出 → `SAL_STATUS_ILLEGAL`
+        - 一致性检查：某行 ACTIVE 预占合计 ≠ 未出量 → `SAL_STATUS_ILLEGAL`（不允许半计划状态）
+        - 一条预占**只能被一个计划占用**：重复计划同一批预占 → `SAL_STATUS_ILLEGAL`
+        - 前置状态：APPROVED / PARTIAL（`isExecutable`）
+        - 幂等：同 `X-Request-Id` 重放返回首次计划；
+          该键已被**另一张订单**用过 → `SYS_DUPLICATE_REQUEST`
+        - 新建的发货单状态为 DRAFT，等待扫码
+      operationId: createShipmentPlan
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: 发货计划（含按仓拆出的发货单）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/ShipmentPlan' }
+        '400':
+          description: '`SYS_VALIDATION_ERROR`（缺失或空白的 `X-Request-Id`）'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '404':
+          description: '`SAL_ORDER_NOT_FOUND`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '409':
+          description: 状态非法 / 预占与未出量不一致 / 预占已被计划占用 / 无可发货量 / 账期已锁
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+              examples:
+                notExecutable:
+                  value:
+                    code: SAL_STATUS_ILLEGAL
+                    message: "出货单 SO20261023-0001 当前状态 DRAFT 不可生成发货计划（仅 APPROVED/PARTIAL）"
+                reservationMismatch:
+                  value:
+                    code: SAL_STATUS_ILLEGAL
+                    message: "出货单 SO20261023-0001 第 1 行预占与未出量不一致：未出 5，ACTIVE 预占 3"
+                alreadyPlanned:
+                  value:
+                    code: SYS_DUPLICATE_REQUEST
+                    message: "该幂等键已用于另一张订单的发货计划"
+
+  /shipments:
+    get:
+      tags: [sal]
+      summary: 查询发货单
+      description: |
+        发货单是**按仓拆分**的拣货/出库执行单据，不参与收付款与账期统计，
+        因此用独立的 `ShipmentStatus` 状态机而不是共享的 `DocumentStatus`（BR-DOC-01 的例外）。
+      operationId: listShipments
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/ShipmentStatus' }
+        - name: salesOrderId
+          in: query
+          schema: { type: integer, format: int64 }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: 发货单分页列表（含拣货行）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiPageResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/Shipment' }
+
+  /shipments/{id}:
+    get:
+      tags: [sal]
+      summary: 发货单详情（含拣货行与累计已扫量）
+      operationId: getShipment
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: 发货单
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/Shipment' }
+        '404':
+          description: '`SAL_SHIPMENT_NOT_FOUND`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+  /shipments/{id}/scan:
+    post:
+      tags: [sal]
+      summary: 扫码拣货（累计已扫数量）
+      description: |
+        扫码是**累加语义**（`picked_qty += qty`），一行可多次扫；上限由「不得超计划量」守住。
+        - 前置状态：DRAFT / PICKING
+        - `shipmentLineId` 必须是本发货单的行，否则 `SYS_NOT_FOUND`
+        - `barcode` 可选：提供时必须与该 SKU 的条码完全一致（去首尾空格后比较），
+          用于**防止扫错货**；该 SKU 无条码时任何扫描值都判为不匹配
+        - 扫满全部行 → 状态自动推进到 `PICKED`；首次扫码（DRAFT 且未扫满）→ `PICKING`
+        - 幂等：**不消费 `X-Request-Id`** —— 两次扫码是两个真实动作（各加一次数量），
+          重复由 `SAL_SHIPMENT_OVER_PICK` 上限拦住，不能静默去重
+        - 并发扫码由发货单行锁 + 条件 UPDATE 串行化
+      operationId: scanShipment
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ShipmentScanRequest' }
+      responses:
+        '200':
+          description: 扫码后的发货单（`pickedQty` 已累计，状态可能已推进）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/Shipment' }
+        '400':
+          description: '`SYS_VALIDATION_ERROR`（扫码数量非正 / 条码不匹配）'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+              examples:
+                barcodeMismatch:
+                  value:
+                    code: SYS_VALIDATION_ERROR
+                    message: "条码不匹配：扫描 '6901000002'，该行 SKU 条码为 '6901000001'"
+        '404':
+          description: '`SAL_SHIPMENT_NOT_FOUND` / `SYS_NOT_FOUND`（拣货行不属于该发货单）/ `MDM_SKU_NOT_FOUND`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '409':
+          description: 超计划量 / 状态不可扫码
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+              examples:
+                overPick:
+                  value:
+                    code: SAL_SHIPMENT_OVER_PICK
+                    message: "扫码数量超过计划：拣货行 11 计划 10，已扫 8，本次 4"
+                    details: { shipmentLineId: 11, plannedQty: 10, pickedQty: 8, scanned: 4 }
+                wrongStatus:
+                  value:
+                    code: SAL_SHIPMENT_STATUS_ILLEGAL
+                    message: "发货单 SP20261023-0001 当前状态 COMPLETED 不可扫码"
+
+  /shipments/{id}/confirm:
+    post:
+      tags: [sal]
+      summary: 确认发货（出库 + 消费预占 + 累计已出量 + 登记应收）
+      description: |
+        **转换型写操作**，一次调用产生四类副作用，因此必须带 `X-Request-Id`：
+        1. 按拣货行的**计划数量**（不是已扫数量 —— 已扫必须已等于计划）整行出库，
+           写 `SALES_OUT` 流水，流水幂等键 = `<shipmentNo>:L<lineNo>`
+        2. 消费对应预占（`ACTIVE` → 已消费）
+        3. 累加出货单行的 `shippedQty`，推进订单状态（全出 `COMPLETED` / 部分 `PARTIAL`）
+        4. 按本次出货金额登记/累加客户应收
+        - 前置状态：**必须 PICKED**（全部行扫满），否则 `SAL_SHIPMENT_STATUS_ILLEGAL`
+        - 跨仓订单的每张发货单**各自确认**，互不影响
+        - 幂等：同 `X-Request-Id` 重放返回首次结果（不重复出库/登记应收）；
+          已 COMPLETED 后用**新键**再确认 → `SAL_SHIPMENT_STATUS_ILLEGAL`
+        - 任一步失败整事务回滚（不留下半张出库流水）
+        - 订单业务日期所在账期已锁账 → `SET_PERIOD_CLOSED`
+      operationId: confirmShipment
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: 确认后的发货单（COMPLETED）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/Shipment' }
+        '400':
+          description: '`SYS_VALIDATION_ERROR`（缺失或空白的 `X-Request-Id`）'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '404':
+          description: '`SAL_SHIPMENT_NOT_FOUND` / `SAL_ORDER_NOT_FOUND`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '409':
+          description: 未扫满 / 重复确认 / 出库失败 / 预占已失效 / 账期已锁
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+              examples:
+                notPicked:
+                  value:
+                    code: SAL_SHIPMENT_STATUS_ILLEGAL
+                    message: "发货单 SP20261023-0001 当前状态 PICKING 不可确认（需全部扫码完成）"
+                alreadyConfirmed:
+                  value:
+                    code: SAL_SHIPMENT_STATUS_ILLEGAL
+                    message: "发货单 SP20261023-0001 已确认发货（首次请求与本次不同），不能重复确认"
+                reservationGone:
+                  value:
+                    code: INV_RESERVE_FAILED
+                    message: "预占 7001 不是 ACTIVE，无法消费（并发冲突）"
+                outOfStock:
+                  value:
+                    code: INV_INSUFFICIENT_STOCK
+                    message: "库存不足：SKU 1001 在 上海仓 可用量 3，需求 5"
+
+  # ─────────────────────────── SAL · 应收 / 收款核销（FR-SAL-07/08） ───────────────────────────
+  /receivables:
+    get:
+      tags: [sal]
+      summary: 查询客户应收单
+      description: |
+        应收按**出货单**聚合（一单一行：`uq_receivable_order UNIQUE (sales_order_id)`），
+        出货时累加、退货时冲减、收款时核销。
+        守恒不变量（INV-AR）：`balance = shippedAmount − returnedAmount − receivedAmount ≥ 0`，
+        由数据库 CHECK 约束 `ck_receivable_balance` 兜底，不靠应用层自觉。
+        状态只有 `OPEN / SETTLED / VOIDED`（部分核销仍是 OPEN，剩余由 `balance` 表达）。
+      operationId: listReceivables
+      parameters:
+        - name: customerId
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: status
+          in: query
+          schema: { type: string, enum: [OPEN, SETTLED, VOIDED] }
+        - name: overdue
+          in: query
+          description: |
+            `true` = 仅逾期（`status = OPEN` 且 `balance > 0` 且 `dueDate < 当天`）；
+            `false` = 仅未逾期（含 `dueDate` 为空的单据）；省略 = 不过滤
+          schema: { type: boolean }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: 应收分页列表（按 id 降序）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiPageResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/CustomerReceivable' }
+
+  /receivables/summary:
+    get:
+      tags: [sal]
+      summary: 客户应收汇总（对账口径）
+      description: |
+        实时聚合该客户**未作废**（`status <> 'VOIDED'`）的应收，不读缓存：
+        - `balance = shippedAmount − returnedAmount − receivedAmount`
+        - `overdueAmount` = 其中 `status = OPEN` 且 `balance > 0` 且 `dueDate < 当天` 的余额合计
+        - 逾期判定日期来自 `ClockProvider`（禁止系统时间，ADR 纪律）
+        - 该 `balance` 正是信用敞口的「已出货未收」部分（见 `GET /customers/{id}/credit`）
+      operationId: getReceivableSummary
+      parameters:
+        - name: customerId
+          in: query
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: 汇总金额（全部为整数分）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/ReceivableSummary' }
+        '400':
+          description: '`SYS_VALIDATION_ERROR`（缺少必填的 `customerId`）'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+  /receivables/{id}:
+    get:
+      tags: [sal]
+      summary: 应收单详情
+      description: 返回守恒三元组与派生 `balance`，并给出该单据当前是否已逾期。
+      operationId: getReceivable
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: 应收单
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/CustomerReceivable' }
+        '404':
+          description: '`SAL_RECEIVABLE_NOT_FOUND`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+  /customer-receipts:
+    get:
+      tags: [sal]
+      summary: 查询收款单
+      operationId: listCustomerReceipts
+      parameters:
+        - name: customerId
+          in: query
+          schema: { type: integer, format: int64 }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: 收款单分页列表（含核销明细）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiPageResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/CustomerReceipt' }
+    post:
+      tags: [sal]
+      summary: 登记收款并核销应收
+      description: |
+        **创建型写操作**，必须带 `X-Request-Id`。核销守恒是这里的硬约束：
+        - `Σ allocations[].amount` **必须精确等于** `amount` —— 多一分少一分都是
+          `SAL_RECEIPT_UNBALANCED`(409)；不做「余额自动吸收」的宽容处理，
+          否则收款单与核销明细之间会出现无法对账的差额
+        - **部分核销合法**：单条应收的核销金额可以小于其 `balance`
+          （应收保持 OPEN，`balance` 减少）；一条收款可跨多条应收
+        - 任一核销超过该应收余额 → `SAL_RECEIPT_OVER_ALLOCATED`(409)
+          （条件 UPDATE 同时守住「余额足够」与「未作废」，并发下同一失败码）
+        - 同一 `receivableId` 在一张收款单里只能出现一次
+        - 不允许跨客户核销：应收不属于该客户 → `SAL_RECEIVABLE_NOT_FOUND`(**404**)
+        - 幂等：同 `X-Request-Id` 重放返回首次收款单；该键已用于**另一客户** → `SYS_DUPLICATE_REQUEST`
+        - `bizDate` 所在账期已锁账 → `SET_PERIOD_CLOSED`
+      operationId: createCustomerReceipt
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CustomerReceiptCreate' }
+      responses:
+        '201':
+          description: 收款单（含核销明细与每条应收核销后的余额状态）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/CustomerReceipt' }
+        '400':
+          description: '`SYS_VALIDATION_ERROR`（收款金额非正 / 核销明细为空 / 核销金额非正 / 同一应收重复 / 缺失 `X-Request-Id`）'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '404':
+          description: '`SYS_NOT_FOUND`（客户不存在）/ `SAL_RECEIVABLE_NOT_FOUND`（应收不存在或跨客户）'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+              examples:
+                crossCustomer:
+                  value:
+                    code: SAL_RECEIVABLE_NOT_FOUND
+                    message: "应收 7 不属于客户 1，不能跨客户核销"
+        '409':
+          description: 分配合计不等于金额 / 超额核销 / 幂等键复用 / 账期已锁
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+              examples:
+                unbalanced:
+                  value:
+                    code: SAL_RECEIPT_UNBALANCED
+                    message: "核销明细合计 40000 分与收款金额 45000 分不一致（必须精确相等）"
+                    details: { amount: 45000, allocated: 40000 }
+                overAllocated:
+                  value:
+                    code: SAL_RECEIPT_OVER_ALLOCATED
+                    message: "核销超额：应收 7 余额 20000 分，本次核销 30000 分"
+                    details: { receivableId: 7, balance: 20000, requested: 30000 }
+                concurrentOverAllocate:
+                  value:
+                    code: SAL_RECEIPT_OVER_ALLOCATED
+                    message: "核销超额（并发）：应收 7 余额已不足 30000 分"
+                    details: { receivableId: 7, requested: 30000 }
+
+  /customer-receipts/{id}:
+    get:
+      tags: [sal]
+      summary: 收款单详情（含核销明细）
+      operationId: getCustomerReceipt
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: 收款单
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/CustomerReceipt' }
+        '404':
+          description: '`SYS_NOT_FOUND`（收款单不存在）'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+  # ─────────────────────────── SAL · 客户信用与账期（FR-SAL-09） ───────────────────────────
+  # 实现位于 com/erp/sal（敞口口径来自应收与出货单），但落在 /customers 子路径下，
+  # 权限沿用主数据的 mdm:read / mdm:write —— 契约按现实声明。
+  /customers/{id}/credit:
+    get:
+      tags: [sal]
+      summary: 客户信用视图（额度、敞口、可用额度、逾期）
+      description: |
+        - `exposureAmount`（敞口）= **应收未收余额**（`status <> 'VOIDED'` 的 `balance` 合计）
+          **+ 未出货订单金额**（APPROVED/PARTIAL 单据的 `Σ (qty − shippedQty) × 行单价 × 折扣`）
+        - `availableCredit = creditLimit − exposureAmount`，下限 0
+        - **哨兵值**：`creditLimit = 0` 表示**不设限**，此时 `availableCredit = -1`
+          （-1 不是「欠了 1 分」，前端必须按「无限额」渲染，不要直接展示 -1）
+        - `creditDays` 是账期天数，`0` = 现结（发货即要求收款）
+        - `dueDate` 由出货单 `bizDate + creditDays` 推导，`overdueAmount` 据此统计
+        - `snapshotDate` = 本次计算所用的当天日期（来自 `ClockProvider`，可复现对账口径）
+      operationId: getCustomerCredit
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          description: 信用视图
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/CustomerCredit' }
+              examples:
+                controlled:
+                  value:
+                    code: OK
+                    message: success
+                    data:
+                      customerId: 1
+                      creditLimit: 200000
+                      creditDays: 30
+                      exposureAmount: 55000
+                      availableCredit: 145000
+                      overdueAmount: 0
+                      snapshotDate: '2026-10-23'
+                unlimited:
+                  value:
+                    code: OK
+                    message: success
+                    data:
+                      customerId: 2
+                      creditLimit: 0
+                      creditDays: 0
+                      exposureAmount: 12900
+                      availableCredit: -1
+                      overdueAmount: 0
+                      snapshotDate: '2026-10-23'
+        '404':
+          description: '`SYS_NOT_FOUND`（客户不存在）'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+    put:
+      tags: [sal]
+      summary: 调整客户信用额度与账期
+      description: |
+        - 只改 `creditLimit` 与 `creditDays` 两列（主数据其余字段走 `PUT /customers/{id}`）
+        - 两者都必须 ≥ 0；`creditLimit = 0` = 取消信用控制（不设限）
+        - **本端点不做「新额度必须覆盖当前敞口」的校验**：调低额度允许历史敞口挂账，
+          超限在**下一次建单/报价转化**时以 `SAL_CREDIT_LIMIT_EXCEEDED`(409) 拦住
+          （见 `POST /sales-orders`、`POST /sales-orders/auto-split`、`POST /sales-quotes/{id}/convert`）
+        - 幂等：PUT 全量覆盖，重复提交结果一致，**不消费 `X-Request-Id`**
+        - 响应是调整**之后**的完整信用视图（敞口随之重算，可直接确认效果）
+      operationId: updateCustomerCredit
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CustomerCreditUpdate' }
+      responses:
+        '200':
+          description: 调整后的信用视图
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/CustomerCredit' }
+        '400':
+          description: '`SYS_VALIDATION_ERROR`（额度或账期为负 / 请求体缺字段）'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '404':
+          description: '`SYS_NOT_FOUND`（客户不存在）'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
 
 components:
   parameters:
@@ -4099,6 +5330,31 @@ components:
           type: array
           description: 本行对应的预占分段 id（FEFO 拆批次时可能有多段）
           items: { type: integer, format: int64 }
+        bundleId:
+          type: integer
+          format: int64
+          nullable: true
+          description: |
+            套装行才有值（FR-SAL-10）：本行由该套装展开而来。
+            同一套装的多个组件行共享 `bundleGroupNo`
+        bundleGroupNo:
+          type: integer
+          nullable: true
+          description: 套装展开组号（同一订单内按建单顺序 1,2,3…），用于把组件行归回同一个套装行
+        bundleRatio:
+          type: integer
+          nullable: true
+          description: 该组件在套装里的配比；`qty = bundleQty × bundleRatio`
+        bundleQty:
+          type: integer
+          nullable: true
+          description: 本组展开时的套装套数
+        allocations:
+          type: array
+          description: |
+            按仓拆分的预占分配（FR-SAL-11 自动选仓的可见证据）。
+            固定仓建单只有一个元素；自动选仓可能多仓。守恒：`Σ qty == 本行 qty`
+          items: { $ref: '#/components/schemas/SalesOrderAllocation' }
 
     ReturnOrderCreate:
       type: object
@@ -5178,3 +6434,530 @@ components:
           type: string
           minLength: 1
           description: 业务单号（写入流水，便于溯源）
+
+    # ═══════════════════════════════════════════════════════════════════
+    # V2-C2「契约清偿 2」补写：V2-3 销售闭环 schema
+    #   金额一律 integer/int64「分」（ADR-0005，本批无任何 float/double）
+    # ═══════════════════════════════════════════════════════════════════
+
+    # ─── SAL · 报价单 ───
+    SalesQuote:
+      type: object
+      description: |
+        报价单（FR-SAL-05）。与出货单的分界：报价单**不预占库存、不进账期统计**，
+        `COMPLETED` 只由「转化为出货单」产生，并用 `convertedOrderId` 留下溯源指向。
+      required: [id, quoteNo, status, customerId, totalAmount, totalQty, lines]
+      properties:
+        id: { type: integer, format: int64 }
+        quoteNo: { type: string, example: SQ20261023-0001 }
+        status: { $ref: '#/components/schemas/DocumentStatus' }
+        customerId: { type: integer, format: int64 }
+        bizDate: { type: string, format: date }
+        validUntil:
+          type: string
+          format: date
+          nullable: true
+          description: 报价有效期；null = 不限。过期后不可转化（`SAL_QUOTE_STATUS_ILLEGAL`）
+        totalAmount: { type: integer, format: int64, minimum: 0, description: 合计金额（分） }
+        totalQty: { type: integer, minimum: 0, description: 合计件数 }
+        remark: { type: string, nullable: true, maxLength: 500 }
+        convertedOrderId:
+          type: integer
+          format: int64
+          nullable: true
+          description: 转化生成的出货单 id；null = 尚未转化
+        lines:
+          type: array
+          items: { $ref: '#/components/schemas/SalesQuoteLine' }
+
+    SalesQuoteLine:
+      type: object
+      required: [id, lineNo, skuId, qty, unitPriceAmount, discountRate, amount]
+      properties:
+        id: { type: integer, format: int64 }
+        lineNo: { type: integer, minimum: 1 }
+        skuId: { type: integer, format: int64 }
+        qty: { type: integer, minimum: 1 }
+        unitPriceAmount: { type: integer, format: int64, minimum: 0, description: 单价（分） }
+        discountRate:
+          type: integer
+          minimum: 1
+          maximum: 10000
+          description: 折扣率，**整数万分比**（9000 = 9 折，10000 = 不打折），禁止浮点
+        amount:
+          type: integer
+          format: int64
+          minimum: 0
+          description: 行金额（分）= floor(qty × unitPriceAmount × discountRate ÷ 10000)
+
+    SalesQuoteCreate:
+      type: object
+      required: [customerId, lines]
+      properties:
+        customerId: { type: integer, format: int64 }
+        bizDate:
+          type: string
+          format: date
+          description: 省略 = 当天（`ClockProvider`）；所在账期已锁账 → `SET_PERIOD_CLOSED`
+        validUntil:
+          type: string
+          format: date
+          description: 省略 = 不限有效期；不能早于 `bizDate`
+        remark: { type: string, maxLength: 500 }
+        lines:
+          type: array
+          minItems: 1
+          description: 同一 SKU 不能重复成两行
+          items: { $ref: '#/components/schemas/SalesQuoteLineCreate' }
+
+    SalesQuoteLineCreate:
+      type: object
+      required: [skuId, qty, unitPriceAmount]
+      properties:
+        skuId: { type: integer, format: int64 }
+        qty: { type: integer, minimum: 1 }
+        unitPriceAmount: { type: integer, format: int64, minimum: 0, description: 单价（分） }
+        discountRate:
+          type: integer
+          minimum: 1
+          maximum: 10000
+          default: 10000
+          description: 整数万分比；省略 = 10000（不打折）
+
+    SalesQuoteConvert:
+      type: object
+      description: |
+        转化参数。**整个请求体可省略**（`required = false`），等价于 `{}` = 自动选仓。
+      properties:
+        warehouseId:
+          type: integer
+          format: int64
+          description: |
+            指定出货仓；**省略 = 按 `warehouses.priority` 自动选仓/拆分配**
+            （与 `POST /sales-orders/auto-split` 同一套分配算法）
+        remark:
+          type: string
+          maxLength: 500
+          description: 省略则沿用报价单的备注
+
+    # ─── SAL · 自动选仓建单 ───
+    SalesOrderAutoSplitCreate:
+      type: object
+      description: |
+        自动选仓建单（FR-SAL-11）请求体。与 `SalesOrderCreate` 的区别只有一处：
+        **没有 `warehouseId`** —— 仓位由服务端按 priority 逐仓吃量决定。
+      required: [customerId, lines]
+      properties:
+        customerId: { type: integer, format: int64 }
+        bizDate: { type: string, format: date, description: 省略 = 当天 }
+        remark: { type: string, maxLength: 500 }
+        lines:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [qty]
+            description: |
+              每行**必须且只能**指定 `skuId` 或 `bundleId` 之一：
+              两者都给或都不给 → `SYS_VALIDATION_ERROR`（"每行必须且只能指定 skuId 或 bundleId 之一"）
+            properties:
+              skuId: { type: integer, format: int64, description: 单品行 }
+              bundleId:
+                type: integer
+                format: int64
+                description: |
+                  套装行（FR-SAL-10）：服务端展开成组件行并按组件 `retailPriceAmount` 计价，
+                  **忽略本行的 `unitPriceAmount`**
+              qty:
+                type: integer
+                minimum: 1
+                description: 单品件数，或套装套数
+              unitPriceAmount:
+                type: integer
+                format: int64
+                minimum: 0
+                description: 单价（分）；套装行忽略
+              discountRate:
+                type: integer
+                minimum: 1
+                maximum: 10000
+                default: 10000
+                description: 整数万分比，禁止浮点（ADR-0005）
+
+    SalesOrderAllocation:
+      type: object
+      description: |
+        一个出货单行在**某个仓**的预占分配量。自动选仓时一行可跨多仓 → 多个元素。
+        守恒：`Σ allocations[].qty == line.qty`（预占 id 见同字段 `reservationIds`）。
+      required: [warehouseId, qty]
+      properties:
+        warehouseId:
+          type: integer
+          format: int64
+          description: 预占所在仓（来自库存预占记录，不是单据头上的代表仓）
+        qty: { type: integer, minimum: 1, description: 本仓分配件数 }
+
+    # ─── SAL · 套装 ───
+    ProductBundle:
+      type: object
+      description: 组合商品/套装（FR-SAL-10）。自身无库存行，可用量由组件推导。
+      required: [id, code, name, priceAmount, enabled, items]
+      properties:
+        id: { type: integer, format: int64 }
+        code:
+          type: string
+          minLength: 2
+          maxLength: 32
+          description: 唯一编码，**创建后不可修改**
+          example: BUNDLE-DENIM-01
+        name: { type: string, maxLength: 128 }
+        priceAmount:
+          type: integer
+          format: int64
+          minimum: 0
+          description: 展示用套装价（分）；建单时**不使用**它，组件各自按零售价计价
+        enabled: { type: boolean }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/BundleItem' }
+
+    BundleItem:
+      type: object
+      required: [id, componentSkuId, ratioQty]
+      properties:
+        id: { type: integer, format: int64 }
+        componentSkuId: { type: integer, format: int64 }
+        ratioQty:
+          type: integer
+          minimum: 1
+          description: 配比 = 一套吃掉几件该组件（整数，无小数配比）
+
+    ProductBundleCreate:
+      type: object
+      required: [code, name, items]
+      properties:
+        code: { type: string, minLength: 2, maxLength: 32 }
+        name: { type: string, maxLength: 128 }
+        priceAmount:
+          type: integer
+          format: int64
+          minimum: 0
+          default: 0
+          description: 省略 = 0
+        enabled: { type: boolean, default: true, description: 省略 = 启用 }
+        items:
+          type: array
+          minItems: 1
+          description: 同一组件 SKU 只能出现一次
+          items: { $ref: '#/components/schemas/BundleItemCreate' }
+
+    ProductBundleUpdate:
+      type: object
+      description: 全量覆盖；**不含 `code`**（编码不可改）
+      required: [name, items]
+      properties:
+        name: { type: string, maxLength: 128 }
+        priceAmount: { type: integer, format: int64, minimum: 0, default: 0 }
+        enabled: { type: boolean, default: true }
+        items:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/BundleItemCreate' }
+
+    BundleItemCreate:
+      type: object
+      required: [componentSkuId, ratioQty]
+      properties:
+        componentSkuId: { type: integer, format: int64 }
+        ratioQty: { type: integer, minimum: 1 }
+
+    BundleAvailability:
+      type: object
+      description: |
+        套装可用量（INV-16）。算式：
+        `availableQty = min over components of floor(component.availableQty ÷ component.ratioQty)`
+      required: [bundleId, warehouseId, availableQty, components]
+      properties:
+        bundleId: { type: integer, format: int64 }
+        warehouseId:
+          type: integer
+          format: int64
+          nullable: true
+          description: null = 本次是全仓汇总口径（请求未带 warehouseId）
+        availableQty:
+          type: integer
+          minimum: 0
+          description: 可成套数量 = 各组件 maxBundles 的最小值；组件清单为空时为 0
+        components:
+          type: array
+          description: 逐组件的撑套能力，用于复核上面的算式
+          items: { $ref: '#/components/schemas/BundleComponentAvailability' }
+
+    BundleComponentAvailability:
+      type: object
+      required: [componentSkuId, ratioQty, availableQty, maxBundles]
+      properties:
+        componentSkuId: { type: integer, format: int64 }
+        ratioQty: { type: integer, minimum: 1 }
+        availableQty:
+          type: integer
+          minimum: 0
+          description: 该组件在口径范围内的可用量（余额 − 预占）
+        maxBundles:
+          type: integer
+          minimum: 0
+          description: '= floor(availableQty ÷ ratioQty)，本组件单独能撑起的套数'
+
+    # ─── SAL · 发货作业 ───
+    ShipmentStatus:
+      type: string
+      description: |
+        发货单状态机（FR-SAL-06）。**不是**共享 `DocumentStatus`：
+        发货单不参与收付款与账期统计，所以独立成枚举。
+        DRAFT →（首次扫码）PICKING →（扫满）PICKED →（确认）COMPLETED
+      enum: [DRAFT, PICKING, PICKED, COMPLETED, VOIDED]
+
+    ShipmentPlan:
+      type: object
+      description: 一次发货计划及其按仓拆出的发货单
+      required: [planId, planNo, salesOrderId, shipments]
+      properties:
+        planId: { type: integer, format: int64 }
+        planNo: { type: string, example: SP20261023-0001 }
+        salesOrderId: { type: integer, format: int64 }
+        shipments:
+          type: array
+          minItems: 1
+          description: 一仓一张；跨仓订单一次计划会产生多张
+          items: { $ref: '#/components/schemas/Shipment' }
+
+    Shipment:
+      type: object
+      required: [id, shipmentNo, planId, salesOrderId, warehouseId, status, lines]
+      properties:
+        id: { type: integer, format: int64 }
+        shipmentNo: { type: string, example: SP20261023-0002 }
+        planId: { type: integer, format: int64, description: 所属发货计划 }
+        salesOrderId: { type: integer, format: int64 }
+        warehouseId:
+          type: integer
+          format: int64
+          description: 本张发货单的出库仓 = 预占所在仓
+        status: { $ref: '#/components/schemas/ShipmentStatus' }
+        lines:
+          type: array
+          items: { $ref: '#/components/schemas/ShipmentLine' }
+
+    ShipmentLine:
+      type: object
+      required: [id, shipmentLineId, lineNo, salesOrderLineId, skuId, reservationId,
+                 plannedQty, pickedQty]
+      properties:
+        id: { type: integer, format: int64 }
+        shipmentLineId:
+          type: integer
+          format: int64
+          description: 与 `id` 同值，专为扫码请求体（`scan.shipmentLineId`）提供的别名字段
+        lineNo: { type: integer, minimum: 1 }
+        salesOrderLineId: { type: integer, format: int64 }
+        skuId: { type: integer, format: int64 }
+        reservationId:
+          type: integer
+          format: int64
+          description: |
+            来源预占 id —— 拣货行**就是**一条 ACTIVE 预占分段（DB 唯一约束保证一条预占
+            只被一个拣货行占用），确认发货时消费它。恒有值，不是可选字段
+        batchNo:
+          type: string
+          nullable: true
+          description: FEFO 选定的批次号（继承自预占，发货时不重算）
+        plannedQty:
+          type: integer
+          minimum: 1
+          description: 计划数量 = 预占数量；扫码上限
+        pickedQty: { type: integer, minimum: 0, description: 累计已扫数量，不得超 `plannedQty` }
+
+    ShipmentScanRequest:
+      type: object
+      required: [shipmentLineId, qty]
+      properties:
+        shipmentLineId:
+          type: integer
+          format: int64
+          description: 必须属于路径上的这张发货单，否则 `SYS_NOT_FOUND`
+        qty:
+          type: integer
+          minimum: 1
+          description: 本次扫码件数（**累加**到 `pickedQty`，不是设置绝对值）
+        barcode:
+          type: string
+          description: 可选；提供时必须与该 SKU 条码一致，否则 `SYS_VALIDATION_ERROR`
+          example: '6901000001'
+
+    # ─── SAL · 应收 / 收款 ───
+    CustomerReceivable:
+      type: object
+      description: |
+        客户应收（FR-SAL-07），一单一行（`UNIQUE (sales_order_id)`）。守恒（INV-AR）：
+        `balance = shippedAmount − returnedAmount − receivedAmount`，
+        由 DB CHECK `ck_receivable_balance` 强制，任何写入路径都绕不过。
+      required: [id, salesOrderId, customerId, shippedAmount, returnedAmount,
+                 receivedAmount, balance, status, overdue]
+      properties:
+        id: { type: integer, format: int64 }
+        salesOrderId: { type: integer, format: int64, description: 聚合来源的出货单，一单一应收 }
+        customerId: { type: integer, format: int64 }
+        bizDate: { type: string, format: date, description: 出货日期（继承自出货单） }
+        dueDate:
+          type: string
+          format: date
+          nullable: true
+          description: 应收到期日 = `bizDate + 客户 creditDays`；null = 未约定账期，永不判逾期
+        shippedAmount: { type: integer, format: int64, minimum: 0, description: 累计出货金额（分） }
+        returnedAmount: { type: integer, format: int64, minimum: 0, description: 累计退货冲减（分） }
+        receivedAmount: { type: integer, format: int64, minimum: 0, description: 累计已核销收款（分） }
+        balance:
+          type: integer
+          format: int64
+          minimum: 0
+          description: 未收余额（分）= shipped − returned − received
+        status:
+          type: string
+          enum: [OPEN, SETTLED, VOIDED]
+          description: |
+            只有三态：`OPEN` 含**部分核销**（剩余由 `balance` 表达，没有 PARTIAL 状态）；
+            `SETTLED` = 余额清零；`VOIDED` 由原出货单红冲作废带来，不再参与汇总与核销
+        overdue:
+          type: boolean
+          description: '= status OPEN 且 balance > 0 且 dueDate < 当天（日期来自 ClockProvider）'
+
+    ReceivableSummary:
+      type: object
+      description: 客户应收汇总（排除 VOIDED 单据），全部为整数分
+      required: [customerId, shippedAmount, returnedAmount, receivedAmount, balance, overdueAmount]
+      properties:
+        customerId: { type: integer, format: int64 }
+        shippedAmount: { type: integer, format: int64, minimum: 0 }
+        returnedAmount: { type: integer, format: int64, minimum: 0 }
+        receivedAmount: { type: integer, format: int64, minimum: 0 }
+        balance:
+          type: integer
+          format: int64
+          description: '= shippedAmount − returnedAmount − receivedAmount'
+        overdueAmount:
+          type: integer
+          format: int64
+          minimum: 0
+          description: 其中已逾期未收的部分（分）；也是信用敞口的组成部分
+
+    CustomerReceipt:
+      type: object
+      description: 收款单（FR-SAL-08）。`Σ allocations[].amount == amount` 是入库即成立的硬守恒。
+      required: [id, receiptNo, customerId, amount, bizDate, allocations]
+      properties:
+        id: { type: integer, format: int64 }
+        receiptNo: { type: string, example: RC20261023-0001 }
+        customerId: { type: integer, format: int64 }
+        amount:
+          type: integer
+          format: int64
+          minimum: 1
+          description: 收款金额（分），必须等于核销明细合计
+        bizDate: { type: string, format: date }
+        remark: { type: string, nullable: true, maxLength: 500 }
+        allocations:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/CustomerReceiptAllocation' }
+
+    CustomerReceiptAllocation:
+      type: object
+      required: [id, receivableId, amount]
+      properties:
+        id: { type: integer, format: int64 }
+        receivableId: { type: integer, format: int64 }
+        amount:
+          type: integer
+          format: int64
+          minimum: 1
+          description: 本次对该应收的核销金额（分）；可以小于其 balance（部分核销）
+
+    CustomerReceiptCreate:
+      type: object
+      required: [customerId, amount, allocations]
+      properties:
+        customerId: { type: integer, format: int64 }
+        amount:
+          type: integer
+          format: int64
+          minimum: 1
+          description: 收款金额（分）。**必须精确等于** allocations 合计 → 否则 `SAL_RECEIPT_UNBALANCED`
+        bizDate: { type: string, format: date, description: 省略 = 当天；账期已锁 → `SET_PERIOD_CLOSED` }
+        remark: { type: string, maxLength: 500 }
+        allocations:
+          type: array
+          minItems: 1
+          description: |
+            Σamount 必须等于 `amount`；同一 `receivableId` 只能出现一次；
+            每条不得超过该应收的 `balance`（超 → `SAL_RECEIPT_OVER_ALLOCATED`）；
+            不得跨客户核销（→ `SAL_RECEIVABLE_NOT_FOUND` 404）
+          items:
+            type: object
+            required: [receivableId, amount]
+            properties:
+              receivableId: { type: integer, format: int64 }
+              amount: { type: integer, format: int64, minimum: 1 }
+
+    # ─── SAL · 客户信用 ───
+    CustomerCredit:
+      type: object
+      description: |
+        信用视图（FR-SAL-09）。敞口口径：
+        `exposureAmount = 应收未收余额 + 未出货订单金额`。
+
+        额度超限**不在信用端点报错**：调低额度允许历史敞口挂账，
+        超限在下一次建单/转化时以 `SAL_CREDIT_LIMIT_EXCEEDED`(409) 拒绝
+        （`POST /sales-orders`、`POST /sales-orders/auto-split`、`POST /sales-quotes/{id}/convert`）。
+      required: [customerId, creditLimit, creditDays, exposureAmount, availableCredit, overdueAmount]
+      properties:
+        customerId: { type: integer, format: int64 }
+        creditLimit:
+          type: integer
+          format: int64
+          minimum: 0
+          description: 授信额度（分）；**0 = 不设限**
+        creditDays:
+          type: integer
+          minimum: 0
+          description: 账期天数；0 = 现结（应收无到期宽限）
+        exposureAmount:
+          type: integer
+          format: int64
+          minimum: 0
+          description: 当前敞口（分）= 应收未收余额 + 未出货订单金额
+        availableCredit:
+          type: integer
+          format: int64
+          description: |
+            可用额度（分）= `creditLimit − exposureAmount`，下限 0。
+            **哨兵值 `-1` = 不设限**（`creditLimit = 0` 时），不是负数欠款
+        overdueAmount: { type: integer, format: int64, minimum: 0, description: 逾期金额（分） }
+        snapshotDate:
+          type: string
+          format: date
+          nullable: true
+          description: 本次计算所用当天（ClockProvider）；供对账复现口径
+
+    CustomerCreditUpdate:
+      type: object
+      required: [creditLimit, creditDays]
+      properties:
+        creditLimit:
+          type: integer
+          format: int64
+          minimum: 0
+          description: 授信额度（分）；0 = 取消信用控制（不设限）
+        creditDays:
+          type: integer
+          minimum: 0
+          description: 账期天数；0 = 现结
