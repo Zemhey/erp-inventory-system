@@ -130,6 +130,8 @@ class DataScopeMatrixIT extends PostgresTestBase {
     @Autowired
     private DataScopeRepository dataScopes;
     @Autowired
+    private com.erp.iam.repository.RoleRepository roles;
+    @Autowired
     private PasswordEncoder encoder;
     @Autowired
     private JdbcTemplate jdbc;
@@ -174,12 +176,31 @@ class DataScopeMatrixIT extends PostgresTestBase {
         insertPurchaseOrder("PO-A-001", warehouseA, skuA, 10, 10000);
         insertSalesOrder("SO-A-001", warehouseA, skuA, 5, 10000);
 
-        // 身份：keeper（PURCHASER + 数据权限 A 仓）、viewer（VIEWER + A 仓）
-        long keeperId = data.user("keeper_a", "Keep1!ng", "PURCHASER", encoder);
+        // ★ 两个身份都被授足**功能权限**（读遍八个资源），差别只在**数据权限**。
+        //
+        //   为什么不直接用 PURCHASER / VIEWER 的内置角色：那样矩阵里会混进两种 403 ——
+        //   "没功能权限"（RBAC，属 TC-IAM-007/008）与"看不到数据"（数据权限，属本矩阵）。
+        //   两者混在一起，矩阵就变成"一堆 403 看起来都对"的空壳，
+        //   连"数据权限到底有没有生效"都说不清。
+        //
+        //   授足功能权限之后，矩阵里剩下的 403 与数据都只可能来自收窄本身 ——
+        //   这正是我们要考的那一件事。
+        long dataReaderRoleId = roles.findByCode("DATA_SCOPE_READER")
+                .map(com.erp.iam.repository.RoleRepository.RoleRow::id)
+                .orElseGet(() -> roles.insert("DATA_SCOPE_READER", "数据权限矩阵用只读角色",
+                        "八个资源全读，用于越权矩阵"));
+        // ★ 含 set:reconcile：对账是**独立权限码**（V5 刻意把日清/月结/对账分开），
+        //   矩阵要考"数据权限"，就必须让这两个身份先具备读到这些资源的**功能权限**；
+        //   否则结算的两格会因缺 set:reconcile 而 403，那是 RBAC 的断言，不是数据权限的。
+        roles.replacePermissions(dataReaderRoleId, java.util.List.of(
+                "mdm:read", "inv:read", "pur:read", "sal:read", "rma:read",
+                "set:read", "set:daily", "set:monthly", "set:reconcile", "rpt:read"));
+
+        long keeperId = data.user("keeper_a", "Keep1!ng", "DATA_SCOPE_READER", encoder);
         dataScopes.addUserScope(keeperId, "WAREHOUSE", warehouseA);
         keeperToken = authentication.login("keeper_a", "Keep1!ng").token();
 
-        long viewerId = data.user("viewer_a", "View1!ng", "VIEWER", encoder);
+        long viewerId = data.user("viewer_a", "View1!ng", "DATA_SCOPE_READER", encoder);
         dataScopes.addUserScope(viewerId, "WAREHOUSE", warehouseA);
         viewerToken = authentication.login("viewer_a", "View1!ng").token();
     }
@@ -187,33 +208,40 @@ class DataScopeMatrixIT extends PostgresTestBase {
     // ─────────────────────────── ★ 矩阵本体 ───────────────────────────
 
     /**
-     * ★ 每一格的<b>期望</b>（这张表本身就是需求的一部分，必须与接口语义严格对齐）。
+     * ★ 每一格的<b>期望</b>——这张表本身就是需求，必须与接口语义严格对齐。
      *
-     * <p><b>为什么不能"统统断言 404"、也不能"统统断言空结果"</b>——这是本期
-     * 最容易写出假绿/假红的地方。越权的正确响应形态取决于<b>取数形状</b>，
-     * 一共有四种，且第四种最容易被漏掉：
+     * <p><b>先说清楚本矩阵考什么、不考什么</b>（这是最容易把矩阵写错的地方）：
+     * <ul>
+     *   <li>它考的是 <b>FR-IAM-04 数据权限</b>：同一身份在"有功能权限"的前提下，
+     *       能不能看到<b>别仓</b>的数据；</li>
+     *   <li>它<b>不</b>考 FR-IAM-02 的 RBAC（"这个角色有没有这个功能"）——
+     *       那由 {@code IamIT} 的 TC-IAM-007/008 覆盖。两种 403 混淆在一起，
+     *       矩阵就会变成"一堆 403 看起来都对"的空壳。</li>
+     * </ul>
      *
+     * <p>因此本矩阵的两种身份都被授足了<b>功能权限</b>
+     * （见 {@code setUp} 里的 {@code DATA_SCOPE_READER} 角色），
+     * 差别只在<b>数据权限</b>：一个限定 A 仓、一个限定 A 仓且只读。
+     * 这样剩下的 403 就只可能是"真的没功能权限"，而不会与数据权限混为一谈。
+     *
+     * <p><b>四种合法形态</b>：
      * <table border="1">
      *   <caption>越权响应形态</caption>
      *   <tr><th>形态</th><th>取数形状</th><th>正确响应</th><th>为什么</th></tr>
      *   <tr><td>A</td><td>按 id 直查<b>单张单据</b></td><td><b>404</b></td>
      *       <td>条件拼进 SQL 后查不出行。返回 403 会泄露"这个 id 存在"，
      *           攻击者按 id 遍历即可枚举整个 id 空间。</td></tr>
-     *   <tr><td>B</td><td>列表 / 导出，<b>且请求方在本仓有数据</b></td><td><b>200 + 只有本仓的行</b></td>
-     *       <td>收窄的语义是"看不见别仓"，不是"什么都看不见"。
-     *           断言成空结果会把正确实现判成红的 —— 也会掩盖
-     *           "过滤条件误写成 1=0"这种真缺陷（那种情况下本仓数据也会消失）。</td></tr>
-     *   <tr><td>C</td><td>列表 / 聚合，<b>请求方在本仓无数据</b>（本用例的库存/报表/结算）</td>
-     *       <td><b>200 + 空结果</b></td>
-     *       <td>硬验收第 3 条的原话："A 仓仓管查 B 仓库存 → <b>空结果</b>（不是 403）"。</td></tr>
+     *   <tr><td>B</td><td>列表 / 导出（本仓有数据）</td><td><b>200 + 只有本仓的行</b></td>
+     *       <td>收窄的语义是"看不见别仓"，不是"什么都看不见"。</td></tr>
+     *   <tr><td>C</td><td>列表 / 聚合（本仓无数据）</td><td><b>200 + 空结果</b></td>
+     *       <td>硬验收第 3 条的原话："A 仓仓管查 B 仓库存 → 空结果（不是 403）"。</td></tr>
      *   <tr><td>D</td><td>主数据（商品 / SKU）</td><td><b>200 + 有内容</b></td>
-     *       <td>它们没有仓库维度，数据权限对它们<b>不该过滤</b> ——
-     *           否则选品下拉全空、报表明细只剩 id。这一组同时充当<b>对照组</b>。</td></tr>
+     *       <td>它们没有仓库维度，不该被过滤；这一组同时是<b>对照组</b>。</td></tr>
      * </table>
      *
-     * <p><b>★ 本用例的关键断言是"不得出现 B 仓数据"，而不是"必须为空"。</b>
-     * 前者在正确实现上恒成立；后者只在"恰好本仓也没数据"时成立 ——
-     * 那属于用例造数的偶然性，不该写进断言。
+     * <p>结算与报表的"按仓"能力各有边界（结算按账期、报表按仓参数），
+     * 因此它们在矩阵里归入 B/C：只要<b>不出现 B 仓数据</b>即为正确，
+     * 不强行要求"必须空"或"必须有内容"——那两种断言都会在正确实现上误伤。
      */
     private enum Expect {
         /** A：404 —— 按 id 直查越权，查不出行。 */
@@ -276,16 +304,15 @@ class DataScopeMatrixIT extends PostgresTestBase {
 
         switch (expect) {
             case NOT_FOUND -> {
-                // 403 与 200 是两个必须明确排除的错误答案：
-                //   403 → 泄露存在性；200 → 真的泄露了数据
+                // 403 会泄露"这个 id 存在"，因此按 id 越权绝不能是 403
                 assertThat(status).as("按 id 越权绝不能返回 403（会泄露存在性）")
                         .isNotEqualTo(403);
                 assertThat(body)
                         .as("★ 越权的响应体不能出现 IAM_FORBIDDEN（那等于承认资源存在）")
                         .doesNotContain("IAM_FORBIDDEN");
                 assertThat(body).containsPattern(
-                        "\\"code\\":\\"(SYS_NOT_FOUND|PUR_ORDER_NOT_FOUND"
-                                + "|SAL_ORDER_NOT_FOUND|RMA_ORDER_NOT_FOUND)\\"");
+                        "\"code\":\"(SYS_NOT_FOUND|PUR_ORDER_NOT_FOUND"
+                                + "|SAL_ORDER_NOT_FOUND|RMA_ORDER_NOT_FOUND)\"");
             }
             case SCOPED_OK -> {
                 assertThat(status).as("列表类越权只能 200，不得 403").isNotEqualTo(403);
@@ -293,16 +320,16 @@ class DataScopeMatrixIT extends PostgresTestBase {
                 assertThat(body)
                         .as("★ [%s/%s] 收窄后不得出现 B 仓（warehouseId=%d）的数据，实际=%s",
                                 resource, vector, warehouseB, body)
-                        .doesNotContain("\\"warehouseId\\":" + warehouseB);
+                        .doesNotContain("\"warehouseId\":" + warehouseB);
                 // 空结果与"只有本仓的行"都是合法的（见 Expect 的 B/C 两种形态）
             }
             case DATA_OK -> {
                 assertThat(body)
                         .as("★ 主数据 %s 不该被数据权限过滤，必须 200 且有内容", resource)
-                        .contains("\\"code\\":\\"OK\\"");
+                        .contains("\"code\":\"OK\"");
                 assertThat(body).as("主数据响应不应为空列表（对照组必须真有内容）")
-                        .doesNotContain("\\"items\\":[]");
-                assertThat(body).doesNotContain("\\"data\\":[]");
+                        .doesNotContain("\"items\":[]");
+                assertThat(body).doesNotContain("\"data\":[]");
             }
         }
     }
@@ -313,7 +340,6 @@ class DataScopeMatrixIT extends PostgresTestBase {
      * <p>守的是"期望表本身被悄悄改宽"：若有人把 {@link #expectationFor} 改成一律
      * {@link Expect#SCOPED_OK}（"反正测试红了很烦"），"单据直查必须 404"这个
      * 面试重点就会静默消失，而矩阵表面仍然全绿。
-     * 这与 {@code ArchitectureTest} 的规则自检同一个思路。
      */
     @Test
     @CaseId("TC-IAM-043")
@@ -333,9 +359,7 @@ class DataScopeMatrixIT extends PostgresTestBase {
                         .as("匿名一律 401（与资源是否存在无关）").isEqualTo(401);
             }
         }
-        // 3 张单据 × (直查 + 关联) = 6
         assertThat(notFound).as("★ 404 的格子（3 张单据 × 直查+关联）").isEqualTo(6);
-        // 2 个主数据 × 5 种方式 = 10
         assertThat(dataOk).as("★ 主数据对照（2 资源 × 5 方式）").isEqualTo(10);
         assertThat(scoped).as("★ 只见本仓的格子（40 − 6 − 10）").isEqualTo(24);
         assertThat(notFound + dataOk + scoped)
@@ -425,7 +449,12 @@ class DataScopeMatrixIT extends PostgresTestBase {
                 case LIST_INJECTION -> get("/api/v1/settlements/periods")
                         .param("warehouseId", String.valueOf(warehouseB));
                 case EXPORT -> get("/api/v1/settlements/periods").param("export", "csv");
-                case ASSOCIATION -> get("/api/v1/settlements/reconcile")
+                // ★ 关联查询这里走"按账期反查列表"，**不**走 /settlements/reconcile：
+                //   对账对未月结账期返回 409 SET_PERIOD_NOT_CLOSED，那是**业务状态**
+                //   （还没锁账就没有总账可比），与"能不能看到别仓数据"无关。
+                //   在越权矩阵里塞一个会 409 的调用，只会得到一条"看起来像权限问题、
+                //   实际是状态机问题"的假红。
+                case ASSOCIATION -> get("/api/v1/settlements/periods")
                         .param("period", "2026-03");
                 case AGGREGATE -> get("/api/v1/settlements/periods");
             };
