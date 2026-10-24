@@ -13,8 +13,10 @@ import {
   Key,
   Menu as MenuIcon,
   Money,
+  Notebook,
   OfficeBuilding,
   RefreshLeft,
+  Search,
   Sell,
   ShoppingCart,
   SwitchButton,
@@ -103,6 +105,9 @@ const allMenus: MenuItem[] = [
   { path: '/sales-quotes', title: '报价单', icon: Tickets, permission: 'sal:read' },
   { path: '/shipments', title: '拣货发货', icon: Van, permission: 'sal:read' },
   { path: '/receivables', title: '应收 / 收款', icon: Money, permission: 'sal:read' },
+  // E1 追加：审计查询与数据字典（FR-SYS-07）。仍遵守"只往后加、不重排"
+  { path: '/audits', title: '审计查询', icon: Search, permission: 'sys:read' },
+  { path: '/dicts', title: '数据字典', icon: Notebook, permission: 'sys:read' },
 ]
 
 const visibleMenus = computed(() =>

@@ -19,7 +19,21 @@ export async function loginViaUi(page: Page, username: string, password: string)
  *     （router/index.ts 的 `to.name === 'login' && token` 分支），第二个账号根本登不进去；
  *   - 第一次 goto 是为了**拿到应用自身的 origin** —— 在 `about:blank` 上读 localStorage
  *     会直接 SecurityError。clear 之后必须整页重载，内存里的 Pinia 会话才会跟着失效。
+ *
+ * ★ 第二次 goto 要容忍一次 `ERR_ABORTED`（E1 连跑两遍时实测复现过一次）：
+ *   clear 之后，上一页可能还有"迟到"的请求以 401 返回，axios 拦截器会整页跳 `/login`，
+ *   与这次 goto 抢导航。次数极少、与页面逻辑无关；重试一次即可，其它错误照常抛 ——
+ *   不要用 sleep 掩盖，否则只是把竞态变成了更慢的竞态。
  */
+async function gotoIgnoringRedirectRace(page: Page, path: string): Promise<void> {
+  try {
+    await page.goto(path)
+  } catch (error) {
+    if (!String(error).includes('ERR_ABORTED')) throw error
+    await page.goto(path)
+  }
+}
+
 export async function loginAsAnother(
   page: Page,
   username: string,
@@ -27,7 +41,7 @@ export async function loginAsAnother(
 ): Promise<void> {
   await page.goto('/login')
   await page.evaluate(() => localStorage.clear())
-  await page.goto('/login')
+  await gotoIgnoringRedirectRace(page, '/login')
   await submitLogin(page, username, password)
 }
 
