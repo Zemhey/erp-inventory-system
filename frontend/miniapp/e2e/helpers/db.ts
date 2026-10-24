@@ -131,6 +131,20 @@ const BASELINE_TABLES = [
   'sales_order_line_reservations',
   'app_users',
   'app_user_roles',
+  // ★ V2-D1：报价 / 发货 / 应收 / 收款 / 审批都新增行，全部纳入基线回归。
+  //   只把「删除语句写了但没进基线」的表当透明，等于给泄漏留口子 ——
+  //   计数回到基线这条硬校验必须覆盖本轮真正会写的所有业务表。
+  'sales_quotes',
+  'sales_quote_lines',
+  'so_shipment_plans',
+  'so_shipments',
+  'shipment_lines',
+  'customer_receivables',
+  'customer_receipts',
+  'receivable_allocations',
+  'customer_credit_snapshots',
+  'approval_instances',
+  'approval_steps',
 ] as const
 
 export function readBaseline(): Record<string, number> {
@@ -159,24 +173,72 @@ function assertSafeRun(run: RunInfo): void {
   }
 }
 
-/** 清理前的行数快照（用于报告与"前缀残留必须为 0"）。 */
+/**
+ * 清理前的行数快照（用于报告与"前缀残留必须为 0"）。
+ *
+ * ★ 这些子查询**不能**复用 cleanupRun 里的 e2e_* 临时表：temp 表是 ON COMMIT DROP，
+ *   而计数是另一次 psql 调用（独立事务），那时它们已经不存在了。
+ *   所以每一项都从主数据 code 前缀现推一遍 —— 看着重复，但重复的是同一套口径。
+ */
 function countSql(run: RunInfo): string {
   const like = `E2B-${run.runId}%`
+  const productIds = `(SELECT id FROM products WHERE code LIKE '${like}')`
+  const skuIds = `(SELECT id FROM skus WHERE product_id IN ${productIds})`
+  const customerIds = `(SELECT id FROM customers WHERE code LIKE '${like}')`
+  const supplierIds = `(SELECT id FROM suppliers WHERE code LIKE '${like}')`
+  const warehouseIds = `(SELECT id FROM warehouses WHERE code LIKE '${like}')`
+  const soIds = `(SELECT id FROM sales_orders WHERE customer_id IN ${customerIds}
+                    OR warehouse_id IN ${warehouseIds}
+                    OR id IN (SELECT order_id FROM sales_order_lines WHERE sku_id IN ${skuIds}))`
+  const poIds = `(SELECT id FROM purchase_orders WHERE supplier_id IN ${supplierIds}
+                    OR warehouse_id IN ${warehouseIds}
+                    OR id IN (SELECT order_id FROM purchase_order_lines WHERE sku_id IN ${skuIds}))`
+  const orderNos = `(SELECT order_no FROM sales_orders WHERE id IN ${soIds}
+                     UNION SELECT order_no FROM purchase_orders WHERE id IN ${poIds})`
+  const quoteIds = `(SELECT id FROM sales_quotes WHERE customer_id IN ${customerIds}
+                      OR converted_order_id IN ${soIds}
+                      OR id IN (SELECT quote_id FROM sales_quote_lines WHERE sku_id IN ${skuIds}))`
+  const planIds = `(SELECT id FROM so_shipment_plans WHERE sales_order_id IN ${soIds})`
+  const shipmentIds = `(SELECT id FROM so_shipments WHERE sales_order_id IN ${soIds}
+                        OR warehouse_id IN ${warehouseIds}
+                        OR plan_id IN ${planIds})`
+  const receivableIds = `(SELECT id FROM customer_receivables WHERE customer_id IN ${customerIds}
+                          OR sales_order_id IN ${soIds})`
+  const receiptIds = `(SELECT id FROM customer_receipts WHERE customer_id IN ${customerIds})`
+  const approvalIds = `(SELECT id FROM approval_instances
+                        WHERE initiator_id IN (SELECT id FROM app_users WHERE username LIKE '${like}')
+                        OR request_id LIKE '${like}'
+                        OR biz_ref_no IN ${orderNos})`
+
   return `
 SELECT 'products', count(*)::text FROM products WHERE code LIKE '${like}'
-UNION ALL SELECT 'skus', count(*)::text FROM skus WHERE product_id IN (SELECT id FROM products WHERE code LIKE '${like}')
+UNION ALL SELECT 'skus', count(*)::text FROM skus WHERE product_id IN ${productIds}
 UNION ALL SELECT 'suppliers', count(*)::text FROM suppliers WHERE code LIKE '${like}'
 UNION ALL SELECT 'customers', count(*)::text FROM customers WHERE code LIKE '${like}'
 UNION ALL SELECT 'warehouses', count(*)::text FROM warehouses WHERE code LIKE '${like}'
 UNION ALL SELECT 'ledger', count(*)::text FROM inventory_ledger
-  WHERE sku_id IN (SELECT id FROM skus WHERE product_id IN (SELECT id FROM products WHERE code LIKE '${like}'))
-     OR warehouse_id IN (SELECT id FROM warehouses WHERE code LIKE '${like}')
+  WHERE sku_id IN ${skuIds} OR warehouse_id IN ${warehouseIds}
 UNION ALL SELECT 'reservations', count(*)::text FROM inventory_reservations
-  WHERE sku_id IN (SELECT id FROM skus WHERE product_id IN (SELECT id FROM products WHERE code LIKE '${like}'))
-     OR warehouse_id IN (SELECT id FROM warehouses WHERE code LIKE '${like}')
+  WHERE sku_id IN ${skuIds} OR warehouse_id IN ${warehouseIds}
 UNION ALL SELECT 'balances', count(*)::text FROM inventory_balances
-  WHERE sku_id IN (SELECT id FROM skus WHERE product_id IN (SELECT id FROM products WHERE code LIKE '${like}'))
-     OR warehouse_id IN (SELECT id FROM warehouses WHERE code LIKE '${like}')
+  WHERE sku_id IN ${skuIds} OR warehouse_id IN ${warehouseIds}
+UNION ALL SELECT 'quotes', count(*)::text FROM sales_quotes WHERE id IN ${quoteIds}
+UNION ALL SELECT 'quoteLines', count(*)::text FROM sales_quote_lines
+  WHERE quote_id IN ${quoteIds} OR sku_id IN ${skuIds}
+UNION ALL SELECT 'plans', count(*)::text FROM so_shipment_plans WHERE id IN ${planIds}
+UNION ALL SELECT 'shipments', count(*)::text FROM so_shipments WHERE id IN ${shipmentIds}
+UNION ALL SELECT 'shipmentLines', count(*)::text FROM shipment_lines
+  WHERE shipment_id IN ${shipmentIds} OR sku_id IN ${skuIds}
+UNION ALL SELECT 'receivables', count(*)::text FROM customer_receivables WHERE id IN ${receivableIds}
+UNION ALL SELECT 'receipts', count(*)::text FROM customer_receipts WHERE id IN ${receiptIds}
+UNION ALL SELECT 'allocations', count(*)::text FROM receivable_allocations
+  WHERE receipt_id IN ${receiptIds} OR receivable_id IN ${receivableIds}
+UNION ALL SELECT 'creditSnapshots', count(*)::text FROM customer_credit_snapshots
+  WHERE customer_id IN ${customerIds} OR sales_order_id IN ${soIds}
+UNION ALL SELECT 'approvals', count(*)::text FROM approval_instances WHERE id IN ${approvalIds}
+UNION ALL SELECT 'approvalSteps', count(*)::text FROM approval_steps
+  WHERE instance_id IN ${approvalIds}
+UNION ALL SELECT 'users', count(*)::text FROM app_users WHERE username LIKE '${like}'
 ORDER BY 1;
 `.trim()
 }
@@ -196,6 +258,18 @@ const RESIDUE_KEYS = [
   'ledger',
   'reservations',
   'balances',
+  'quotes',
+  'quoteLines',
+  'plans',
+  'shipments',
+  'shipmentLines',
+  'receivables',
+  'receipts',
+  'allocations',
+  'creditSnapshots',
+  'approvals',
+  'approvalSteps',
+  'users',
 ] as const
 
 export function cleanupRun(run: RunInfo): CleanupResult {
@@ -233,6 +307,17 @@ CREATE TEMP TABLE e2e_so ON COMMIT DROP AS
 CREATE TEMP TABLE e2e_order_nos ON COMMIT DROP AS
   SELECT order_no FROM e2e_po UNION SELECT order_no FROM e2e_so;
 
+-- V2-D1：造数会建两个临时身份（只读 / 接办），审批实例的发起人外键指向 app_users，
+--   所以「审批」必须排在「删用户」之前；approval_steps 虽有 ON DELETE CASCADE，
+--   这里仍显式删一遍 —— 删除计数要能如实报出本轮清掉了多少节点行。
+CREATE TEMP TABLE e2e_users ON COMMIT DROP AS
+  SELECT id FROM app_users WHERE username LIKE '${like}';
+CREATE TEMP TABLE e2e_approvals ON COMMIT DROP AS
+  SELECT id FROM approval_instances
+   WHERE initiator_id IN (SELECT id FROM e2e_users)
+      OR biz_ref_no IN (SELECT order_no FROM e2e_order_nos)
+      OR request_id LIKE '${like}';
+
 CREATE TEMP TABLE e2e_ledger ON COMMIT DROP AS
   SELECT id FROM inventory_ledger
    WHERE sku_id IN (SELECT id FROM e2e_skus)
@@ -258,7 +343,15 @@ UNION ALL SELECT 'warehouses', count(*) FROM e2e_warehouses
 UNION ALL SELECT 'ledger', count(*) FROM e2e_ledger
 UNION ALL SELECT 'reservations', count(*) FROM e2e_reservations
 UNION ALL SELECT 'balances', count(*) FROM e2e_balances
+UNION ALL SELECT 'approvals', count(*) FROM e2e_approvals
+UNION ALL SELECT 'users', count(*) FROM e2e_users
 ORDER BY 1;
+
+-- V2-D1：审批实例与节点行先删（initiator_id 外键指向 app_users，删完才动账号）。
+DELETE FROM approval_steps
+ WHERE instance_id IN (SELECT id FROM e2e_approvals);
+DELETE FROM approval_instances
+ WHERE id IN (SELECT id FROM e2e_approvals);
 
 -- V2-3 销售闭环：发货/应收/报价/套装都引用 sales_orders 与其行，必须先于出货/进货删除。
 DELETE FROM shipment_lines
@@ -322,6 +415,11 @@ DELETE FROM products WHERE id IN (SELECT id FROM e2e_products);
 DELETE FROM suppliers WHERE id IN (SELECT id FROM e2e_suppliers);
 DELETE FROM customers WHERE id IN (SELECT id FROM e2e_customers);
 DELETE FROM warehouses WHERE id IN (SELECT id FROM e2e_warehouses);
+
+-- 临时账号最后删：app_user_roles / data_scopes 是 ON DELETE CASCADE，
+-- approval_instances 已在上面清掉，initiator_id 这条非级联外键才不会拦住删除。
+-- ★ 只按 username 前缀删，admin 与其他泳道/保留账号一律不动。
+DELETE FROM app_users WHERE id IN (SELECT id FROM e2e_users);
 
 COMMIT;
 `.trim()

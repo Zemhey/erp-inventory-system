@@ -27,7 +27,10 @@ test('出货单：列表 → 详情 → 出货 → 已完成', async ({ page }) 
   await expect(page.locator('.order-no')).toHaveText(seed.soAction.orderNo)
   await expect(page.locator('.status-tag')).toHaveText('已审核')
 
-  const shipButton = page.locator('.action-btn')
+  // V2-D1 起这页有**两个**动作按钮（确认出货 + 生成发货计划），
+  // 裸 .action-btn 会变成 strict mode violation；按 data-action 精确取，
+  // 以后再往这页加动作也不会再次撞掉这条既有用例。
+  const shipButton = page.locator('[data-action="ship"]')
   await expect(shipButton).toHaveText('确认出货')
   await shot(page, 'sales-detail-approved')
   await shipButton.click()
@@ -36,7 +39,7 @@ test('出货单：列表 → 详情 → 出货 → 已完成', async ({ page }) 
 
   await expect(page.locator('.status-tag')).toHaveText('已完成')
   await expect(page.locator('.hero-value').nth(1)).toHaveText(String(seed.expected.soActionQty))
-  await expect(page.locator('.action-btn')).toHaveCount(0)
+  await expect(page.locator('[data-action="ship"]')).toHaveCount(0)
   await expect(page.locator('.action-note')).toContainText('当前状态「已完成」不可出货')
   await shot(page, 'sales-detail-completed')
 })

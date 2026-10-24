@@ -168,6 +168,16 @@ function openDetail(row: Receivable): void {
   uni.navigateTo({ url: `/pages/receivables/detail?id=${row.id}` })
 }
 
+/**
+ * 点客户名 = 把筛选收到这个客户身上，并拉一次汇总。
+ * 这是给客户对账用的快捷入口，也避开在手机上驱动下拉选择器。
+ */
+function pickCustomer(id: number): void {
+  customerId.value = String(id)
+  void load(true)
+  void loadSummary()
+}
+
 onShow(() => {
   if (!ensureLoggedIn()) return
   if (!allowed.value) return
@@ -291,6 +301,8 @@ onReachBottom(() => {
           :key="row.id"
           class="card debt-card"
           :data-receivable-id="row.id"
+          :data-shipped="row.shippedAmount"
+          :data-balance="row.balance"
           @click="openDetail(row)"
         >
           <view class="row-between debt-head">
@@ -304,7 +316,9 @@ onReachBottom(() => {
           </view>
 
           <view class="row-between debt-meta">
-            <text class="meta-text">{{ customerText(row.customerId) }}</text>
+            <text class="meta-text link" @click.stop="pickCustomer(row.customerId)">
+              {{ customerText(row.customerId) }} ›
+            </text>
             <text class="meta-text">业务 {{ formatDate(row.bizDate) }}</text>
           </view>
 
@@ -559,6 +573,11 @@ onReachBottom(() => {
 .meta-text {
   font-size: 23rpx;
   color: #6e7585;
+}
+
+.meta-text.link {
+  color: #2c4066;
+  font-weight: 600;
 }
 
 .debt-foot {

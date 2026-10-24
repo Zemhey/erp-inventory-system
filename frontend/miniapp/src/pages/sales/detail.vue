@@ -281,6 +281,7 @@ onPullDownRefresh(() => {
           <button
             class="btn-primary action-btn"
             hover-class="none"
+            data-action="ship"
             :loading="actionLoading"
             :disabled="actionLoading"
             @click="confirmShip"
