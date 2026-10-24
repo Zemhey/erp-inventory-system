@@ -1471,6 +1471,340 @@ paths:
                             type: array
                             items: { $ref: '#/components/schemas/InventorySummaryRow' }
 
+  # ─────────────── RPT · V2-8 报表体系（FR-RPT-05~09） ───────────────
+  /reports/operating:
+    get:
+      tags: [rpt]
+      summary: 经营日报/月报（流水四数满足 INV-6，单据金额另列）
+      description: |
+        - 期初 / 本期入 / 本期出 / 期末来自库存流水 `occurred_at`，逐行满足
+          `期初 + 本期入 − 本期出 == 期末`（INV-6）。
+        - 进货 / 销售数量与金额来自单据 `biz_date`，与流水是**两组口径**，
+          同一天不一定相等，禁止相加或互相推算。
+        - `dimension=month` 按 from/to 所在的**完整自然月**统计（首月从月初、
+          末月到月末），否则月行恒等式会缺腿。
+      operationId: operatingReport
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: dimension
+          in: query
+          description: day=逐自然日（空日也出行）；month=完整自然月
+          schema: { type: string, enum: [day, month], default: day }
+        - name: warehouseId
+          in: query
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: 经营报表行（data.items）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/OperatingReportResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /reports/inventory-turnover:
+    get:
+      tags: [rpt]
+      summary: 库存周转与呆滞（周转天数、N 天无出库）
+      description: |
+        周转天数 = `((期初 + 期末) / 2) × 区间天数 / 区间出库`，保留一位小数；
+        区间无出库时为 null（除零没有业务含义）。
+        呆滞 = 观察日 `to` 距最近一次出库的天数 ≥ `deadDays`；
+        从未出库时从首次流水日起算。只返回期末仍有库存的 (SKU, 仓库) 行。
+      operationId: inventoryTurnoverReport
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          required: true
+          description: 同时作为呆滞观察日
+          schema: { type: string, format: date }
+        - name: deadDays
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 3650, default: 30 }
+        - name: warehouseId
+          in: query
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: 周转/呆滞行（data.items）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/InventoryTurnoverResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /reports/customer-contribution:
+    get:
+      tags: [rpt]
+      summary: 客户贡献与复购（Top N、复购率、新客/回头客）
+      description: |
+        数量 / 金额 / 单据数与出货统计同一公式与状态集合；复购 = 期间单据数 ≥ 2；
+        新客 = `from` 之前没有任何已执行出货单。`items` 按金额降序只取 Top N，
+        `summary` 始终覆盖全部客户，复购率以万分比整数返回。
+      operationId: customerContributionReport
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 20 }
+        - name: warehouseId
+          in: query
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: Top 客户 + 全量汇总
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/CustomerContributionResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /reports/aging:
+    get:
+      tags: [rpt]
+      summary: 应收/应付账龄（0-30 / 31-60 / 61-90 / 90+）
+      description: |
+        只统计未作废、余额 > 0 且单据日期不晚于 asOf 的往来单据；
+        四桶合计必须等于余额（行级与汇总级）。
+        AR 以 `due_date` 起算；AP 没有约定到期日，以应付单 `biz_date` 起算。
+        未到期与无到期日归入 0-30 桶。
+      operationId: agingReport
+      parameters:
+        - name: type
+          in: query
+          required: true
+          schema: { type: string, enum: [AR, AP] }
+        - name: asOf
+          in: query
+          required: true
+          description: 观察日（账龄截止日）
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: 账龄行 + 汇总
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/AgingResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /reports/purchase/export:
+    get:
+      tags: [rpt]
+      summary: 进货统计导出 CSV（与页面同一查询、同一舍入）
+      operationId: purchaseExportReport
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: groupBy
+          in: query
+          schema: { type: string, enum: [supplier, product, sku, day, month] }
+        - name: warehouseId
+          in: query
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: UTF-8 BOM 的 CSV（Excel 可直接打开）
+          content:
+            text/csv:
+              schema: { type: string, format: binary }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /reports/sales/export:
+    get:
+      tags: [rpt]
+      summary: 出货统计导出 CSV（与页面同一查询、同一舍入）
+      operationId: salesExportReport
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: groupBy
+          in: query
+          schema: { type: string, enum: [customer, product, sku, day, month] }
+        - name: warehouseId
+          in: query
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: UTF-8 BOM 的 CSV（Excel 可直接打开）
+          content:
+            text/csv:
+              schema: { type: string, format: binary }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /reports/inventory-summary/export:
+    get:
+      tags: [rpt]
+      summary: 进销存汇总导出 CSV（与页面同一 SQL，含名称列）
+      operationId: inventorySummaryExportReport
+      parameters:
+        - name: period
+          in: query
+          required: true
+          schema: { type: string, pattern: '^\d{4}-\d{2}$' }
+        - name: warehouseId
+          in: query
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: UTF-8 BOM 的 CSV（Excel 可直接打开）
+          content:
+            text/csv:
+              schema: { type: string, format: binary }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /reports/operating/export:
+    get:
+      tags: [rpt]
+      summary: 经营日报/月报导出 CSV（与页面同一查询、同一舍入）
+      operationId: operatingExportReport
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: dimension
+          in: query
+          schema: { type: string, enum: [day, month], default: day }
+        - name: warehouseId
+          in: query
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: UTF-8 BOM 的 CSV（Excel 可直接打开）
+          content:
+            text/csv:
+              schema: { type: string, format: binary }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /reports/inventory-turnover/export:
+    get:
+      tags: [rpt]
+      summary: 库存周转与呆滞导出 CSV（与页面同一查询、同一舍入）
+      operationId: inventoryTurnoverExportReport
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: deadDays
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 3650, default: 30 }
+        - name: warehouseId
+          in: query
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: UTF-8 BOM 的 CSV（Excel 可直接打开）
+          content:
+            text/csv:
+              schema: { type: string, format: binary }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /reports/customer-contribution/export:
+    get:
+      tags: [rpt]
+      summary: 客户贡献与复购导出 CSV（含全量汇总）
+      operationId: customerContributionExportReport
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 20 }
+        - name: warehouseId
+          in: query
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: UTF-8 BOM 的 CSV（Excel 可直接打开）
+          content:
+            text/csv:
+              schema: { type: string, format: binary }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /reports/aging/export:
+    get:
+      tags: [rpt]
+      summary: 应收/应付账龄导出 CSV（含守恒汇总）
+      operationId: agingExportReport
+      parameters:
+        - name: type
+          in: query
+          required: true
+          schema: { type: string, enum: [AR, AP] }
+        - name: asOf
+          in: query
+          required: true
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: UTF-8 BOM 的 CSV（Excel 可直接打开）
+          content:
+            text/csv:
+              schema: { type: string, format: binary }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
   # ─────────────────────────── NL ───────────────────────────
   /nl/command:
     post:
@@ -5666,6 +6000,133 @@ components:
         inboundQty: { type: integer, format: int64, description: 本期入库数量 }
         outboundQty: { type: integer, format: int64, description: 本期出库数量 }
         closingQty: { type: integer, format: int64, description: 期末数量 }
+
+    OperatingReportRow:
+      type: object
+      description: 经营日报/月报一行；period 为日或月，流水四数逐行满足 INV-6
+      required: [period, openingQty, inboundQty, outboundQty, closingQty,
+                 purchaseQty, purchaseAmount, salesQty, salesAmount]
+      properties:
+        period: { type: string, description: '日：yyyy-MM-dd；月：yyyy-MM' }
+        openingQty: { type: integer, format: int64, description: 期初（流水口径） }
+        inboundQty: { type: integer, format: int64, description: 本期入库（流水口径） }
+        outboundQty: { type: integer, format: int64, description: 本期出库（流水口径） }
+        closingQty: { type: integer, format: int64, description: 期末（流水口径） }
+        purchaseQty: { type: integer, format: int64, description: 进货数量（单据 biz_date 口径） }
+        purchaseAmount: { type: integer, format: int64, description: 进货金额（分，单据口径） }
+        salesQty: { type: integer, format: int64, description: 出货数量（单据 biz_date 口径） }
+        salesAmount: { type: integer, format: int64, description: 出货金额（分，单据口径） }
+
+    OperatingReportResult:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/OperatingReportRow' }
+
+    InventoryTurnoverRow:
+      type: object
+      description: 库存周转与呆滞行；turnoverDays 为 null 表示区间无出库
+      required: [skuId, skuCode, skuName, warehouseId, warehouseName, openingQty,
+                 closingQty, outboundQty, turnoverDays, idleDays, stale]
+      properties:
+        skuId: { type: integer, format: int64 }
+        skuCode: { type: string }
+        skuName: { type: string }
+        warehouseId: { type: integer, format: int64 }
+        warehouseName: { type: string }
+        openingQty: { type: integer, format: int64 }
+        closingQty: { type: integer, format: int64 }
+        outboundQty: { type: integer, format: int64, description: 区间内流水出库量 }
+        turnoverDays:
+          type: number
+          nullable: true
+          description: ((期初+期末)/2 × 区间天数) / 区间出库，保留一位小数
+        idleDays: { type: integer, description: 距最近出库（从未出库则距首次流水）的天数 }
+        stale: { type: boolean, description: idleDays >= deadDays }
+
+    InventoryTurnoverResult:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/InventoryTurnoverRow' }
+
+    CustomerContributionRow:
+      type: object
+      description: 客户贡献行；数量/金额/单据数与出货统计同口径
+      required: [customerId, customerCode, customerName, orderCount, qty, amount,
+                 repurchase, newCustomer]
+      properties:
+        customerId: { type: integer, format: int64 }
+        customerCode: { type: string }
+        customerName: { type: string }
+        orderCount: { type: integer, format: int64 }
+        qty: { type: integer, format: int64 }
+        amount: { type: integer, format: int64, description: 金额（分） }
+        repurchase: { type: boolean, description: 期间单据数 ≥ 2 }
+        newCustomer: { type: boolean, description: from 之前没有已执行出货单 }
+
+    CustomerContributionSummary:
+      type: object
+      description: 全量客户汇总（不受 Top N 截断影响）
+      required: [customerCount, repurchaseCount, repurchaseRateBp, newCustomerCount,
+                 returningCustomerCount, totalQty, totalAmount, orderCount]
+      properties:
+        customerCount: { type: integer }
+        repurchaseCount: { type: integer }
+        repurchaseRateBp: { type: integer, format: int64, description: 复购率万分比（6667 = 66.67%） }
+        newCustomerCount: { type: integer }
+        returningCustomerCount: { type: integer }
+        totalQty: { type: integer, format: int64 }
+        totalAmount: { type: integer, format: int64, description: 金额（分） }
+        orderCount: { type: integer, format: int64 }
+
+    CustomerContributionResult:
+      type: object
+      required: [items, summary]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/CustomerContributionRow' }
+        summary: { $ref: '#/components/schemas/CustomerContributionSummary' }
+
+    AgingRow:
+      type: object
+      description: 账龄行；四桶合计必须等于余额
+      required: [partnerId, partnerCode, partnerName, balanceAmount,
+                 bucket0, bucket1, bucket2, bucket3]
+      properties:
+        partnerId: { type: integer, format: int64 }
+        partnerCode: { type: string }
+        partnerName: { type: string }
+        balanceAmount: { type: integer, format: int64, description: 余额（分） }
+        bucket0: { type: integer, format: int64, description: 0-30 天（含未到期/无到期日） }
+        bucket1: { type: integer, format: int64, description: 31-60 天 }
+        bucket2: { type: integer, format: int64, description: 61-90 天 }
+        bucket3: { type: integer, format: int64, description: 90+ 天 }
+
+    AgingSummary:
+      type: object
+      required: [partnerCount, totalBalance, bucket0, bucket1, bucket2, bucket3]
+      properties:
+        partnerCount: { type: integer }
+        totalBalance: { type: integer, format: int64 }
+        bucket0: { type: integer, format: int64 }
+        bucket1: { type: integer, format: int64 }
+        bucket2: { type: integer, format: int64 }
+        bucket3: { type: integer, format: int64 }
+
+    AgingResult:
+      type: object
+      required: [items, summary]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/AgingRow' }
+        summary: { $ref: '#/components/schemas/AgingSummary' }
 
     NlCommandRequest:
       type: object

@@ -1,5 +1,6 @@
 package com.erp.rpt.repository;
 
+import com.erp.rpt.domain.InventorySummaryExportRow;
 import com.erp.rpt.domain.InventorySummaryRow;
 import com.erp.rpt.domain.ReportGroupBy;
 import com.erp.rpt.domain.ReportRow;
@@ -55,6 +56,21 @@ public class ReportRepository {
             new InventorySummaryRow(
                     rs.getLong("sku_id"),
                     rs.getLong("warehouse_id"),
+                    rs.getLong("opening_qty"),
+                    rs.getLong("inbound_qty"),
+                    rs.getLong("outbound_qty"),
+                    rs.getLong("closing_qty"));
+
+    /**
+     * 导出行读取同一条 SQL 里的名称列。页面名 = 商品名 · 颜色-尺码、仓库名（停用加后缀），
+     * 回退串也一致，因此 CSV 与页面逐格相同。
+     */
+    private static final RowMapper<InventorySummaryExportRow> SUMMARY_EXPORT_ROW = (rs, n) ->
+            new InventorySummaryExportRow(
+                    rs.getLong("sku_id"),
+                    rs.getString("sku_name"),
+                    rs.getLong("warehouse_id"),
+                    rs.getString("warehouse_name"),
                     rs.getLong("opening_qty"),
                     rs.getLong("inbound_qty"),
                     rs.getLong("outbound_qty"),
@@ -186,6 +202,17 @@ public class ReportRepository {
     }
 
     /**
+     * 与 {@link #inventorySummary} <b>同一条 SQL</b>，只是额外读取名称列供 CSV 导出。
+     * 不另发查询、不重算：导出与页面看到的是同一批行、同一组舍入前的整数。
+     */
+    public List<InventorySummaryExportRow> inventorySummaryExport(LocalDateTime periodFrom,
+                                                                  LocalDateTime periodTo,
+                                                                  Long warehouseId) {
+        Sql sql = inventorySummarySql(periodFrom, periodTo, warehouseId);
+        return jdbc.query(sql.text(), SUMMARY_EXPORT_ROW, sql.args().toArray());
+    }
+
+    /**
      * 占位符顺序（与 SQL 文本自上而下一致）：期间起点 ×3（三个 FILTER）、
      * 期间终点 ×1（WHERE）、可选仓库 ×1。改动 SQL 时必须同步改动参数顺序，
      * 这条约束由 {@code ReportQueryPlanIT} 直接跑同一条语句来兜住。
@@ -195,6 +222,11 @@ public class ReportRepository {
         StringBuilder sql = new StringBuilder("""
                 SELECT l.sku_id,
                        l.warehouse_id,
+                       COALESCE(pr.name || ' · ' || k.color || '-' || k.size,
+                                'SKU#' || l.sku_id) AS sku_name,
+                       COALESCE(CASE WHEN w.enabled THEN w.name
+                                     ELSE w.name || '（已停用）' END,
+                                '仓库#' || l.warehouse_id) AS warehouse_name,
                        COALESCE(SUM(l.change_qty) FILTER (WHERE l.occurred_at < ?), 0) AS opening_qty,
                        COALESCE(SUM(l.change_qty) FILTER (WHERE l.occurred_at >= ?
                                                             AND l.change_qty > 0), 0) AS inbound_qty,
@@ -202,6 +234,9 @@ public class ReportRepository {
                                                              AND l.change_qty < 0), 0) AS outbound_qty,
                        COALESCE(SUM(l.change_qty), 0) AS closing_qty
                   FROM inventory_ledger l
+                  LEFT JOIN skus k ON k.id = l.sku_id
+                  LEFT JOIN products pr ON pr.id = k.product_id
+                  LEFT JOIN warehouses w ON w.id = l.warehouse_id
                  WHERE l.occurred_at < ?
                 """);
         args.add(periodTo);
@@ -211,7 +246,7 @@ public class ReportRepository {
         }
         // ★ 数据权限：进销存汇总同样要收窄，否则"合计"会把别仓的进出算进来
         sql.append(scope.current().warehousePredicate("l.warehouse_id", args)).append('\n');
-        sql.append(" GROUP BY l.sku_id, l.warehouse_id\n");
+        sql.append(" GROUP BY l.sku_id, l.warehouse_id, k.id, pr.id, w.id\n");
         sql.append(" ORDER BY l.sku_id, l.warehouse_id");
         return new Sql(sql.toString(), args);
     }
