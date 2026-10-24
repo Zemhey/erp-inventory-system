@@ -51,7 +51,7 @@ public class PurchaseOrderRepository {
             rs.getLong("unit_price_amount"),
             rs.getLong("amount"));
 
-    private final com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc;
+    private final JdbcTemplate jdbc;
 
     /**
      * 数据权限（FR-IAM-04）。
@@ -63,7 +63,7 @@ public class PurchaseOrderRepository {
      */
     private final com.erp.shared.scope.ScopeContext scope;
 
-    public PurchaseOrderRepository(com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc, com.erp.shared.scope.ScopeContext scope) {
+    public PurchaseOrderRepository(JdbcTemplate jdbc, com.erp.shared.scope.ScopeContext scope) {
         this.jdbc = jdbc;
         this.scope = scope;
     }

@@ -49,9 +49,9 @@ public class ApprovalStepRepository {
             decision_by, remark
             """;
 
-    private final com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc;
+    private final JdbcTemplate jdbc;
 
-    public ApprovalStepRepository(com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc) {
+    public ApprovalStepRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 

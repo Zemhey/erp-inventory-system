@@ -53,9 +53,9 @@ public class PurchaseReceiptRepository {
                     QcStatus.valueOf(rs.getString("qc_status")),
                     rs.getString("qc_note"));
 
-    private final com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc;
+    private final JdbcTemplate jdbc;
 
-    public PurchaseReceiptRepository(com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc) {
+    public PurchaseReceiptRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 

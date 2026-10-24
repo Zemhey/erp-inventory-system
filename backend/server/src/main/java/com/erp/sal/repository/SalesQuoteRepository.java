@@ -47,9 +47,9 @@ public class SalesQuoteRepository {
             total_amount, total_qty, remark, convert_request_id, converted_order_id, version
             """;
 
-    private final com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc;
+    private final JdbcTemplate jdbc;
 
-    public SalesQuoteRepository(com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc) {
+    public SalesQuoteRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 

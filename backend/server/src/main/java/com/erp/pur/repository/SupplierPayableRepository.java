@@ -47,9 +47,9 @@ public class SupplierPayableRepository {
               JOIN purchase_orders po ON po.id = sp.purchase_order_id
             """;
 
-    private final com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc;
+    private final JdbcTemplate jdbc;
 
-    public SupplierPayableRepository(com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc) {
+    public SupplierPayableRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 

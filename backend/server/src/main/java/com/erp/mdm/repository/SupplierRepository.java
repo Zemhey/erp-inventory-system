@@ -30,9 +30,9 @@ public class SupplierRepository {
             rs.getString("address"),
             rs.getBoolean("enabled"));
 
-    private final com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc;
+    private final JdbcTemplate jdbc;
 
-    public SupplierRepository(com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc) {
+    public SupplierRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 

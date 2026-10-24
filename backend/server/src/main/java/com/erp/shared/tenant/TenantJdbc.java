@@ -2,6 +2,7 @@ package com.erp.shared.tenant;
 
 import java.util.List;
 import java.util.function.Function;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -42,7 +43,7 @@ public final class TenantJdbc {
      * @param args 与 SQL 占位符一一对应的参数
      * @return 新行 id
      */
-    public static long insertReturningId(TenantAwareJdbcTemplate jdbc, String sql, Object... args) {
+    public static long insertReturningId(JdbcTemplate jdbc, String sql, Object... args) {
         Long id = jdbc.queryForObject(sql, Long.class, args);
         if (id == null) {
             // 正常不会发生（RETURNING id 对成功插入必有一行）。保留这条断言的意义：
@@ -62,12 +63,12 @@ public final class TenantJdbc {
      * @param sql  写语句（不含 tenant_id）
      * @param args 与占位符一一对应的参数
      */
-    public static int update(TenantAwareJdbcTemplate jdbc, String sql, Object... args) {
+    public static int update(JdbcTemplate jdbc, String sql, Object... args) {
         return jdbc.update(sql, args);
     }
 
     /** 读一行（供替换"手工 prepareStatement 之后 executeQuery"的少数读路径）。 */
-    public static <T> List<T> query(TenantAwareJdbcTemplate jdbc, String sql,
+    public static <T> List<T> query(JdbcTemplate jdbc, String sql,
                                     RowMapper<T> mapper, Object... args) {
         return jdbc.query(sql, mapper, args);
     }
@@ -77,7 +78,7 @@ public final class TenantJdbc {
      *
      * <p>命名参数最终也会被展开成带 {@code ?} 的文本，因此同样经过租户改写。
      */
-    public static NamedParameterJdbcTemplate named(TenantAwareJdbcTemplate jdbc) {
+    public static NamedParameterJdbcTemplate named(JdbcTemplate jdbc) {
         return new NamedParameterJdbcTemplate(jdbc);
     }
 

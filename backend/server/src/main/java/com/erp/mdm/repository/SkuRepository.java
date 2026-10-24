@@ -44,9 +44,9 @@ public class SkuRepository {
             rs.getString("band_code"),
             rs.getObject("launch_date", java.time.LocalDate.class));
 
-    private final com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc;
+    private final JdbcTemplate jdbc;
 
-    public SkuRepository(com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc) {
+    public SkuRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 

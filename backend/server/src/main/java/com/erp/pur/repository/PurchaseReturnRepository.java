@@ -50,10 +50,10 @@ public class PurchaseReturnRepository {
               FROM purchase_returns
             """;
 
-    private final com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc;
+    private final JdbcTemplate jdbc;
     private final ObjectMapper json;
 
-    public PurchaseReturnRepository(com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc, ObjectMapper json) {
+    public PurchaseReturnRepository(JdbcTemplate jdbc, ObjectMapper json) {
         this.jdbc = jdbc;
         this.json = json;
     }

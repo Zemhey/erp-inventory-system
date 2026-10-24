@@ -33,9 +33,9 @@ public class ProductRepository {
             rs.getString("season"),
             rs.getBoolean("enabled"));
 
-    private final com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc;
+    private final JdbcTemplate jdbc;
 
-    public ProductRepository(com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc) {
+    public ProductRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 

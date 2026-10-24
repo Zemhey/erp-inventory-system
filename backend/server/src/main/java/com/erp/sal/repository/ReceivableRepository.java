@@ -42,9 +42,9 @@ public class ReceivableRepository {
                     rs.getString("remark"),
                     List.of());
 
-    private final com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc;
+    private final JdbcTemplate jdbc;
 
-    public ReceivableRepository(com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc) {
+    public ReceivableRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 

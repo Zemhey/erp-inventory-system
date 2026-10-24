@@ -39,9 +39,9 @@ public class CostLayerRepository {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
 
-    private final com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc;
+    private final JdbcTemplate jdbc;
 
-    public CostLayerRepository(com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc) {
+    public CostLayerRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 

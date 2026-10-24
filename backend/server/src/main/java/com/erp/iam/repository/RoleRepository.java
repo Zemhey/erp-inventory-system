@@ -28,9 +28,9 @@ public class RoleRepository {
             rs.getString("name"),
             rs.getString("description"));
 
-    private final com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc;
+    private final JdbcTemplate jdbc;
 
-    public RoleRepository(com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc) {
+    public RoleRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 

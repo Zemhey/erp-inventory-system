@@ -57,12 +57,12 @@ public class ReturnOrderRepository {
             rs.getObject("production_date", LocalDate.class),
             rs.getObject("expiry_date", LocalDate.class));
 
-    private final com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc;
+    private final JdbcTemplate jdbc;
 
     /** 数据权限（FR-IAM-04）：仓库 + 本人；过滤在仓储层，出口唯一。 */
     private final com.erp.shared.scope.ScopeContext scope;
 
-    public ReturnOrderRepository(com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc, com.erp.shared.scope.ScopeContext scope) {
+    public ReturnOrderRepository(JdbcTemplate jdbc, com.erp.shared.scope.ScopeContext scope) {
         this.jdbc = jdbc;
         this.scope = scope;
     }

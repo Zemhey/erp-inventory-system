@@ -47,9 +47,9 @@ public class ShipmentRepository {
             confirm_request_id, version
             """;
 
-    private final com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc;
+    private final JdbcTemplate jdbc;
 
-    public ShipmentRepository(com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc) {
+    public ShipmentRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 

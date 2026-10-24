@@ -45,9 +45,9 @@ public class ApprovalInstanceRepository {
             initiator_id, version
             """;
 
-    private final com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc;
+    private final JdbcTemplate jdbc;
 
-    public ApprovalInstanceRepository(com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc) {
+    public ApprovalInstanceRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 

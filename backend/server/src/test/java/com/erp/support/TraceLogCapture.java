@@ -50,7 +50,10 @@ public final class TraceLogCapture {
         for (ILoggingEvent event : appender.list) {
             String mdcTrace = event.getMDCPropertyMap().get("traceId");
             if (mdcTrace != null && mdcTrace.equals(traceId)) {
-                lines.add(event.getFormattedMessage());
+                // 把 MDC 里的 traceId 还原到行首：日志文件里它是 pattern 的一部分，
+                // 而 ListAppender 拿到的 formattedMessage 不含 pattern。调用方断言
+                // "捞出的每一行都带 traceId"时，看到的必须与真实日志一致。
+                lines.add("[" + mdcTrace + "] " + event.getFormattedMessage());
             }
         }
         return lines;

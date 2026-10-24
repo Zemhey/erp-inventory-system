@@ -70,19 +70,29 @@ import java.util.regex.Pattern;
  * <b>幂等</b>：若语句里已有的 {@code tenant_id} 出现次数已覆盖全部表站点，
  * 判定"已改写"并原样返回 —— 这样重复经过本类（或有人手写了谓词）不会重复追加。
  *
- * <p><b>★ 一个刻意的取舍：{@code JOIN} 的 {@code ON} 不追加租户条件</b>
- * 联表两侧各自带谓词后，{@code JOIN} 结果必然是"两侧同租户"的子集，语义已正确。
- * 把条件写进 {@code ON} 会改变 {@code LEFT JOIN} 语义（内表不匹配仍保留外表行），
- * 而本项目实测 0 处 {@code LEFT JOIN}（成本模块的两处由
- * {@code CostSourceRepository} 的注释说明为"只在 RETURN_IN 分支生效"，
- * 且该查询已按 {@code l} 过滤）—— 因此不为它承担"改写错语义"的风险。
+ * <p><b>★ {@code JOIN} 的 {@code ON} 与 {@code LEFT JOIN} 的处理</b>
+ * 内连接两侧各自带 WHERE 谓词后，结果必然是"两侧同租户"的子集，语义正确。
+ * 但 <b>{@code LEFT JOIN} 的右表谓词不能写进 WHERE</b>：不匹配时右表整行为 NULL，
+ * 谓词恒假，外连接会退化成内连接 —— 实测让成本引擎的全部流水查询返回 0 行
+ * （{@code CostSourceRepository} 的两处 LEFT JOIN 属真实用法，早先注释里
+ * "0 处 LEFT JOIN" 的判断是错的）。因此：右表的谓词写进该 JOIN 的 {@code ON}
+ * （既保证不匹配别租户的行，又保留外表行），其余表仍写 WHERE。
+ *
+ * <p>识别方式只认"表名紧邻 {@code FROM}/{@code JOIN}、且 JOIN 前是 LEFT [OUTER]"
+ * 这一种本项目真实使用的写法；更复杂的连接树不在能力范围内，遇到时应改写 SQL。
  */
 public final class TenantSql {
 
     private static final Set<String> TABLES = TenantTables.ALL;
 
-    /** 语句里所有"表出现点"。{@code start} 指向表名首字符。 */
-    private record TableSite(String table, int start, int end, String alias) {
+    /**
+     * 语句里所有"表出现点"。{@code start} 指向表名首字符。
+     *
+     * @param leftJoined 该表是否是 {@code LEFT [OUTER] JOIN} 的右表 —— 它的租户谓词
+     *                   必须写进 {@code ON} 而不是 {@code WHERE}（见类注释）
+     */
+    private record TableSite(String table, int start, int end, String alias,
+                             boolean leftJoined) {
     }
 
     private static final Pattern TABLE_TOKEN = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
@@ -166,6 +176,30 @@ public final class TenantSql {
      * 先递归是必要的 —— 递归会改变文本长度，后做的外层插入用重新计算的偏移。
      */
     private static String rewriteScope(String sql, long tenantId) {
+        // ⓪ 顶层集合运算（UNION / INTERSECT / EXCEPT）把语句切成**各自独立的作用域**。
+        //   它们的 FROM 不共享：把第二个分支的表名写到第一个分支的 WHERE 上，PG 会报
+        //    `missing FROM-clause entry for table`（实测：IAM 的 data_scopes UNION ALL
+        //    查询让 5 条审批用例一起变红）。因此先按集合运算符切段，再逐段改写。
+        List<int[]> setOps = topLevelSetOperators(sql);
+        if (!setOps.isEmpty()) {
+            List<String> parts = new ArrayList<>();
+            List<String> operators = new ArrayList<>();
+            int prev = 0;
+            for (int[] op : setOps) {
+                parts.add(rewriteScope(sql.substring(prev, op[0]), tenantId).strip());
+                operators.add(sql.substring(op[0], op[1]));
+                prev = op[1];
+            }
+            parts.add(rewriteScope(sql.substring(prev), tenantId).strip());
+            // 各段 strip 后单空格拼接：改写插入点会吃掉边界空白，直接拼会得到
+            // `tenant_id = 7UNION`（实测）。
+            StringBuilder out = new StringBuilder(parts.get(0));
+            for (int i = 0; i < operators.size(); i++) {
+                out.append(' ').append(operators.get(i)).append(' ').append(parts.get(i + 1));
+            }
+            return out.toString();
+        }
+
         // ① 自底向上：把每个括号里的"看起来是完整语句"的片段先改写掉
         StringBuilder rewritten = new StringBuilder(sql);
         List<int[]> regions = parenthesizedRegions(rewritten.toString());
@@ -187,27 +221,51 @@ public final class TenantSql {
         if (sites.isEmpty()) {
             return sql2;
         }
-        if (alreadyScopedAtDepthZero(sql2, sites)) {
-            return sql2;
+        String scoped = sql2;
+
+        // ②' LEFT JOIN 的右表：谓词必须写进 ON。
+        //   写进 WHERE 会把外连接变成内连接（不匹配的右表行是 NULL，谓词恒假），
+        //   实测让成本引擎的全部流水查询返回 0 行。从后往前插，避免下标位移。
+        for (int i = sites.size() - 1; i >= 0; i--) {
+            TableSite site = sites.get(i);
+            if (!site.leftJoined() || scoped.contains(qualified(site) + ".tenant_id")) {
+                continue;
+            }
+            int onIdx = indexOfTopLevel(scoped, "on", site.end());
+            if (onIdx < 0) {
+                continue;   // 没有 ON（CROSS JOIN 写法）：退回下面的 WHERE 分支
+            }
+            int afterOn = onIdx + "on".length();
+            scoped = scoped.substring(0, afterOn)
+                    + " " + qualified(site) + ".tenant_id = " + tenantId + " AND"
+                    + scoped.substring(afterOn);
         }
+
+        // ③ 其余表（FROM / INNER JOIN）：谓词追加到 WHERE。
         StringBuilder predicates = new StringBuilder();
         for (TableSite site : sites) {
+            if (site.leftJoined() || scoped.contains(qualified(site) + ".tenant_id")) {
+                continue;
+            }
             predicates.append(" AND ").append(qualified(site))
                     .append(".tenant_id = ").append(tenantId);
         }
-        int whereIdx = indexOfTopLevel(sql2, "where", 0);
-        int guardEnd = minPositive(
-                indexOfTopLevel(sql2, "group", 0),
-                indexOfTopLevel(sql2, "order", 0),
-                indexOfTopLevel(sql2, "limit", 0),
-                indexOfTopLevel(sql2, "offset", 0),
-                indexOfTopLevel(sql2, "for update", 0));
-        if (whereIdx >= 0) {
-            int insertAt = guardEnd > whereIdx ? guardEnd : sql2.length();
-            return insert(sql2, insertAt, predicates.toString().strip());
+        if (predicates.isEmpty()) {
+            return scoped;
         }
-        int insertAt = guardEnd >= 0 ? guardEnd : sql2.length();
-        return insert(sql2, insertAt, "WHERE 1 = 1" + predicates);
+        int whereIdx = indexOfTopLevel(scoped, "where", 0);
+        int guardEnd = minPositive(
+                indexOfTopLevel(scoped, "group", 0),
+                indexOfTopLevel(scoped, "order", 0),
+                indexOfTopLevel(scoped, "limit", 0),
+                indexOfTopLevel(scoped, "offset", 0),
+                indexOfTopLevel(scoped, "for update", 0));
+        if (whereIdx >= 0) {
+            int insertAt = guardEnd > whereIdx ? guardEnd : scoped.length();
+            return insert(scoped, insertAt, predicates.toString().strip());
+        }
+        int insertAt = guardEnd >= 0 ? guardEnd : scoped.length();
+        return insert(scoped, insertAt, "WHERE 1 = 1" + predicates);
     }
 
     /** 所有括号区间（含嵌套），按左括号位置升序。 */
@@ -239,6 +297,40 @@ public final class TenantSql {
             }
         }
         return out;
+    }
+
+    /**
+     * 顶层（深度 0、引号外）的集合运算符位置，按出现顺序。
+     *
+     * <p>只返回关键字本身（{@code union}），{@code ALL} / {@code DISTINCT} 修饰词
+     * 留在原文本里 —— 切分点只需落在关键字两端之间即可。
+     */
+    private static List<int[]> topLevelSetOperators(String sql) {
+        List<int[]> out = new ArrayList<>();
+        Matcher m = Pattern.compile("(?i)\\b(union|intersect|except)\\b").matcher(sql);
+        while (m.find()) {
+            if (depthAt(sql, m.start()) == 0) {
+                out.add(new int[]{m.start(), m.end()});
+            }
+        }
+        return out;
+    }
+
+    /** 指定下标处的括号深度（引号内的括号不计）。 */
+    private static int depthAt(String sql, int index) {
+        int depth = 0;
+        boolean inSingle = false;
+        for (int i = 0; i < index; i++) {
+            char c = sql.charAt(i);
+            if (c == '\'') {
+                inSingle = !inSingle;
+            } else if (!inSingle && c == '(') {
+                depth++;
+            } else if (!inSingle && c == ')') {
+                depth--;
+            }
+        }
+        return depth;
     }
 
     /**
@@ -289,31 +381,10 @@ public final class TenantSql {
             if (KEYWORDS.contains(word) || !TABLES.contains(word)) {
                 continue;
             }
-            sites.add(new TableSite(word, tok.start(), tok.end(), aliasAfter(sql, tok.end())));
+            sites.add(new TableSite(word, tok.start(), tok.end(), aliasAfter(sql, tok.end()),
+                    isLeftJoin(sql, kw.start())));
         }
         return sites;
-    }
-
-    /** 本层的表是否都已有谓词。 */
-    private static boolean alreadyScopedAtDepthZero(String sql, List<TableSite> sites) {
-        int whereIdx = indexOfTopLevel(sql, "where", 0);
-        if (whereIdx < 0) {
-            return false;
-        }
-        int guardEnd = minPositive(
-                indexOfTopLevel(sql, "group", 0),
-                indexOfTopLevel(sql, "order", 0),
-                indexOfTopLevel(sql, "limit", 0),
-                indexOfTopLevel(sql, "offset", 0),
-                indexOfTopLevel(sql, "for update", 0));
-        String whereClause = sql.substring(whereIdx,
-                guardEnd > whereIdx ? guardEnd : sql.length());
-        for (TableSite site : sites) {
-            if (!whereClause.contains(qualified(site) + ".tenant_id")) {
-                return false;
-            }
-        }
-        return true;
     }
 
     // ─────────────────────────── INSERT ───────────────────────────
@@ -330,9 +401,6 @@ public final class TenantSql {
         if (!TABLES.contains(table)) {
             return new Rewritten(sql, false);
         }
-        if (alreadyScoped(sql)) {
-            return new Rewritten(sql, false);
-        }
         int open = sql.indexOf('(', m.end());
         if (open < 0) {
             throw unsupported(sql, "INSERT INTO " + table + " 缺少列清单");
@@ -340,6 +408,15 @@ public final class TenantSql {
         int close = matchingParen(sql, open);
         if (close < 0) {
             throw unsupported(sql, "INSERT INTO " + table + " 列清单括号不闭合");
+        }
+        // ★ 已经显式带了 tenant_id 列（种子/测试造数/二次改写）时，**不能**直接返回：
+        //   ON CONFLICT 的目标列表仍可能需要补租户（V16 把唯一索引改成了复合）。
+        //   实测：造数里 `INSERT INTO app_roles (…, tenant_id) … ON CONFLICT (code)`
+        //   因为提前返回而没有改写目标，整张角色表插入报
+        //   "no unique or exclusion constraint matching the ON CONFLICT specification"。
+        if (columnListContainsTenant(sql, open, close)) {
+            String out = rewriteOnConflictTarget(sql, table);
+            return new Rewritten(out, !out.equals(sql));
         }
         int valuesIdx = indexOfTopLevel(sql, "values", close + 1);
         int selectIdx = indexOfTopLevel(sql, "select", close + 1);
@@ -364,12 +441,23 @@ public final class TenantSql {
             String selected = sql.substring(selectIdx, selectStop);
             Rewritten filtered = rewriteSelect(selected, tenantId);
 
+            // ★ 字面量必须落在 SELECT **列表**末尾（FROM 之前），不能拼在整条
+            //   语句末尾 —— 后者会拼出 `... WHERE code = ? AND … = 7, 7`，
+            //   是语法错误（实测让角色分配类用例 BadSqlGrammar）。
+            String filteredSql = filtered.sql();
+            int fromIdx = indexOfTopLevel(filteredSql, "from", 0);
+            String withValue = fromIdx < 0
+                    ? filteredSql.stripTrailing() + ", " + tenantId
+                    : filteredSql.substring(0, fromIdx).stripTrailing() + ", " + tenantId
+                            + " " + filteredSql.substring(fromIdx).stripLeading();
+
             String head = sql.substring(0, selectIdx);
             String tail = sql.substring(selectStop);
             String withCol = head.substring(0, close) + ", tenant_id"
                     + head.substring(close);
+            String separated = tail.isBlank() ? "" : " " + tail.stripLeading();
             return new Rewritten(rewriteOnConflictTarget(
-                    withCol + filtered.sql() + ", " + tenantId + tail, table), true);
+                    withCol + withValue + separated, table), true);
         }
         // ★ 只认 VALUES 之后、且在 ON CONFLICT / RETURNING 之前的那几组括号。
         //   不设上界会把 ON CONFLICT (request_id) 的目标列表也当成"一行 VALUES"，
@@ -440,9 +528,33 @@ public final class TenantSql {
             "inventory_ledger", "inventory_reservations", "purchase_orders", "sales_orders", "return_orders",
             "inventory_transfers", "stocktakes", "inventory_adjustments",
             "inventory_freezes", "payable_allocations", "sales_quotes", "so_shipments",
+            // ★ so_shipment_plans 是后补的：V16 把 uq_shipment_plan_request 改成了
+            //   (tenant_id, request_id)，漏掉它会让发货计划创建直接语法/约束报错
+            //   （实测 15 条发货用例变红）。ON CONFLICT 白名单必须与 V16 的复合唯一索引**逐条对应**。
+            "so_shipment_plans",
             "approval_flows", "approval_instances",
-            "warehouses", "suppliers", "customers", "products", "skus",
+            // ★ app_roles / warehouses / suppliers / customers / products：编码唯一已改成
+            //   (tenant_id, code)。造数里显式带了 tenant_id 列时，仍然必须把 ON CONFLICT
+            //   的目标补成 (tenant_id, code)。
+            "app_roles", "warehouses", "suppliers", "customers", "products",
             "document_sequences", "idempotency_keys", "settlement_periods");
+    // ★ 刻意**不含** skus：V16 只把 skus 的 create_request_id 唯一索引改成了复合，
+    //   而现有 SQL 的 ON CONFLICT (product_id, color, size) 仍依赖全局唯一索引。
+    //   按表一刀切会把合法目标改成 (tenant_id, product_id, color, size) 而找不到索引
+    //   （造数 sku() 会立刻报错）。
+
+    /** 供 {@code TenantSchemaIT} 反查：这些表的唯一索引必须以 {@code tenant_id} 开头。 */
+    public static Set<String> onConflictScopedTables() {
+        return ON_CONFLICT_SCOPED;
+    }
+
+    /** INSERT 的列清单里是否已经有 tenant_id（显式写入，不需要再补列/补值）。 */
+    private static boolean columnListContainsTenant(String sql, int open, int close) {
+        String cols = sql.substring(open + 1, close).toLowerCase(Locale.ROOT);
+        return java.util.Arrays.stream(cols.split(","))
+                .map(String::strip)
+                .anyMatch("tenant_id"::equals);
+    }
 
     private static String rewriteOnConflictTarget(String sql, String table) {
         if (!ON_CONFLICT_SCOPED.contains(table)) {
@@ -508,9 +620,8 @@ public final class TenantSql {
      */
     private static String partialIndexPredicate(String cols) {
         String c = cols.toLowerCase(Locale.ROOT);
-        if (c.contains("request_id")) {
-            return "request_id IS NOT NULL";
-        }
+        // ★ 具体列必须排在通用 request_id 之前：`void_request_id` 也 contains("request_id")，
+        //   先判通用分支会返回一个**不存在的列名**，ON CONFLICT 的谓词直接语法错误。
         if (c.contains("void_request_id")) {
             return "void_request_id IS NOT NULL";
         }
@@ -540,6 +651,9 @@ public final class TenantSql {
         }
         if (c.contains("convert_request_id")) {
             return "convert_request_id IS NOT NULL";
+        }
+        if (c.contains("request_id")) {
+            return "request_id IS NOT NULL";
         }
         // idempotency_keys / document_sequences / settlement_periods 的主键是
         // **整表**唯一（非部分索引），不需要 WHERE
@@ -638,9 +752,18 @@ public final class TenantSql {
             if (KEYWORDS.contains(word) || !TABLES.contains(word)) {
                 continue;
             }
-            sites.add(new TableSite(word, tok.start(), tok.end(), aliasAfter(sql, tok.end())));
+            sites.add(new TableSite(word, tok.start(), tok.end(), aliasAfter(sql, tok.end()),
+                    isLeftJoin(sql, kw.start())));
         }
         return sites;
+    }
+
+    /**
+     * {@code JOIN} 关键字前面是否是 {@code LEFT [OUTER]}。
+     */
+    private static boolean isLeftJoin(String sql, int joinKeywordStart) {
+        String before = sql.substring(0, joinKeywordStart).toLowerCase(Locale.ROOT).stripTrailing();
+        return before.endsWith(" left") || before.endsWith(" left outer");
     }
 
     private static boolean precededBy(String sql, int idx, String word) {

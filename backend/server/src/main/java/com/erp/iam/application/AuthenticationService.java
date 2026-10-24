@@ -242,8 +242,16 @@ public class AuthenticationService {
      */
     @Transactional(readOnly = true)
     public java.util.Optional<AppUser> resolve(String token) {
-        return tokens.verify(token).flatMap(name -> TenantContext.callAsSystem(
-                () -> users.findByUsername(name)));
+        return tokens.verifyClaims(token).flatMap(principal -> {
+            // ★ tid 必须存在，且必须与该账号在库里的归属**一致**。
+            //   缺 tid 的 token（旧版本签发）一律无效；tid 与库内不一致
+            //   （账号被移到别的租户、或有人手工拼了 claim）同样无效 —— 两者都 401。
+            if (principal.tenantId() == null) {
+                return java.util.Optional.empty();
+            }
+            return TenantContext.callAsSystem(() -> users.findByUsername(principal.username()))
+                    .filter(u -> u.tenantId() == principal.tenantId());
+        });
     }
 
     /**

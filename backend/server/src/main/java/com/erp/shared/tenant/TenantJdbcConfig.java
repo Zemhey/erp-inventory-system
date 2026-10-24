@@ -7,7 +7,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Primary;
 
 /**
  * 把租户过滤装到<b>两个</b>必经之路（FR-TNT-03）。
@@ -27,12 +26,21 @@ import org.springframework.context.annotation.Primary;
  * 两道闸门都用 {@link TenantSql}，而它是幂等的，所以同一条 SQL 经过两遍
  * 仍然只被改写一次（见 {@code TenantSql#alreadyScoped}）。
  *
- * <p><b>★ 为什么 {@code @Primary} 是必须的</b>：Spring Boot 的
- * {@code JdbcTemplateAutoConfiguration}/{@code DataSourceAutoConfiguration}
- * 会自动注册朴素实现。若这两个 Bean 不标 {@code @Primary}，注入点会因"多个候选"
- * 启动失败；而更糟的"修法"是删掉它们 —— 那样租户过滤会悄悄消失，
- * 而大多数用例只跑默认租户，照样绿。{@code TenantWiringIT} 用反射断言
- * "容器里的 JdbcTemplate / DataSource 实际类型就是这两个"，把这条前提变成门禁。
+ * <p><b>★ 为什么这个 Bean 刻意<b>不</b>标 {@code @Primary}</b>（V2-7 实测踩到）：
+ * Spring Boot 的 {@code JdbcTemplateAutoConfiguration} 带
+ * {@code @ConditionalOnMissingBean(JdbcTemplate.class)} —— 只要容器里已有一个
+ * {@code JdbcTemplate} Bean（本 Bean 就是），自动配置会退让，正常启动时它是<b>唯一候选</b>。
+ * 标上 {@code @Primary} 反而会与测试里的"计数包装"（{@code ReportIT.CountingConfig}
+ * 也标了 {@code @Primary}）撞成"两个 primary"，整个 Web 上下文起不来
+ * （实测 18 条报表/指标用例因此上下文失败）。去掉之后两种上下文都成立：
+ * 正常启动用本 Bean；测试要换实现时由测试自己的 {@code @Primary} 胜出。
+ *
+ * <p>返回类型声明为 {@link TenantAwareJdbcTemplate}（而不是 {@code JdbcTemplate}）：
+ * 容器里的 Bean 类型因此就是租户感知实现，守卫测试能直接断言
+ * {@code enforcementEnabled()}；而仓储仍按接口 {@code JdbcTemplate} 注入，
+ * 测试替换实现（计数/桩）不会被挡住。
+ * {@code TenantWiringIT} 断言"容器里的 JdbcTemplate 实际类型是租户感知实现"，
+ * 把这条前提变成门禁。
  *
  * <p><b>★ 开关 {@code erp.tenant.enforce}</b>（默认 {@code true}）：
  * 关闭时两者都退化为纯透传，用于线上事故紧急回退。关闭会打 {@code WARN}，
@@ -81,8 +89,7 @@ public class TenantJdbcConfig {
      * 而动态代理那种"运行时才生效"的拦截根本无法被断言。
      */
     @Bean
-    @Primary
-    public org.springframework.jdbc.core.JdbcTemplate jdbcTemplate(
+    public TenantAwareJdbcTemplate jdbcTemplate(
             DataSource dataSource, TenantEnforcement enforcement) {
         return new TenantAwareJdbcTemplate(dataSource, enforcement.enabled());
     }

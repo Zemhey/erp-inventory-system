@@ -28,9 +28,9 @@ public class ProductBundleRepository {
             rs.getBoolean("enabled"),
             List.of());
 
-    private final com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc;
+    private final JdbcTemplate jdbc;
 
-    public ProductBundleRepository(com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc) {
+    public ProductBundleRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 

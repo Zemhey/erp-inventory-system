@@ -46,9 +46,9 @@ public class AppUserRepository {
         return value == null ? null : value.toInstant();
     }
 
-    private final com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc;
+    private final JdbcTemplate jdbc;
 
-    public AppUserRepository(com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc) {
+    public AppUserRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 

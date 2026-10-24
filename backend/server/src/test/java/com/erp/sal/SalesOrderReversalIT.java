@@ -293,7 +293,9 @@ class SalesOrderReversalIT extends PostgresTestBase {
                 readyGate.countDown();
                 startGate.await(10, TimeUnit.SECONDS);
                 try {
-                    SalesOrder result = salesOrders.voidOrder(o.id(), key);
+                    SalesOrder result = com.erp.shared.tenant.TenantContext.callIn(
+                            com.erp.shared.tenant.TenantId.DEFAULT,
+                            () -> salesOrders.voidOrder(o.id(), key));
                     assertThat(result.status()).isEqualTo(DocumentStatus.VOIDED);
                     succeeded.incrementAndGet();
                 } catch (BusinessException e) {

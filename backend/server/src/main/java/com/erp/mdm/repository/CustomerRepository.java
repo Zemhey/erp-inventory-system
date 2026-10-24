@@ -39,9 +39,9 @@ public class CustomerRepository {
             rs.getLong("credit_limit"),
             rs.getInt("credit_days"));
 
-    private final com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc;
+    private final JdbcTemplate jdbc;
 
-    public CustomerRepository(com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc) {
+    public CustomerRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 

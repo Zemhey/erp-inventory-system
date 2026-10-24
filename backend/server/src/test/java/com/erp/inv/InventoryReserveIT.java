@@ -181,8 +181,10 @@ class InventoryReserveIT extends PostgresTestBase {
                 readyGate.countDown();
                 startGate.await(10, TimeUnit.SECONDS);   // 所有线程同时起跑，制造真实竞争
                 try {
-                    inventory.reserve(new ReserveCommand(
-                            skuId, warehouseId, "", 1, "req-conc-" + idx));
+                    com.erp.shared.tenant.TenantContext.runIn(
+                            com.erp.shared.tenant.TenantId.DEFAULT,
+                            () -> inventory.reserve(new ReserveCommand(
+                                    skuId, warehouseId, "", 1, "req-conc-" + idx)));
                     succeeded.incrementAndGet();
                 } catch (BusinessException e) {
                     assertThat(e.getCode()).isEqualTo(ErrorCode.INV_INSUFFICIENT_STOCK);
@@ -238,8 +240,10 @@ class InventoryReserveIT extends PostgresTestBase {
                 readyGate.countDown();
                 startGate.await(10, TimeUnit.SECONDS);
                 try {
-                    ReserveResult r = inventory.reserve(new ReserveCommand(
-                            skuId, warehouseId, "", 5, "req-same-id"));
+                    ReserveResult r = com.erp.shared.tenant.TenantContext.callIn(
+                            com.erp.shared.tenant.TenantId.DEFAULT,
+                            () -> inventory.reserve(new ReserveCommand(
+                                    skuId, warehouseId, "", 5, "req-same-id")));
                     if (r.duplicate()) {
                         idempotentHit.incrementAndGet();
                     } else {

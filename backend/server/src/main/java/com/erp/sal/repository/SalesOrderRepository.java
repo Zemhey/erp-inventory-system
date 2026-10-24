@@ -53,7 +53,7 @@ public class SalesOrderRepository {
             rs.getObject("bundle_group_no", Integer.class),
             rs.getObject("bundle_ratio", Integer.class));
 
-    private final com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc;
+    private final JdbcTemplate jdbc;
 
     /**
      * 数据权限（FR-IAM-04）：仓库 + 本人。
@@ -63,7 +63,7 @@ public class SalesOrderRepository {
      */
     private final com.erp.shared.scope.ScopeContext scope;
 
-    public SalesOrderRepository(com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc, com.erp.shared.scope.ScopeContext scope) {
+    public SalesOrderRepository(JdbcTemplate jdbc, com.erp.shared.scope.ScopeContext scope) {
         this.jdbc = jdbc;
         this.scope = scope;
     }

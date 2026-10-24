@@ -30,9 +30,9 @@ public class WarehouseRepository {
             rs.getBoolean("enabled"),
             rs.getInt("priority"));
 
-    private final com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc;
+    private final JdbcTemplate jdbc;
 
-    public WarehouseRepository(com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc) {
+    public WarehouseRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 
