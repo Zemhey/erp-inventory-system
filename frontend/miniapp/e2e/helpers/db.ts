@@ -4,12 +4,16 @@ import { repoRoot } from './paths'
 import type { RunInfo } from './run'
 
 /**
- * E2E 自有数据库：容器 `erp-m4b-pg`（宿主 15441）。
+ * E2E 自有数据库：容器与端口默认 `erp-m4b-pg` / 15441，可用环境变量覆盖。
  * 所有清理只按本轮前缀 E2B-<runId> 及其派生数据，不按时间窗口、不碰共享库 15432。
+ *
+ * ★ 覆盖是并行泳道的硬要求：两条 E2E 同时打 15441 会互删对方的前缀数据。
+ *   每条泳道用自己的容器（E2E_DB_CONTAINER）+ 自己的宿主端口（E2E_DB_PORT），
+ *   端口还要和后端连接的 DB_URL 一致，否则「库是空的」这种假故障最难查。
  */
 
-export const DB_CONTAINER = 'erp-m4b-pg'
-export const DB_PORT = 15441
+export const DB_CONTAINER = process.env.E2E_DB_CONTAINER ?? 'erp-m4b-pg'
+export const DB_PORT = Number(process.env.E2E_DB_PORT ?? 15441)
 export const DB_NAME = 'erp'
 export const DB_USER = 'erp'
 export const DB_PASSWORD = 'erp'

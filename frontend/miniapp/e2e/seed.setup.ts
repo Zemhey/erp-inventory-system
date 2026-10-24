@@ -18,11 +18,15 @@ test('seed business data', async () => {
     displayName: seed.admin.displayName,
     roles: seed.admin.roles,
   })
+  // ★ origin 必须和 Playwright 的 baseURL 同一个 host:port。
+  //   storageState 是按 origin 精确装载的，写死 3005 而实跑 3020 时，
+  //   所有 app project 用例会静默地"没登录" —— 症状是满屏跳登录页，最难归因。
+  const origin = new URL(process.env.E2E_BASE_URL ?? 'http://127.0.0.1:3005').origin
   const state = {
     cookies: [],
     origins: [
       {
-        origin: 'http://127.0.0.1:3005',
+        origin,
         localStorage: [
           { name: 'erp.token', value: seed.admin.token },
           { name: 'erp.permissions', value: JSON.stringify(seed.admin.permissions) },
