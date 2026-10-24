@@ -1,12 +1,12 @@
 # 企业进销存系统 · 服装/鞋帽网店
 
-[![CI](https://github.com/Zemhey/erp-inventory-system/actions/workflows/ci.yml/badge.svg)](https://github.com/Zemhey/erp-inventory-system/actions/workflows/ci.yml)
+![CI](https://img.shields.io/badge/CI-never%20run%20(no%20push)-yellow) <!-- 本仓库自 M1 起未 push，.github/workflows/ci.yml 的三道门禁从未在真实 runner 执行；本地等价门禁见 scripts/contract-check.py，其余靠 gradlew check + Playwright。首次 push 前，CI 状态一律视为未知。 -->
 ![Java](https://img.shields.io/badge/Java-17-007396?logo=openjdk&logoColor=white)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.3-6DB33F?logo=springboot&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-593%20passing-brightgreen)
-![Coverage](https://img.shields.io/badge/line%20coverage-86.3%25-brightgreen)
-![Branch](https://img.shields.io/badge/branch%20coverage-64.7%25-yellowgreen)
+![Tests](https://img.shields.io/badge/tests-928%20passing-brightgreen)
+![Coverage](https://img.shields.io/badge/line%20coverage-86.55%25-brightgreen)
+![Branch](https://img.shields.io/badge/branch%20coverage-65.27%25-yellowgreen)
 
 > **多端 B/S 进销存 SaaS 平台 + 配套自动化测试体系**
 > Java 17 · Spring Boot 3 · PostgreSQL 16 · Vue 3 · uni-app
@@ -85,12 +85,12 @@
 
 ## 项目状态
 
-**当前阶段：M0/M1/M2/M3/M7/M8 完成 ✅，M4 两批、M2.5 红冲与 M6 制品已合并；V2 批次 2 已合并 V2-1 库存作业、V2-2 采购闭环、V2-4 成本毛利、V2-5 审计可观测（进销存业务闭环 + 红冲 + 库存作业 + 采购闭环 + 成本毛利 + 审计 + Web 15 页 + miniapp 10 页 + 593 条后端用例 + 20 条 Web E2E 两遍全绿 + miniapp 8 条 H5 E2E + MCP 6 工具 + 单机版一键包）· 下一步：继续 V2-3/V2-6**
+**当前阶段：M0/M1/M2/M3/M7/M8 完成 ✅，M4 两批、M2.5 红冲与 M6 制品已合并；V2 波 A + 波 B 已合并 V2-1 库存作业、V2-2 采购闭环、V2-3 销售闭环、V2-4 成本毛利、V2-5 审计可观测、V2-6 权限审批（928 条后端用例全绿 · 行 86.55% / 分支 65.27% · 契约 107 路径 / 133 操作 · Web 20 个业务页 + miniapp 10 页 · MCP 6 工具 · 单机版一键包）· 下一步：V2-C1 幂等键 + V2-C2 契约清偿 2，随后 V2-7 租户隔离独占批次**
 
 - ✅ 方向与路线确定（行业、技术栈、测试体系）
 - ✅ 规划文档（00~07 + 11 条 ADR）
 - ✅ **M0 交付**：OpenAPI 六资源契约 · Spring Boot 3 骨架 · Flyway schema · 库存纵向切片 · compose 一键起环境 · CI 三道门禁
-- ✅ **M1 交付**：主数据（商品/SKU 矩阵/供应商/客户/仓库）· 进货闭环 · 出货闭环（FEFO）· IAM（JWT + RBAC）· 统一状态机 · 原子取号 · M1 基线 156 条测试（**当前累计 251 条全绿**）
+- ✅ **M1 交付**：主数据（商品/SKU 矩阵/供应商/客户/仓库）· 进货闭环 · 出货闭环（FEFO）· IAM（JWT + RBAC）· 统一状态机 · 原子取号 · M1 基线 156 条测试（**当前累计 928 条全绿**）
 - ✅ **M3 交付**：登录 / 布局 / 工作台 + 商品与 SKU + 供应商 / 客户 / 仓库 + 库存查询（实存·预占·可用 + 流水追溯）+ 进货单（状态机 + 分批入库）+ 出货单（建单即预占 + 折扣 + 出货），**7 个业务页面全齐、无占位页**；S7 全局打磨（空状态、错误态、窄屏适配）；**S8 Playwright E2E 14 条关键路径，真实后端 + 真实 PostgreSQL 连续两遍 15/15 全绿**，测试数据清理后开发库回到基线
 - ✅ **M2 交付**：退货 `FR-RMA-01`（9 个接口，含"可退出货单查询"）· 日清 / 月结锁账 / 对账 / 账期查询 `FR-SET-01~03` · 三类报表 `FR-RPT-01~03` · `BR-INV-05` 预占超时自动释放 —— 16 个新接口全部有实现有测试，`CONTRACT_ONLY` 清零；前端 10 个业务页面（退货/结算/报表三页 + 退货建单接入可退查询 + 结算页账期列表）；M2 验收时后端 **221 条用例全绿**（M2 基线行 **82.6%** / 分支 **60.9%**）；E2E **19 条 + 登录 setup** 连跑两遍全绿；红冲（FR-SAL-04 / FR-PUR-03）与 G5~G13 体验债转 M2.5（计划：[`.plan/M2-计划书.md`](.plan/M2-计划书.md)）
 - 🚧 **M4 两批均已合并**：第一批 `feat/m4-miniapp`（merge `104674e`）—— `frontend/miniapp` uni-app 工程 + 登录 / 工作台 / 库存查询 3 页，`build:h5` / `build:mp-weixin` / `build:app` 通过；第二批 `feat/m4b-pages`（merge `fedca69`）—— 出货 / 进货 / 商品只读共 **7 个新页面**（`pages.json` 实测 **10 页**）+ H5 E2E 工程 **6 spec / 8 test**（唯一前缀造数 + 硬清理）。**未实测**：微信开发者工具联调、Android 打包与真机（需 HBuilderX 与开发者工具）
@@ -98,6 +98,21 @@
 - 🚧 **M6 制品已合并**：后端/前端 Dockerfile · 生产 compose · 部署 / 回滚 / 备份脚本 · Runbook · 部署流水线草案；本地 18080 全栈与备份恢复实测通过，**真实上线待服务器凭据与备案**
 - ✅ **M7 完成（stub 验证）**：`POST /nl/command` 自然语言入口（8 意图、意图级权限、建单幂等）+ `packages/mcp-server` 6 个 stdio 工具 + 工作台 NL 输入框；默认 `stub` 解析器离线可复现，**真实 LLM 待用户提供 key**
 - ✅ **M8 单机版完成**：`infra/standalone/**` 15 文件（merge `2a48b12`）—— Docker compose 单机编排、`start` / `stop` / `status` / `backup` 的 `.ps1` 与 `.sh` 双份脚本、公共函数库、种子管理员 SQL、`.env.example` 与运行手册（Windows/Linux、离线、备份、升级、排障）。**未实测**：Linux/macOS 真机与真实离线环境
+
+### V2 商业化扩展（波 A + 波 B 前两条已合并）
+
+| 期 | 内容 | merge | 关键交付 |
+|---|---|---|---|
+| V2-1 | 库存作业 | `39a7c64` | `V9` 6 表：调拨（两段式在途）· 盘点差异过账 · 调整（原因必填）· 冻结/解冻（`available = on_hand − reserved − frozen`）· 五维结存 · 预警 · 补货建议 · 调拨/库存作业 2 页 |
+| V2-2 | 采购闭环 | `7be943d` | `V10` 5 表：请购转单 · 到货质检（不合格不入库）· 采购退货 · 应付 · 付款核销（超额拒绝）· 2 页 |
+| V2-4 | 成本毛利 | `a4c80db` + `508fef9` | `V12` 3 表：移动加权成本 · 月结转（幂等）· 毛利分析；`INV-11` 成本守恒属性测试（含跨仓调拨配对补丁）· 毛利页 |
+| V2-5 | 审计可观测 | `5149199` | `V13`：`audit_logs`（AOP 留痕、`REQUIRES_NEW`、DB append-only 触发器）· 审计查询 · traceId 贯穿 · Prometheus；`FR-SYS-06~09` |
+| V2-6 | 权限与审批 | `d0979cd` | `V14` 4 表：数据权限（按仓/按本人，越权一律 **404** 而非 403）· 在线授权即时生效 · 登录策略 · 金额阈值多级审批与会签/或签 · 审批页 + 权限页 |
+| V2-3 | 销售闭环 | `3e472ef` | `V11` 6 表：报价转单 · 拣货扫码发货 · 应收 · 收款核销 · 信用控制（超额拒单且不预占）· **组合商品拆解（INV-16）** · **发货选仓拆单** · 季节维度 · 3 页 |
+| 契约清偿 | 43 条债务 | `0a1e227` | 契约 **90 → 133 操作 / 107 路径**；确立「`UNDOCUMENTED_DEBT` 保持空集是新的 DoD」；V2-3 的 28 条作为「待清偿 2」保留 |
+
+★ 波 A + 波 B 的基线：**928 条用例 / 行 86.55%（8498/9819）/ 分支 65.27%（2223/3406）**（`12fa9c9` 强制复跑，门限从未降低）。
+★ 本地契约门禁 `scripts/contract-check.py` 现存 **8 条真实过度承诺**（MDM 写端点声明 `X-Request-Id` 而实现不消费）→ V2-C1 补齐实现；V2-3 的 28 条缺口 → V2-C2。进度真相见 [docs/00](docs/00-索引与追踪矩阵.md) 与 [.plan/V2-指挥状态.md](.plan/V2-指挥状态.md)。
 
 ### 工程实践亮点
 
