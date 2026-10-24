@@ -1,5 +1,5 @@
 import { api, login } from './api'
-import type { RunInfo, SeedData, SeedOrder } from './run'
+import type { RunInfo, SeedActor, SeedData, SeedOrder, SeedQuote } from './run'
 
 interface Warehouse {
   id: number
@@ -68,6 +68,17 @@ function toSeedOrder(order: Order): SeedOrder {
   }
 }
 
+function toSeedQuote(quote: Quote): SeedQuote {
+  return {
+    id: quote.id,
+    quoteNo: quote.quoteNo,
+    status: quote.status,
+    totalAmount: quote.totalAmount,
+    totalQty: quote.totalQty,
+    lineCount: quote.lines.length,
+  }
+}
+
 function expectEqual(actual: unknown, expected: unknown, label: string): void {
   if (actual !== expected) {
     throw new Error(`[seed] ${label} 期望 ${String(expected)}，实际 ${String(actual)}`)
@@ -104,6 +115,110 @@ async function act(token: string, path: string): Promise<Order> {
 
 async function getOrder(token: string, path: string): Promise<Order> {
   return api<Order>('GET', path, { token })
+}
+
+interface QuoteLine {
+  id: number
+  lineNo: number
+  skuId: number
+  qty: number
+  amount: number
+}
+
+interface Quote {
+  id: number
+  quoteNo: string
+  status: string
+  totalAmount: number
+  totalQty: number
+  lines: QuoteLine[]
+}
+
+interface Page<T> {
+  items: T[]
+  total: number
+  page: number
+  size: number
+}
+
+interface ReceivableRow {
+  id: number
+  salesOrderId: number
+  customerId: number
+  shippedAmount: number
+  returnedAmount: number
+  receivedAmount: number
+  balance: number
+  status: string
+}
+
+interface CreatedUser {
+  id: number
+  username: string
+  displayName: string
+  enabled: boolean
+  roles: string[]
+  permissions: string[]
+}
+
+/** 建号时的初始密码；随后必须改一次密才能用（见 createActor 的注释）。 */
+const SEED_PASSWORD = 'Seed@12345-init'
+const SEED_PASSWORD_FINAL = 'Seed@12345-live'
+
+async function createQuote(
+  token: string,
+  body: {
+    customerId: number
+    validUntil: string
+    remark: string
+    lines: Array<{ skuId: number; qty: number; unitPriceAmount: number; discountRate: number }>
+  },
+): Promise<Quote> {
+  return api<Quote>('POST', '/sales-quotes', { token, body })
+}
+
+/** 报价单的有效期必须落在未来：转化会拒过期单（SalesQuoteApplicationService:201）。 */
+function futureDate(days: number): string {
+  const date = new Date(Date.now() + days * 86_400_000)
+  return date.toISOString().slice(0, 10)
+}
+
+/**
+ * 造一个可登录的临时身份。
+ *
+ * ★ 建号必须紧跟着改一次密：`POST /iam/users` 会把 mustChangePassword 置真
+ *   （UserAdminService:101），而 PasswordExpiryFilter 在该标记下把**除改密与 /auth/me
+ *   之外的所有业务接口**拦成 403。不改密的账号登录后任何页面都是错的，
+ *   症状会被误判成「权限没配对」。改密同时把标记清成 false，旧 token 继续可用。
+ *   新密码不能与旧密码相同（AuthenticationService:174），所以用两个常量。
+ */
+async function createActor(
+  adminToken: string,
+  username: string,
+  displayName: string,
+  roles: string[],
+): Promise<SeedActor> {
+  const user = await api<CreatedUser>('POST', '/iam/users', {
+    token: adminToken,
+    body: { username, password: SEED_PASSWORD, displayName, enabled: true, roles },
+  })
+
+  const auth = await login(username, SEED_PASSWORD)
+  await api('POST', '/auth/change-password', {
+    token: auth.token,
+    body: { oldPassword: SEED_PASSWORD, newPassword: SEED_PASSWORD_FINAL },
+  })
+
+  // 改密后重新登录拿一份干净 token（权限从库里回读，与 UI 登录同路径）
+  const refreshed = await login(username, SEED_PASSWORD_FINAL)
+  return {
+    id: user.id,
+    username,
+    password: SEED_PASSWORD_FINAL,
+    roles,
+    permissions: refreshed.permissions,
+    token: refreshed.token,
+  }
 }
 
 /**
@@ -270,6 +385,136 @@ export async function seedRun(run: RunInfo): Promise<SeedData> {
   expectEqual(poReceive.status, 'APPROVED', '待入库进货单状态')
   expectEqual(poReceive.totalQty, 10, '待入库进货单总数量')
 
+  // ── 5) 报价单三张：分别给「提交→审核→转化」「驳回」「作废」三条 UI 路径 ──
+  const quoteLines = [
+    { skuId: actionSkus[0].id, qty: 1, unitPriceAmount: RETAIL_PRICE, discountRate: 10000 },
+    { skuId: actionSkus[1].id, qty: 1, unitPriceAmount: RETAIL_PRICE, discountRate: 10000 },
+  ]
+  const quoteFlow = await createQuote(token, {
+    customerId: customer.id,
+    validUntil: futureDate(30),
+    remark: `E2E quote flow ${suffix}`,
+    lines: quoteLines,
+  })
+  expectEqual(quoteFlow.status, 'DRAFT', '流转报价单初始状态')
+  expectEqual(quoteFlow.lines.length, 2, '流转报价单行数')
+
+  const quoteRejectCreated = await createQuote(token, {
+    customerId: customer.id,
+    validUntil: futureDate(30),
+    remark: `E2E quote reject ${suffix}`,
+    lines: quoteLines.slice(0, 1),
+  })
+  const quoteReject = await api<Quote>('POST', `/sales-quotes/${quoteRejectCreated.id}/submit`, {
+    token,
+  })
+  expectEqual(quoteReject.status, 'SUBMITTED', '待驳回报价单状态')
+
+  const quoteVoid = await createQuote(token, {
+    customerId: customer.id,
+    validUntil: futureDate(30),
+    remark: `E2E quote void ${suffix}`,
+    lines: quoteLines.slice(0, 1),
+  })
+
+  // 这张草稿单**不被任何 admin 用例改动**：无权限身份的用例需要一个
+  // 「状态本该给出写按钮」的单据，否则「看不到按钮」可能只是因为没按钮可言。
+  const quoteLocked = await createQuote(token, {
+    customerId: customer.id,
+    validUntil: futureDate(30),
+    remark: `E2E quote locked ${suffix}`,
+    lines: quoteLines.slice(0, 1),
+  })
+  expectEqual(quoteLocked.status, 'DRAFT', '权限对照报价单初始状态')
+
+  // ── 6) 待扫码的出货单：审核后产生预占，等 UI 生成发货计划并扫码 ──
+  const soPickCreated = await createSalesOrder(token, {
+    customerId: customer.id,
+    warehouseId: actionWarehouse.id,
+    remark: `E2E pick ${suffix}`,
+    lines: actionSkus.map((sku) => ({
+      skuId: sku.id,
+      qty: 2,
+      unitPriceAmount: RETAIL_PRICE,
+      discountRate: 10000,
+    })),
+  })
+  await act(token, `/sales-orders/${soPickCreated.id}/submit`)
+  const soPick = await act(token, `/sales-orders/${soPickCreated.id}/approve`)
+  expectEqual(soPick.status, 'APPROVED', '待拣货出货单状态')
+
+  // ── 7) 已出货的出货单：seed 直接 ship，用来产生客户应收 ──
+  const soDebtCreated = await createSalesOrder(token, {
+    customerId: customer.id,
+    warehouseId: actionWarehouse.id,
+    remark: `E2E debt ${suffix}`,
+    lines: actionSkus.map((sku) => ({
+      skuId: sku.id,
+      qty: 1,
+      unitPriceAmount: RETAIL_PRICE,
+      discountRate: 10000,
+    })),
+  })
+  await act(token, `/sales-orders/${soDebtCreated.id}/submit`)
+  await act(token, `/sales-orders/${soDebtCreated.id}/approve`)
+  const soDebt = await act(token, `/sales-orders/${soDebtCreated.id}/ship`)
+  expectEqual(soDebt.status, 'COMPLETED', '产生应收的出货单最终状态')
+
+  const debtFound = await api<Page<ReceivableRow>>(
+    'GET',
+    `/receivables?customerId=${customer.id}&page=1&size=20`,
+    { token },
+  )
+  const receivableRow = debtFound.items.find(
+    (item) => item.salesOrderId === soDebt.id,
+  )
+  if (!receivableRow) {
+    throw new Error(
+      `[seed] 出货单 ${soDebt.orderNo}(#${soDebt.id}) 出货后没有产生应收；` +
+        `现有 ${debtFound.items.map((item) => `${item.salesOrderId}#${item.status}`).join(',')}`,
+    )
+  }
+
+  // ── 8) 四张审批用单据：一张单据只能挂一个未结实例，按用途分张（同意/驳回/撤回/转办） ──
+  const approvalOrders: Order[] = []
+  for (let index = 0; index < 4; index += 1) {
+    const created = await createSalesOrder(token, {
+      customerId: customer.id,
+      warehouseId: actionWarehouse.id,
+      remark: `E2E approval ${index + 1} ${suffix}`,
+      lines: [{ skuId: actionSkus[0].id, qty: 1, unitPriceAmount: RETAIL_PRICE, discountRate: 10000 }],
+    })
+    await act(token, `/sales-orders/${created.id}/submit`)
+    approvalOrders.push(await act(token, `/sales-orders/${created.id}/approve`))
+  }
+
+  // ── 9) 两个临时身份：只读（看不到写按钮）与可接办转办（有 aps:approve） ──
+  const viewer = await createActor(
+    token,
+    `${run.prefix}-VIEW`,
+    `E2E 只读 ${suffix}`,
+    ['VIEWER'],
+  )
+  const approver = await createActor(
+    token,
+    `${run.prefix}-APR`,
+    `E2E 接办人 ${suffix}`,
+    ['FINANCE'],
+  )
+  if (!viewer.permissions.includes('sal:read')) {
+    throw new Error(`[seed] 只读身份应能读应收，实际权限 ${viewer.permissions.join(',')}`)
+  }
+  if (!approver.permissions.includes('aps:approve')) {
+    throw new Error(
+      `[seed] 接办身份必须有 aps:approve（否则转办会被后端拒），实际 ${approver.permissions.join(',')}`,
+    )
+  }
+  for (const permission of ['sal:quote', 'sal:pick', 'sal:receipt', 'aps:approve']) {
+    if (viewer.permissions.includes(permission)) {
+      throw new Error(`[seed] 只读身份不该拥有写权限 ${permission}，失败路径用例会假绿`)
+    }
+  }
+
   // 重新读详情，确保 openQty 等派生字段存在
   const poReceiveDetail = await getOrder(token, `/purchase-orders/${poReceive.id}`)
 
@@ -303,6 +548,26 @@ export async function seedRun(run: RunInfo): Promise<SeedData> {
     poAction: toSeedOrder(poAction),
     poReceive: toSeedOrder(poReceiveDetail),
     soAction: toSeedOrder(soAction),
+    quoteFlow: toSeedQuote(quoteFlow),
+    quoteReject: toSeedQuote(quoteReject),
+    quoteVoid: toSeedQuote(quoteVoid),
+    quoteLocked: toSeedQuote(quoteLocked),
+    convertedOrder: null,
+    soPick: toSeedOrder(soPick),
+    soDebt: toSeedOrder(soDebt),
+    approvalOrders: approvalOrders.map(toSeedOrder),
+    receivable: {
+      id: receivableRow.id,
+      salesOrderId: receivableRow.salesOrderId,
+      customerId: receivableRow.customerId,
+      shippedAmount: receivableRow.shippedAmount,
+      returnedAmount: receivableRow.returnedAmount,
+      receivedAmount: receivableRow.receivedAmount,
+      balance: receivableRow.balance,
+      status: receivableRow.status,
+    },
+    viewer,
+    approver,
     expected: {
       stockBalanceRows: 25,
       stockOnHand: 50,
@@ -311,6 +576,11 @@ export async function seedRun(run: RunInfo): Promise<SeedData> {
       productSkuCount: 25,
       poReceiveOpenQty: 10,
       soActionQty: 4,
+      soPickQty: 4,
+      soDebtQty: 2,
+      soDebtAmount: 2 * RETAIL_PRICE,
+      receivableBalance: 2 * RETAIL_PRICE,
+      quoteFlowAmount: 2 * RETAIL_PRICE,
     },
   }
 }

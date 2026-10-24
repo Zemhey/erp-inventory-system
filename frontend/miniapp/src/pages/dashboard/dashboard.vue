@@ -130,6 +130,11 @@ function confirmLogout(): void {
 function openTab(path: string): void {
   uni.switchTab({ url: path })
 }
+
+/** 非 tab 页用 navigateTo：switchTab 打非 tabBar 页面会静默失败。 */
+function openPage(path: string): void {
+  uni.navigateTo({ url: path })
+}
 </script>
 
 <template>
@@ -282,6 +287,26 @@ function openTab(path: string): void {
         <view class="card action" @click="openTab('/pages/products/products')">
           <text class="action-title">商品与 SKU</text>
           <text class="action-sub">查款号、条码与零售价</text>
+          <text class="action-arrow">›</text>
+        </view>
+        <view class="card action" data-entry="quotes" @click="openPage('/pages/quotes/quotes')">
+          <text class="action-title">报价单</text>
+          <text class="action-sub">现场提交、审核与驳回，通过后可直接转出货单</text>
+          <text class="action-arrow">›</text>
+        </view>
+        <view class="card action" data-entry="shipments" @click="openPage('/pages/shipments/shipments')">
+          <text class="action-title">发货扫码作业</text>
+          <text class="action-sub">按发货单逐行扫码确认数量，扫满后整单出库</text>
+          <text class="action-arrow">›</text>
+        </view>
+        <view class="card action" data-entry="receivables" @click="openPage('/pages/receivables/receivables')">
+          <text class="action-title">客户应收与收款</text>
+          <text class="action-sub">看余额构成，现场登记收款并核销</text>
+          <text class="action-arrow">›</text>
+        </view>
+        <view class="card action" data-entry="approvals" @click="openPage('/pages/approvals/approvals')">
+          <text class="action-title">待我审批</text>
+          <text class="action-sub">按节点权限筛出的我的待办，可同意、驳回、撤回、转办</text>
           <text class="action-arrow">›</text>
         </view>
       </view>

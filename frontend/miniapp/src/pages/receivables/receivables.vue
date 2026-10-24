@@ -1,0 +1,651 @@
+<script setup lang="ts">
+import { computed, ref } from 'vue'
+import { onPullDownRefresh, onReachBottom, onShow } from '@dcloudio/uni-app'
+import { receivableApi, type Receivable, type ReceivableSummary } from '@/api/client'
+import { useDictionary } from '@/composables/useDictionary'
+import { hasPermission } from '@/stores/session'
+import { errorMessage } from '@/utils/error'
+import { formatDate } from '@/utils/format'
+import { formatFen } from '@/utils/money'
+import { ensureLoggedIn } from '@/utils/routeGuard'
+import { safe } from '@/utils/safe'
+
+/**
+ * 客户应收列表（FR-SAL-07）。
+ *
+ * 应收是「发货确认」的产物，移动端不手工建应收 —— 只查、只在其上登记收款。
+ * 恒等式 `balance = shipped − returned − received` 由数据库 CHECK 兜底，
+ * 页面**复述**后端给的四个数，不自己算余额（算出来的那份不是账上的那份）。
+ *
+ * ★ 列表是领域记录：有 version、**没有** overdue（overdue 只在详情里按当天判定），
+ *   所以列表的逾期标记用 dueDate 与今天比，只作提示、不当结论。
+ */
+
+const PAGE_SIZE = 20
+
+/** status 取值就是 receivable.status 的三个字符串，不另发明 */
+const STATUS_OPTIONS = [
+  { value: '', label: '全部' },
+  { value: 'OPEN', label: '未结清' },
+  { value: 'SETTLED', label: '已结清' },
+  { value: 'VOIDED', label: '已作废' },
+]
+
+const allowed = computed(() => hasPermission('sal:read'))
+const { loadDictionary, customers, customerText, warning: dictWarning } = useDictionary()
+
+const customerId = ref('')
+const statusFilter = ref('OPEN')
+const overdueOnly = ref(false)
+
+const rows = ref<Receivable[]>([])
+const total = ref(0)
+const page = ref(0)
+const loaded = ref(false)
+const loading = ref(false)
+const error = ref('')
+
+const summary = ref<ReceivableSummary | null>(null)
+const summaryError = ref('')
+
+const hasMore = computed(() => page.value * PAGE_SIZE < total.value)
+
+let queuedReset = false
+
+const customerOptions = computed(() => [
+  { id: '', name: '全部客户' },
+  ...customers.value
+    .filter((customer) => customer.enabled)
+    .map((customer) => ({ id: String(customer.id), name: customer.name })),
+])
+
+const customerIndex = computed(() => {
+  const index = customerOptions.value.findIndex((option) => option.id === customerId.value)
+  return index >= 0 ? index : 0
+})
+
+function onCustomerChange(event: unknown): void {
+  const detail = (event as { detail?: { value?: unknown } })?.detail
+  const raw = detail?.value
+  const index = typeof raw === 'string' ? Number.parseInt(raw, 10) : Number(raw)
+  const option = customerOptions.value[Number.isNaN(index) ? 0 : index]
+  customerId.value = option ? option.id : ''
+  load(true)
+  void loadSummary()
+}
+
+function statusLabel(status: string): string {
+  if (status === 'OPEN') return '未结清'
+  if (status === 'SETTLED') return '已结清'
+  if (status === 'VOIDED') return '已作废'
+  return status
+}
+
+/** 只是提示性判定：列表没有后端给的 overdue，别把它当结论（结论在详情页）。 */
+function looksOverdue(row: Receivable): boolean {
+  if (row.status !== 'OPEN' || row.balance <= 0 || !row.dueDate) return false
+  const due = new Date(row.dueDate)
+  if (Number.isNaN(due.getTime())) return false
+  return due.getTime() < Date.now()
+}
+
+async function loadSummary(): Promise<void> {
+  summary.value = null
+  summaryError.value = ''
+  if (!customerId.value) return
+
+  const result = await safe(receivableApi.summary(Number(customerId.value)))
+  if (result.ok) summary.value = result.value
+  else summaryError.value = errorMessage(result.error)
+}
+
+async function load(reset = true): Promise<void> {
+  if (!allowed.value) return
+  if (loading.value) {
+    if (reset) queuedReset = true
+    return
+  }
+  if (!reset && !hasMore.value) return
+
+  loading.value = true
+  if (reset) {
+    error.value = ''
+    loaded.value = false
+  }
+
+  const nextPage = reset ? 1 : page.value + 1
+  const result = await safe(
+    receivableApi.list({
+      customerId: customerId.value ? Number(customerId.value) : undefined,
+      status: statusFilter.value || undefined,
+      overdue: overdueOnly.value ? true : undefined,
+      page: nextPage,
+      size: PAGE_SIZE,
+    }),
+  )
+
+  if (result.ok) {
+    rows.value = reset
+      ? result.value.items
+      : [
+          ...rows.value,
+          ...result.value.items.filter(
+            (incoming) => !rows.value.some((existing) => existing.id === incoming.id),
+          ),
+        ]
+    total.value = result.value.total
+    page.value = result.value.page
+  } else {
+    if (reset) {
+      rows.value = []
+      total.value = 0
+      page.value = 0
+    }
+    error.value = errorMessage(result.error)
+  }
+
+  loaded.value = true
+  loading.value = false
+
+  if (queuedReset) {
+    queuedReset = false
+    void load(true)
+  }
+}
+
+function selectStatus(value: string): void {
+  if (statusFilter.value === value) return
+  statusFilter.value = value
+  load(true)
+}
+
+function toggleOverdue(): void {
+  overdueOnly.value = !overdueOnly.value
+  load(true)
+}
+
+function openDetail(row: Receivable): void {
+  uni.navigateTo({ url: `/pages/receivables/detail?id=${row.id}` })
+}
+
+/**
+ * 点客户名 = 把筛选收到这个客户身上，并拉一次汇总。
+ * 这是给客户对账用的快捷入口，也避开在手机上驱动下拉选择器。
+ */
+function pickCustomer(id: number): void {
+  customerId.value = String(id)
+  void load(true)
+  void loadSummary()
+}
+
+onShow(() => {
+  if (!ensureLoggedIn()) return
+  if (!allowed.value) return
+  loadDictionary()
+  load(true)
+  void loadSummary()
+})
+
+onPullDownRefresh(() => {
+  void (async () => {
+    await loadDictionary(true)
+    await load(true)
+    await loadSummary()
+    uni.stopPullDownRefresh()
+  })()
+})
+
+onReachBottom(() => {
+  if (!loading.value && hasMore.value) load(false)
+})
+</script>
+
+<template>
+  <view class="page receivables">
+    <view v-if="!allowed" class="card notice">
+      <text class="notice-title">当前账号没有应收读权限</text>
+      <text class="notice-text">
+        本页依赖 sal:read。请联系管理员分配权限；前端判断只影响入口展示，后端仍会做最终校验。
+      </text>
+    </view>
+
+    <template v-else>
+      <view class="card filter-card">
+        <view class="form-row">
+          <text class="form-label">客户</text>
+          <picker
+            class="picker-flex"
+            mode="selector"
+            :range="customerOptions"
+            range-key="name"
+            :value="customerIndex"
+            @change="onCustomerChange"
+          >
+            <view class="picker-value">
+              <text>{{ customerOptions[customerIndex] ? customerOptions[customerIndex].name : '全部客户' }}</text>
+              <text class="picker-arrow">⌄</text>
+            </view>
+          </picker>
+        </view>
+
+        <view class="row-between switch-row">
+          <text class="form-label">只看逾期</text>
+          <view class="switch" :class="{ on: overdueOnly }" @click="toggleOverdue">
+            <view class="switch-dot" />
+          </view>
+        </view>
+      </view>
+
+      <view v-if="summary" class="card summary-card" data-testid="customer-summary">
+        <view class="row-between">
+          <text class="summary-title">{{ customerText(summary.customerId) }}</text>
+          <text class="summary-note">发货 − 退货 − 回款 = 余额</text>
+        </view>
+        <view class="summary-grid">
+          <view class="summary-cell">
+            <text class="cell-label">出货</text>
+            <text class="cell-value">{{ formatFen(summary.shippedAmount) }}</text>
+          </view>
+          <view class="summary-cell">
+            <text class="cell-label">退货</text>
+            <text class="cell-value">{{ formatFen(summary.returnedAmount) }}</text>
+          </view>
+          <view class="summary-cell">
+            <text class="cell-label">回款</text>
+            <text class="cell-value">{{ formatFen(summary.receivedAmount) }}</text>
+          </view>
+          <view class="summary-cell">
+            <text class="cell-label">余额</text>
+            <text class="cell-value balance">{{ formatFen(summary.balance) }}</text>
+          </view>
+        </view>
+        <text class="summary-overdue">其中逾期 {{ formatFen(summary.overdueAmount) }}</text>
+      </view>
+      <view v-else-if="summaryError" class="card inline-error">{{ summaryError }}</view>
+
+      <view class="chips">
+        <view
+          v-for="option in STATUS_OPTIONS"
+          :key="option.value || 'ALL'"
+          class="chip"
+          :class="{ active: statusFilter === option.value }"
+          @click="selectStatus(option.value)"
+        >
+          {{ option.label }}
+        </view>
+      </view>
+
+      <view v-if="loaded" class="summary row-between">
+        <text class="summary-text">应收 {{ total }} 笔</text>
+        <text class="summary-text">已加载 {{ rows.length }} 笔</text>
+      </view>
+
+      <view v-if="loading && !loaded" class="card loading-block">正在读取客户应收…</view>
+
+      <view v-else-if="error && !rows.length" class="card error-block">
+        <text class="block-text">{{ error }}</text>
+        <button class="btn-ghost block-btn" hover-class="none" @click="load(true)">重试</button>
+      </view>
+
+      <view v-else-if="!rows.length" class="card empty-block">
+        {{
+          statusFilter
+            ? `没有${statusLabel(statusFilter)}的应收。发货确认后才会产生应收，可切换状态再试。`
+            : '还没有应收。发货确认（或出货单直接出货）之后，这里会出现应收记录。'
+        }}
+      </view>
+
+      <view v-else class="list">
+        <view
+          v-for="row in rows"
+          :key="row.id"
+          class="card debt-card"
+          :data-receivable-id="row.id"
+          :data-shipped="row.shippedAmount"
+          :data-balance="row.balance"
+          @click="openDetail(row)"
+        >
+          <view class="row-between debt-head">
+            <text class="debt-order">出货单 #{{ row.salesOrderId }}</text>
+            <text
+              class="status-tag"
+              :class="row.status === 'OPEN' ? 'tone-open' : row.status === 'SETTLED' ? 'tone-settled' : 'tone-void'"
+            >
+              {{ statusLabel(row.status) }}
+            </text>
+          </view>
+
+          <view class="row-between debt-meta">
+            <text class="meta-text link" @click.stop="pickCustomer(row.customerId)">
+              {{ customerText(row.customerId) }} ›
+            </text>
+            <text class="meta-text">业务 {{ formatDate(row.bizDate) }}</text>
+          </view>
+
+          <view class="row-between debt-amounts">
+            <text class="meta-text">出货 {{ formatFen(row.shippedAmount) }}</text>
+            <text class="meta-text">回款 {{ formatFen(row.receivedAmount) }}</text>
+          </view>
+
+          <view class="row-between debt-foot">
+            <text class="debt-balance">应收余额 {{ formatFen(row.balance) }}</text>
+            <text v-if="looksOverdue(row)" class="debt-overdue">到期 {{ formatDate(row.dueDate) }}</text>
+            <text v-else class="meta-text">到期 {{ formatDate(row.dueDate) }}</text>
+          </view>
+        </view>
+      </view>
+
+      <view v-if="loaded" class="list-footer">
+        <button
+          v-if="hasMore || loading"
+          class="btn-ghost load-more"
+          hover-class="none"
+          :disabled="loading"
+          @click="load(false)"
+        >
+          {{ loading ? '加载中…' : `加载更多（${rows.length} / ${total}）` }}
+        </button>
+        <text v-else-if="rows.length" class="footer-note">已全部加载，共 {{ total }} 笔</text>
+
+        <view v-if="error && rows.length" class="inline-error">
+          <text class="block-text">{{ error }}</text>
+          <text class="inline-retry" @click="load(false)">重试</text>
+        </view>
+      </view>
+
+      <text v-if="dictWarning" class="dict-warning">{{ dictWarning }}</text>
+    </template>
+  </view>
+</template>
+
+<style scoped>
+.receivables {
+  padding-top: 20rpx;
+}
+
+.notice-title {
+  display: block;
+  font-size: 29rpx;
+  font-weight: 600;
+  color: #9c3a26;
+}
+
+.notice-text {
+  display: block;
+  margin-top: 10rpx;
+  font-size: 25rpx;
+  color: #6e7585;
+  line-height: 1.55;
+}
+
+.filter-card {
+  padding: 22rpx 24rpx;
+}
+
+.form-row {
+  display: flex;
+  align-items: center;
+}
+
+.form-label {
+  width: 120rpx;
+  font-size: 24rpx;
+  color: #586176;
+}
+
+.picker-flex {
+  flex: 1;
+  min-width: 0;
+}
+
+.picker-value {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14rpx 20rpx;
+  background: #f4f6fa;
+  border-radius: 12rpx;
+  font-size: 24rpx;
+  color: #2b3245;
+}
+
+.picker-arrow {
+  color: #a2a8b6;
+}
+
+.switch-row {
+  margin-top: 18rpx;
+}
+
+.switch {
+  width: 84rpx;
+  height: 44rpx;
+  border-radius: 999rpx;
+  background: #dfe3ea;
+  padding: 4rpx;
+  display: flex;
+}
+
+.switch.on {
+  background: #1f3a63;
+  justify-content: flex-end;
+}
+
+.switch-dot {
+  width: 36rpx;
+  height: 36rpx;
+  border-radius: 50%;
+  background: #ffffff;
+}
+
+.summary-card {
+  margin-top: 18rpx;
+  padding: 24rpx;
+}
+
+.summary-title {
+  font-size: 27rpx;
+  font-weight: 700;
+  color: #1c2230;
+}
+
+.summary-note {
+  font-size: 21rpx;
+  color: #8a90a2;
+}
+
+.summary-grid {
+  display: flex;
+  margin-top: 18rpx;
+}
+
+.summary-cell {
+  flex: 1;
+  text-align: center;
+}
+
+.cell-label {
+  display: block;
+  font-size: 21rpx;
+  color: #8a90a2;
+}
+
+.cell-value {
+  display: block;
+  margin-top: 6rpx;
+  font-size: 24rpx;
+  font-weight: 600;
+  color: #2b3245;
+}
+
+.cell-value.balance {
+  color: #b4702f;
+}
+
+.summary-overdue {
+  display: block;
+  margin-top: 14rpx;
+  font-size: 22rpx;
+  color: #b4462f;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  margin: 20rpx 0;
+}
+
+.chip {
+  padding: 12rpx 26rpx;
+  border-radius: 999rpx;
+  background: #e9edf3;
+  color: #586176;
+  font-size: 24rpx;
+}
+
+.chip.active {
+  background: #1f3a63;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.summary {
+  margin: 6rpx 4rpx 14rpx;
+}
+
+.summary-text {
+  font-size: 23rpx;
+  color: #8a90a2;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+}
+
+.debt-card {
+  padding: 24rpx;
+}
+
+.debt-head {
+  margin-bottom: 12rpx;
+}
+
+.debt-order {
+  flex: 1;
+  min-width: 0;
+  font-size: 28rpx;
+  font-weight: 700;
+  color: #1c2230;
+}
+
+.status-tag {
+  flex-shrink: 0;
+  margin-left: 14rpx;
+  padding: 4rpx 16rpx;
+  border-radius: 999rpx;
+  font-size: 21rpx;
+  font-weight: 600;
+}
+
+.tone-open {
+  background: #fbf1e3;
+  color: #a86a1f;
+}
+
+.tone-settled {
+  background: #e9f5ef;
+  color: #2f7d5b;
+}
+
+.tone-void {
+  background: #f1f2f5;
+  color: #8a90a2;
+}
+
+.debt-meta,
+.debt-amounts {
+  margin-top: 6rpx;
+}
+
+.meta-text {
+  font-size: 23rpx;
+  color: #6e7585;
+}
+
+.meta-text.link {
+  color: #2c4066;
+  font-weight: 600;
+}
+
+.debt-foot {
+  margin-top: 16rpx;
+  padding-top: 14rpx;
+  border-top: 1rpx solid #f0f2f6;
+}
+
+.debt-balance {
+  font-size: 25rpx;
+  font-weight: 700;
+  color: #b4702f;
+}
+
+.debt-overdue {
+  font-size: 22rpx;
+  color: #b4462f;
+  font-weight: 600;
+}
+
+.list-footer {
+  margin-top: 20rpx;
+}
+
+.load-more {
+  width: 100%;
+  height: 80rpx;
+  font-size: 26rpx;
+}
+
+.footer-note {
+  display: block;
+  text-align: center;
+  font-size: 22rpx;
+  color: #a2a8b6;
+}
+
+.block-text {
+  display: block;
+  line-height: 1.5;
+}
+
+.block-btn {
+  width: 240rpx;
+  margin: 24rpx auto 0;
+}
+
+.inline-error {
+  margin-top: 16rpx;
+  padding: 18rpx 22rpx;
+  background: #fdf1ee;
+  border-radius: 14rpx;
+  text-align: center;
+  font-size: 23rpx;
+  color: #9c3a26;
+}
+
+.inline-retry {
+  margin-left: 12rpx;
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+.dict-warning {
+  display: block;
+  margin-top: 22rpx;
+  text-align: center;
+  font-size: 21rpx;
+  color: #a2a8b6;
+}
+</style>
