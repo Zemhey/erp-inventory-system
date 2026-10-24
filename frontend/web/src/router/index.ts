@@ -146,6 +146,25 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/cst/MarginView.vue'),
         meta: { title: '毛利分析', permission: 'cst:read' },
       },
+      // V2-3 销售闭环：继续追加，通配兜底路由仍在最后
+      {
+        path: 'sales-quotes',
+        name: 'sales-quotes',
+        component: () => import('@/views/sal/SalesQuoteView.vue'),
+        meta: { title: '报价单', permission: 'sal:read' },
+      },
+      {
+        path: 'shipments',
+        name: 'shipments',
+        component: () => import('@/views/sal/ShipmentView.vue'),
+        meta: { title: '拣货发货', permission: 'sal:read' },
+      },
+      {
+        path: 'receivables',
+        name: 'receivables',
+        component: () => import('@/views/sal/ReceivableView.vue'),
+        meta: { title: '应收 / 收款 / 信用', permission: 'sal:read' },
+      },
     ],
   },
   {

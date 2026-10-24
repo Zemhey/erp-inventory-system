@@ -44,6 +44,12 @@ public class DocumentNumberGenerator {
         SUPPLIER_PAYMENT("PY"),
         /** 出货单 SALES ORDER。 */
         SALES_ORDER("SO"),
+        /** 报价单 SALES QUOTE（V2-3 FR-SAL-05）。 */
+        SALES_QUOTE("QT"),
+        /** 发货单 SHIPMENT（V2-3 FR-SAL-06）。 */
+        SHIPMENT("SP"),
+        /** 收款单 RECEIPT（V2-3 FR-SAL-08）。 */
+        RECEIPT("RC"),
         /** 退货单 RETURN ORDER（M2 使用）。 */
         RETURN_ORDER("RO"),
         /** 调拨单 TRANSFER ORDER（P1 使用）。 */

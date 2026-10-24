@@ -339,6 +339,9 @@ export const salApi = {
     http.get<never, PageData<SalesOrder>>('/sales-orders', { params }),
   get: (id: number) => http.get<never, SalesOrder>(`/sales-orders/${id}`),
   create: (body: SalesOrderCreate) => http.post<never, SalesOrder>('/sales-orders', body),
+  /** 自动选仓建单（FR-SAL-11）：priority 越大越优先，单仓不足才跨仓拆分配。 */
+  autoSplit: (body: SalesOrderCreate) =>
+    http.post<never, SalesOrder>('/sales-orders/auto-split', body),
   submit: (id: number) => http.post<never, SalesOrder>(`/sales-orders/${id}/submit`),
   approve: (id: number) => http.post<never, SalesOrder>(`/sales-orders/${id}/approve`),
   // 后端 SalesOrderController 有 @PostMapping("/{id}/reject")；REJECTED 只给作废（G2：无 reopen）
@@ -544,6 +547,11 @@ export interface Sku {
   barcode?: string | null
   retailPriceAmount: number
   enabled: boolean
+  /** FR-MDM-08 季节/波段/上市日期；年份由上市日期派生 */
+  seasonCode?: string | null
+  bandCode?: string | null
+  launchDate?: string | null
+  seasonYear?: number | null
 }
 
 export interface SkuCreate {
@@ -552,12 +560,18 @@ export interface SkuCreate {
   size: string
   barcode?: string
   retailPriceAmount?: number
+  seasonCode?: string
+  bandCode?: string
+  launchDate?: string
 }
 
 export interface SkuUpdate {
   barcode?: string
   retailPriceAmount?: number
   enabled?: boolean
+  seasonCode?: string
+  bandCode?: string
+  launchDate?: string
 }
 
 export interface SkuMatrixCreate {
@@ -604,6 +618,9 @@ export interface Customer {
   discountRate: number
   level: string
   enabled: boolean
+  /** 0 = 不设限（FR-SAL-09） */
+  creditLimit: number
+  creditDays: number
 }
 
 export interface CustomerCreate {
@@ -630,6 +647,8 @@ export interface Warehouse {
   name: string
   address?: string | null
   enabled: boolean
+  /** 发货选仓优先级：与 V9 一致，越大越优先（FR-SAL-11） */
+  priority: number
 }
 
 export interface WarehouseCreate {
@@ -637,6 +656,7 @@ export interface WarehouseCreate {
   name: string
   address?: string
   enabled?: boolean
+  priority?: number
 }
 
 /** 编码创建后不可改，因此更新体不含 code。 */
@@ -644,6 +664,7 @@ export interface WarehouseUpdate {
   name: string
   address?: string
   enabled?: boolean
+  priority?: number
 }
 
 export interface InventoryBalance {
@@ -815,6 +836,12 @@ export interface OrderLine {
   returnedQty?: number
   openQty?: number
   discountRate?: number
+  bundleId?: number | null
+  bundleGroupNo?: number | null
+  bundleRatio?: number | null
+  bundleQty?: number | null
+  /** 按仓拆分的预占分配（自动选仓时可见） */
+  allocations?: { warehouseId: number; qty: number }[]
 }
 
 export interface PurchaseOrder {

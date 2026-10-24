@@ -10,5 +10,17 @@ package com.erp.mdm.domain;
  * <p>M1 只建字段与校验，真正参与售价计算在 M2 促销（计划书 §7 决策 3）。
  */
 public record Customer(long id, String code, String name, String phone,
-                       int discountRate, String level, boolean enabled) {
+                       int discountRate, String level, boolean enabled,
+                       long creditLimit, int creditDays) {
+
+    /** 兼容 M1/M2 的构造：存量客户默认不设信用额度、账期 0 天。 */
+    public Customer(long id, String code, String name, String phone,
+                    int discountRate, String level, boolean enabled) {
+        this(id, code, name, phone, discountRate, level, enabled, 0L, 0);
+    }
+
+    /** 0 = 不设限（避免存量客户/测试被信用校验一刀切拦死）。 */
+    public boolean creditControlled() {
+        return creditLimit > 0;
+    }
 }

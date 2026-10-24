@@ -42,8 +42,10 @@ public class SalesOrderController {
         this.salesOrders = salesOrders;
     }
 
+    /** skuId 与 bundleId 二选一；套装行忽略 unitPriceAmount（组件按零售价计价）。 */
     public record LineRequest(
-            @NotNull Long skuId,
+            Long skuId,
+            Long bundleId,
             @NotNull @Min(1) Integer qty,
             @NotNull @Min(0) Long unitPriceAmount,
             @Min(1) @Max(10000) Integer discountRate) {
@@ -52,6 +54,13 @@ public class SalesOrderController {
     public record CreateRequest(
             @NotNull Long customerId,
             @NotNull Long warehouseId,
+            LocalDate bizDate,
+            @Size(max = 500) String remark,
+            @NotEmpty @Valid List<LineRequest> lines) {
+    }
+
+    public record AutoSplitRequest(
+            @NotNull Long customerId,
             LocalDate bizDate,
             @Size(max = 500) String remark,
             @NotEmpty @Valid List<LineRequest> lines) {
@@ -78,12 +87,22 @@ public class SalesOrderController {
     public ResponseEntity<Map<String, Object>> create(
             @RequestHeader("X-Request-Id") @NotBlank String requestId,
             @Valid @RequestBody CreateRequest req) {
-        List<SalesOrderApplicationService.CreateLineCommand> lines = req.lines().stream()
-                .map(l -> new SalesOrderApplicationService.CreateLineCommand(
-                        l.skuId(), l.qty(), l.unitPriceAmount(), l.discountRate()))
-                .toList();
         SalesOrder o = salesOrders.create(new SalesOrderApplicationService.CreateCommand(
-                req.customerId(), req.warehouseId(), req.bizDate(), req.remark(), lines, requestId));
+                req.customerId(), req.warehouseId(), req.bizDate(), req.remark(),
+                toCommands(req.lines()), requestId));
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.ok(toMap(o)));
+    }
+
+    /**
+     * 自动选仓建单（FR-SAL-11）：按仓库 priority 逐仓吃量，单仓不足才拆分配。
+     */
+    @PostMapping("/auto-split")
+    @RequirePermission("sal:create")
+    public ResponseEntity<Map<String, Object>> createAutoSplit(
+            @RequestHeader("X-Request-Id") @NotBlank String requestId,
+            @Valid @RequestBody AutoSplitRequest req) {
+        SalesOrder o = salesOrders.createAutoSplit(new SalesOrderApplicationService.CreateCommand(
+                req.customerId(), 0L, req.bizDate(), req.remark(), toCommands(req.lines()), requestId));
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.ok(toMap(o)));
     }
 
@@ -121,7 +140,16 @@ public class SalesOrderController {
         return ResponseEntity.ok(ApiResponses.ok(toMap(salesOrders.ship(id, requestId))));
     }
 
-    private static Map<String, Object> toMap(SalesOrder o) {
+    private static List<SalesOrderApplicationService.CreateLineCommand> toCommands(
+            List<LineRequest> lines) {
+        return lines.stream()
+                .map(l -> new SalesOrderApplicationService.CreateLineCommand(
+                        l.skuId() == null ? 0L : l.skuId(),
+                        l.qty(), l.unitPriceAmount(), l.discountRate(), l.bundleId()))
+                .toList();
+    }
+
+    static Map<String, Object> toMap(SalesOrder o) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("id", o.id());
         m.put("orderNo", o.orderNo());
@@ -146,7 +174,25 @@ public class SalesOrderController {
             lm.put("unitPriceAmount", l.unitPriceAmount());
             lm.put("discountRate", l.discountRate());
             lm.put("amount", l.amount());
+            lm.put("bundleId", l.bundleId());
+            lm.put("bundleGroupNo", l.bundleGroupNo());
+            lm.put("bundleRatio", l.bundleRatio());
+            lm.put("bundleQty", l.bundleQty());
             lm.put("reservationIds", l.reservationIds());
+            // 按仓汇总预占分配：自动选仓/拆单的可见证据（Σ qty == 行数量）
+            Map<Long, Integer> byWarehouse = new LinkedHashMap<>();
+            List<Map<String, Object>> allocations = new ArrayList<>();
+            for (var r : l.reservations()) {
+                long wh = r.warehouseId() == null ? o.warehouseId() : r.warehouseId();
+                byWarehouse.merge(wh, r.reservedQty(), Integer::sum);
+            }
+            for (Map.Entry<Long, Integer> e : byWarehouse.entrySet()) {
+                Map<String, Object> am = new LinkedHashMap<>();
+                am.put("warehouseId", e.getKey());
+                am.put("qty", e.getValue());
+                allocations.add(am);
+            }
+            lm.put("allocations", allocations);
             lines.add(lm);
         }
         m.put("lines", lines);

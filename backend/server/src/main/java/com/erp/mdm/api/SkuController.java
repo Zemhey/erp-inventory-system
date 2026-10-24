@@ -2,6 +2,7 @@ package com.erp.mdm.api;
 
 import com.erp.mdm.application.SkuApplicationService;
 import com.erp.mdm.domain.Sku;
+import com.erp.mdm.domain.SkuFilter;
 import com.erp.iam.security.RequirePermission;
 import com.erp.shared.web.ApiResponses;
 import jakarta.validation.Valid;
@@ -10,6 +11,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -48,7 +50,10 @@ public class SkuController {
             @NotBlank @Size(max = 16) String size,
             @Size(max = 64) String barcode,
             @Min(0) Long retailPriceAmount,
-            Boolean enabled) {
+            Boolean enabled,
+            @Size(max = 32) String seasonCode,
+            @Size(max = 32) String bandCode,
+            LocalDate launchDate) {
     }
 
     public record MatrixRequest(
@@ -62,7 +67,10 @@ public class SkuController {
     public record UpdateRequest(
             @Size(max = 64) String barcode,
             @Min(0) Long retailPriceAmount,
-            Boolean enabled) {
+            Boolean enabled,
+            @Size(max = 32) String seasonCode,
+            @Size(max = 32) String bandCode,
+            LocalDate launchDate) {
     }
 
     @GetMapping
@@ -73,10 +81,17 @@ public class SkuController {
             /* 尺码筛选叫 skuSize 而非 size：size 是契约统一的分页条数参数，
                同名会让其中一个被 Spring 静默忽略（分页永远 20 条）。 */
             @RequestParam(required = false) String skuSize,
+            @RequestParam(required = false) String seasonCode,
+            @RequestParam(required = false) String bandCode,
+            @RequestParam(required = false) LocalDate launchDateFrom,
+            @RequestParam(required = false) LocalDate launchDateTo,
+            @RequestParam(required = false) Integer seasonYear,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(ApiResponses.page(
-                skus.page(productId, color, skuSize, page, size)));
+        return ResponseEntity.ok(ApiResponses.page(skus.page(
+                new SkuFilter(productId, color, skuSize,
+                        seasonCode, bandCode, launchDateFrom, launchDateTo, seasonYear),
+                page, size)));
     }
 
     @GetMapping("/{id}")
@@ -91,7 +106,8 @@ public class SkuController {
         Sku s = skus.create(new SkuApplicationService.CreateCommand(
                 req.productId(), req.color(), req.size(), req.barcode(),
                 req.retailPriceAmount() == null ? 0L : req.retailPriceAmount(),
-                req.enabled() == null || req.enabled()));
+                req.enabled() == null || req.enabled(),
+                req.seasonCode(), req.bandCode(), req.launchDate()));
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.ok(toMap(s)));
     }
 
@@ -118,10 +134,9 @@ public class SkuController {
     @RequirePermission("mdm:write")
     public ResponseEntity<Map<String, Object>> update(@PathVariable long id,
                                                       @Valid @RequestBody UpdateRequest req) {
-        Sku current = skus.require(id);
-        Sku s = skus.update(id, req.barcode(),
-                req.retailPriceAmount() == null ? current.retailPriceAmount() : req.retailPriceAmount(),
-                req.enabled() == null || req.enabled());
+        Sku s = skus.update(id, new SkuApplicationService.UpdateCommand(
+                req.barcode(), req.retailPriceAmount(), req.enabled(),
+                req.seasonCode(), req.bandCode(), req.launchDate()));
         return ResponseEntity.ok(ApiResponses.ok(toMap(s)));
     }
 
@@ -141,6 +156,10 @@ public class SkuController {
         m.put("barcode", s.barcode());
         m.put("retailPriceAmount", s.retailPriceAmount());
         m.put("enabled", s.enabled());
+        m.put("seasonCode", s.seasonCode());
+        m.put("bandCode", s.bandCode());
+        m.put("launchDate", s.launchDate() == null ? null : s.launchDate().toString());
+        m.put("seasonYear", s.seasonYear());
         return m;
     }
 }

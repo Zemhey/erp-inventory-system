@@ -1,6 +1,7 @@
 package com.erp.mdm.repository;
 
 import com.erp.mdm.domain.Sku;
+import com.erp.mdm.domain.SkuFilter;
 import com.erp.shared.db.DbErrors;
 import com.erp.shared.error.BusinessException;
 import com.erp.shared.error.ErrorCode;
@@ -38,7 +39,10 @@ public class SkuRepository {
             rs.getString("size"),
             rs.getString("barcode"),
             rs.getLong("retail_price_amount"),
-            rs.getBoolean("enabled"));
+            rs.getBoolean("enabled"),
+            rs.getString("season_code"),
+            rs.getString("band_code"),
+            rs.getObject("launch_date", java.time.LocalDate.class));
 
     private final JdbcTemplate jdbc;
 
@@ -48,12 +52,20 @@ public class SkuRepository {
 
     public long insert(long productId, String color, String size, String barcode,
                        long retailPriceAmount, boolean enabled) {
+        return insert(productId, color, size, barcode, retailPriceAmount, enabled,
+                null, null, null);
+    }
+
+    public long insert(long productId, String color, String size, String barcode,
+                       long retailPriceAmount, boolean enabled,
+                       String seasonCode, String bandCode, java.time.LocalDate launchDate) {
         KeyHolder keys = new GeneratedKeyHolder();
         try {
             jdbc.update(con -> {
                 var ps = con.prepareStatement("""
-                        INSERT INTO skus (product_id, color, size, barcode, retail_price_amount, enabled)
-                        VALUES (?, ?, ?, ?, ?, ?)
+                        INSERT INTO skus (product_id, color, size, barcode, retail_price_amount,
+                                          enabled, season_code, band_code, launch_date)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """, new String[]{"id"});
                 ps.setLong(1, productId);
                 ps.setString(2, color);
@@ -61,6 +73,9 @@ public class SkuRepository {
                 ps.setString(4, barcode);
                 ps.setLong(5, retailPriceAmount);
                 ps.setBoolean(6, enabled);
+                ps.setString(7, seasonCode);
+                ps.setString(8, bandCode);
+                ps.setObject(9, launchDate);
                 return ps;
             }, keys);
         } catch (DataIntegrityViolationException ex) {
@@ -86,21 +101,24 @@ public class SkuRepository {
 
     public Optional<Sku> findById(long id) {
         return jdbc.query("""
-                SELECT id, product_id, color, size, barcode, retail_price_amount, enabled
+                SELECT id, product_id, color, size, barcode, retail_price_amount, enabled,
+                       season_code, band_code, launch_date
                   FROM skus WHERE id = ?
                 """, MAPPER, id).stream().findFirst();
     }
 
     public Optional<Sku> findByVariant(long productId, String color, String size) {
         return jdbc.query("""
-                SELECT id, product_id, color, size, barcode, retail_price_amount, enabled
+                SELECT id, product_id, color, size, barcode, retail_price_amount, enabled,
+                       season_code, band_code, launch_date
                   FROM skus WHERE product_id = ? AND color = ? AND size = ?
                 """, MAPPER, productId, color, size).stream().findFirst();
     }
 
     public List<Sku> findByProduct(long productId) {
         return jdbc.query("""
-                SELECT id, product_id, color, size, barcode, retail_price_amount, enabled
+                SELECT id, product_id, color, size, barcode, retail_price_amount, enabled,
+                       season_code, band_code, launch_date
                   FROM skus WHERE product_id = ?
                  ORDER BY color, size
                 """, MAPPER, productId);
@@ -135,21 +153,46 @@ public class SkuRepository {
     }
 
     public PageResult<Sku> page(Long productId, String color, String skuSize, int page, int sizeRows) {
+        return page(new SkuFilter(productId, color, skuSize, null, null, null, null, null),
+                page, sizeRows);
+    }
+
+    public PageResult<Sku> page(SkuFilter filter, int page, int sizeRows) {
         int p = PageResult.normalizePage(page);
         int s = PageResult.normalizeSize(sizeRows);
         List<Object> args = new ArrayList<>();
         StringBuilder where = new StringBuilder(" WHERE 1 = 1");
-        if (productId != null) {
+        if (filter.productId() != null) {
             where.append(" AND product_id = ?");
-            args.add(productId);
+            args.add(filter.productId());
         }
-        if (color != null && !color.isBlank()) {
+        if (filter.color() != null && !filter.color().isBlank()) {
             where.append(" AND color = ?");
-            args.add(color);
+            args.add(filter.color());
         }
-        if (skuSize != null && !skuSize.isBlank()) {
+        if (filter.skuSize() != null && !filter.skuSize().isBlank()) {
             where.append(" AND size = ?");
-            args.add(skuSize);
+            args.add(filter.skuSize());
+        }
+        if (filter.seasonCode() != null && !filter.seasonCode().isBlank()) {
+            where.append(" AND season_code = ?");
+            args.add(filter.seasonCode().trim());
+        }
+        if (filter.bandCode() != null && !filter.bandCode().isBlank()) {
+            where.append(" AND band_code = ?");
+            args.add(filter.bandCode().trim());
+        }
+        if (filter.launchDateFrom() != null) {
+            where.append(" AND launch_date >= ?");
+            args.add(filter.launchDateFrom());
+        }
+        if (filter.launchDateTo() != null) {
+            where.append(" AND launch_date <= ?");
+            args.add(filter.launchDateTo());
+        }
+        if (filter.seasonYear() != null) {
+            where.append(" AND EXTRACT(YEAR FROM launch_date) = ?");
+            args.add(filter.seasonYear());
         }
         Long total = jdbc.queryForObject("SELECT COUNT(*) FROM skus" + where,
                 Long.class, args.toArray());
@@ -157,7 +200,8 @@ public class SkuRepository {
         pageArgs.add(s);
         pageArgs.add(PageResult.offset(p, s));
         List<Sku> items = jdbc.query("""
-                SELECT id, product_id, color, size, barcode, retail_price_amount, enabled
+                SELECT id, product_id, color, size, barcode, retail_price_amount, enabled,
+                       season_code, band_code, launch_date
                   FROM skus
                 """ + where + " ORDER BY product_id, color, size LIMIT ? OFFSET ?",
                 MAPPER, pageArgs.toArray());
@@ -170,6 +214,16 @@ public class SkuRepository {
                    SET barcode = ?, retail_price_amount = ?, enabled = ?, updated_at = now()
                  WHERE id = ?
                 """, barcode, retailPriceAmount, enabled, id) == 1;
+    }
+
+    /** 更新 SKU 的季节/年份/波段维度（FR-MDM-08）。 */
+    public boolean updateDimensions(long id, String seasonCode, String bandCode,
+                                    java.time.LocalDate launchDate) {
+        return jdbc.update("""
+                UPDATE skus
+                   SET season_code = ?, band_code = ?, launch_date = ?, updated_at = now()
+                 WHERE id = ?
+                """, seasonCode, bandCode, launchDate, id) == 1;
     }
 
     /** 停用（软删）。停用的 SKU 不允许再建单，但历史单据仍可查阅。 */

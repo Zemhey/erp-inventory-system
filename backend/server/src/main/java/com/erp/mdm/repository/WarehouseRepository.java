@@ -27,7 +27,8 @@ public class WarehouseRepository {
             rs.getString("code"),
             rs.getString("name"),
             rs.getString("address"),
-            rs.getBoolean("enabled"));
+            rs.getBoolean("enabled"),
+            rs.getInt("priority"));
 
     private final JdbcTemplate jdbc;
 
@@ -36,17 +37,22 @@ public class WarehouseRepository {
     }
 
     public long insert(String code, String name, String address, boolean enabled) {
+        return insert(code, name, address, enabled, 100);
+    }
+
+    public long insert(String code, String name, String address, boolean enabled, int priority) {
         KeyHolder keys = new GeneratedKeyHolder();
         try {
             jdbc.update(con -> {
                 var ps = con.prepareStatement("""
-                        INSERT INTO warehouses (code, name, address, enabled)
-                        VALUES (?, ?, ?, ?)
+                        INSERT INTO warehouses (code, name, address, enabled, priority)
+                        VALUES (?, ?, ?, ?, ?)
                         """, new String[]{"id"});
                 ps.setString(1, code);
                 ps.setString(2, name);
                 ps.setString(3, address);
                 ps.setBoolean(4, enabled);
+                ps.setInt(5, priority);
                 return ps;
             }, keys);
         } catch (DataIntegrityViolationException ex) {
@@ -66,15 +72,16 @@ public class WarehouseRepository {
 
     public Optional<Warehouse> findById(long id) {
         return jdbc.query("""
-                SELECT id, code, name, address, enabled FROM warehouses WHERE id = ?
+                SELECT id, code, name, address, enabled, priority
+                  FROM warehouses WHERE id = ?
                 """, MAPPER, id).stream().findFirst();
     }
 
     public List<Warehouse> findAll(boolean onlyEnabled) {
         String sql = """
-                SELECT id, code, name, address, enabled
+                SELECT id, code, name, address, enabled, priority
                   FROM warehouses
-                """ + (onlyEnabled ? " WHERE enabled" : "") + " ORDER BY id";
+                """ + (onlyEnabled ? " WHERE enabled" : "") + " ORDER BY priority DESC, id";
         return jdbc.query(sql, MAPPER);
     }
 
@@ -84,6 +91,23 @@ public class WarehouseRepository {
                    SET name = ?, address = ?, enabled = ?, updated_at = now()
                  WHERE id = ?
                 """, name, address, enabled, id) == 1;
+    }
+
+    public boolean update(long id, String name, String address, boolean enabled, int priority) {
+        return jdbc.update("""
+                UPDATE warehouses
+                   SET name = ?, address = ?, enabled = ?, priority = ?, updated_at = now()
+                 WHERE id = ?
+                """, name, address, enabled, priority, id) == 1;
+    }
+
+    /** 启用的仓库按发货优先级排序（FR-SAL-11）：与 V9 一致，数值越大越优先。 */
+    public List<Warehouse> findEnabledByPriority() {
+        return jdbc.query("""
+                SELECT id, code, name, address, enabled, priority
+                  FROM warehouses WHERE enabled
+                 ORDER BY priority DESC, id
+                """, MAPPER);
     }
 
     public boolean disable(long id) {

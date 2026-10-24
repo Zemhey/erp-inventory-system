@@ -48,7 +48,10 @@ public class SalesOrderRepository {
             rs.getLong("unit_price_amount"),
             rs.getInt("discount_rate"),
             rs.getLong("amount"),
-            List.of());   // 预占分段另行装载
+            List.of(),   // 预占分段另行装载
+            rs.getObject("bundle_id", Long.class),
+            rs.getObject("bundle_group_no", Integer.class),
+            rs.getObject("bundle_ratio", Integer.class));
 
     private final JdbcTemplate jdbc;
 
@@ -102,31 +105,46 @@ public class SalesOrderRepository {
 
     public void insertLine(long orderId, int lineNo, long skuId, int qty,
                            long unitPriceAmount, int discountRate, long amount) {
+        insertLine(orderId, lineNo, skuId, qty, unitPriceAmount, discountRate, amount,
+                null, null, null);
+    }
+
+    public void insertLine(long orderId, int lineNo, long skuId, int qty,
+                           long unitPriceAmount, int discountRate, long amount,
+                           Long bundleId, Integer bundleGroupNo, Integer bundleRatio) {
         jdbc.update("""
                 INSERT INTO sales_order_lines
                     (order_id, line_no, sku_id, qty, shipped_qty,
-                     unit_price_amount, discount_rate, amount)
-                VALUES (?, ?, ?, ?, 0, ?, ?, ?)
-                """, orderId, lineNo, skuId, qty, unitPriceAmount, discountRate, amount);
+                     unit_price_amount, discount_rate, amount,
+                     bundle_id, bundle_group_no, bundle_ratio)
+                VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
+                """, orderId, lineNo, skuId, qty, unitPriceAmount, discountRate, amount,
+                bundleId, bundleGroupNo, bundleRatio);
     }
 
     /** 记录一段预占（一行出货可有多段）。 */
     public void attachReservation(long lineId, long reservationId, int seq, int reservedQty) {
+        attachReservation(lineId, reservationId, seq, reservedQty, null, null);
+    }
+
+    public void attachReservation(long lineId, long reservationId, int seq, int reservedQty,
+                                  Long warehouseId, String batchNo) {
         jdbc.update("""
                 INSERT INTO sales_order_line_reservations
-                    (line_id, reservation_id, seq, reserved_qty)
-                VALUES (?, ?, ?, ?)
-                """, lineId, reservationId, seq, reservedQty);
+                    (line_id, reservation_id, seq, reserved_qty, warehouse_id, batch_no)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """, lineId, reservationId, seq, reservedQty, warehouseId, batchNo);
     }
 
     /** 某明细行的全部预占分段，按段序号排序。 */
     public List<LineReservation> findReservations(long lineId) {
         return jdbc.query("""
-                SELECT reservation_id, seq, reserved_qty
+                SELECT reservation_id, seq, reserved_qty, warehouse_id, batch_no
                   FROM sales_order_line_reservations
                  WHERE line_id = ? ORDER BY seq
                 """, (rs, i) -> new LineReservation(
-                        rs.getLong("reservation_id"), rs.getInt("seq"), rs.getInt("reserved_qty")),
+                        rs.getLong("reservation_id"), rs.getInt("seq"), rs.getInt("reserved_qty"),
+                        rs.getObject("warehouse_id", Long.class), rs.getString("batch_no")),
                 lineId);
     }
 
@@ -158,13 +176,14 @@ public class SalesOrderRepository {
     public List<SalesOrderLine> findLines(long orderId) {
         List<SalesOrderLine> rows = jdbc.query("""
                 SELECT id, line_no, sku_id, qty, shipped_qty, returned_qty,
-                       unit_price_amount, discount_rate, amount
+                       unit_price_amount, discount_rate, amount,
+                       bundle_id, bundle_group_no, bundle_ratio
                   FROM sales_order_lines WHERE order_id = ? ORDER BY line_no
                 """, LINE_MAPPER, orderId);
         return rows.stream()
                 .map(l -> new SalesOrderLine(l.id(), l.lineNo(), l.skuId(), l.qty(), l.shippedQty(),
                         l.returnedQty(), l.unitPriceAmount(), l.discountRate(), l.amount(),
-                        findReservations(l.id())))
+                        findReservations(l.id()), l.bundleId(), l.bundleGroupNo(), l.bundleRatio()))
                 .toList();
     }
 
@@ -172,7 +191,8 @@ public class SalesOrderRepository {
     public Optional<SalesOrderLine> findLineById(long lineId) {
         return jdbc.query("""
                 SELECT id, line_no, sku_id, qty, shipped_qty, returned_qty,
-                       unit_price_amount, discount_rate, amount
+                       unit_price_amount, discount_rate, amount,
+                       bundle_id, bundle_group_no, bundle_ratio
                   FROM sales_order_lines WHERE id = ?
                 """, LINE_MAPPER, lineId).stream().findFirst();
     }
@@ -282,6 +302,28 @@ public class SalesOrderRepository {
                    SET returned_qty = returned_qty + ?
                  WHERE id = ? AND returned_qty + ? <= shipped_qty
                 """, qty, lineId, qty) == 1;
+    }
+
+    /**
+     * 某客户仍占用信用额度的“未出货行”：
+     * 订单状态为 DRAFT/SUBMITTED/APPROVED/PARTIAL，且行还有未出数量。
+     *
+     * <p>已出货部分已进入应收余额，不能在敞口里重复计算；因此这里只取
+     * {@code qty - shipped_qty}，由调用方用同一 lineAmount 公式折算金额。
+     */
+    public record OpenLine(int qty, int shippedQty, long unitPriceAmount, int discountRate) {
+    }
+
+    public List<OpenLine> findOpenLinesByCustomer(long customerId) {
+        return jdbc.query("""
+                SELECT l.qty, l.shipped_qty, l.unit_price_amount, l.discount_rate
+                  FROM sales_order_lines l
+                  JOIN sales_orders o ON o.id = l.order_id
+                 WHERE o.customer_id = ?
+                   AND o.status IN ('DRAFT','SUBMITTED','APPROVED','PARTIAL')
+                   AND l.qty > l.shipped_qty
+                """, (rs, i) -> new OpenLine(rs.getInt("qty"), rs.getInt("shipped_qty"),
+                        rs.getLong("unit_price_amount"), rs.getInt("discount_rate")), customerId);
     }
 
     /**

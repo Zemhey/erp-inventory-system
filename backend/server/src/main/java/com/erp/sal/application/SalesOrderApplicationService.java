@@ -1,17 +1,22 @@
 package com.erp.sal.application;
 
 import com.erp.inv.application.InventoryApplicationService;
+import com.erp.inv.application.InventoryApplicationService.ActiveReservation;
 import com.erp.inv.application.InventoryApplicationService.ReserveResult;
-import com.erp.mdm.repository.CustomerRepository;
+import com.erp.mdm.domain.Sku;
+import com.erp.mdm.domain.Warehouse;
 import com.erp.mdm.repository.SkuRepository;
 import com.erp.mdm.repository.WarehouseRepository;
+import com.erp.sal.domain.BundleItem;
+import com.erp.sal.domain.LineReservation;
+import com.erp.sal.domain.ProductBundle;
 import com.erp.sal.domain.SalesOrder;
 import com.erp.sal.domain.SalesOrderLine;
 import com.erp.sal.repository.SalesOrderRepository;
+import com.erp.shared.db.DbErrors;
 import com.erp.shared.document.DocumentNumberGenerator;
 import com.erp.shared.document.DocumentStatus;
 import com.erp.shared.document.DocumentStatusMachine;
-import com.erp.shared.db.DbErrors;
 import com.erp.shared.error.BusinessException;
 import com.erp.shared.error.ErrorCode;
 import com.erp.shared.approval.ApprovalGate;
@@ -23,64 +28,70 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 销售出货应用服务（FR-SAL-01 建单即预占、FR-SAL-02 出货确认）。
+ * 销售出货应用服务（FR-SAL-01/02，V2-3 扩展 FR-SAL-05~11）。
  *
  * <p><b>为什么出货比进货难</b>：进货是"凭空增加"，出货是"在别人的份额里扣"。
  * 建单必须预占（否则会超卖），预占必须有失败路径（库存不足），
  * 而失败时必须保证<b>整单回滚</b> —— 否则会出现"单子没建成，但库存被神秘锁住"。
  *
- * <p><b>跨模块规则</b>（计划书 §3.3）：
- * <pre>
- * SalesOrderApplicationService ──调用──▶ InventoryApplicationService.reserve(...)
- *                              ──调用──▶ InventoryApplicationService.shipOut(...)
- * </pre>
- * 本类<b>不碰</b> {@code InventoryBalanceRepository}，由 ArchUnit 强制。
+ * <p><b>V2-3 新增的四条边界</b>：
+ * <ul>
+ *   <li>套装行展开为组件行，套装本身不持有库存（INV-16）；</li>
+ *   <li>自动选仓：按 priority 逐仓吃量，单仓够则不拆；</li>
+ *   <li>信用校验前置于<b>任何预占</b>（硬验收 6）；</li>
+ *   <li>出货确认同步登记应收（FR-SAL-07）。</li>
+ * </ul>
  */
 @Service
 public class SalesOrderApplicationService {
 
     private final SalesOrderRepository orders;
-    private final CustomerRepository customers;
     private final WarehouseRepository warehouses;
     private final SkuRepository skus;
     private final InventoryApplicationService inventory;
     private final DocumentNumberGenerator numberGenerator;
     private final ClockProvider clock;
-    /**
-     * 账期锁（M2-S2）。只依赖 {@code shared.period} 接口，实现由 SET 提供；
-     * 出货的"建单即预占"也算写操作，因此建单路径同样要过锁。
-     */
     private final PeriodGuard periodGuard;
+    private final ProductBundleService bundleService;
+    private final CreditService credit;
+    private final ReceivableService receivables;
     /** 审批闸门（V2-6 FR-IAM-07）：只输出可否，不改单据状态。 */
     private final ApprovalGate approvalGate;
     /** 当前操作人（数据权限"按本人"）。 */
     private final ActorContext actors;
 
     public SalesOrderApplicationService(SalesOrderRepository orders,
-                                        CustomerRepository customers,
                                         WarehouseRepository warehouses,
                                         SkuRepository skus,
                                         InventoryApplicationService inventory,
                                         DocumentNumberGenerator numberGenerator,
                                         ClockProvider clock,
                                         PeriodGuard periodGuard,
-                                           ApprovalGate approvalGate,
-                                           ActorContext actors ) {
+                                        ProductBundleService bundleService,
+                                        CreditService credit,
+                                        ReceivableService receivables,
+                                        ApprovalGate approvalGate,
+                                        ActorContext actors) {
         this.orders = orders;
-        this.customers = customers;
         this.warehouses = warehouses;
         this.skus = skus;
         this.inventory = inventory;
         this.numberGenerator = numberGenerator;
         this.clock = clock;
         this.periodGuard = periodGuard;
+        this.bundleService = bundleService;
+        this.credit = credit;
+        this.receivables = receivables;
         this.approvalGate = approvalGate;
         this.actors = actors;
     }
@@ -88,33 +99,63 @@ public class SalesOrderApplicationService {
     /** 折扣率基准：10000 = 不打折（整数万分比，ADR-0005）。 */
     public static final int NO_DISCOUNT = 10000;
 
-    public record CreateLineCommand(long skuId, int qty, long unitPriceAmount, Integer discountRate) {
+    /**
+     * 一行建单命令。
+     *
+     * <p>{@code skuId} 与 {@code bundleId} 二选一：套装行填 {@code bundleId}，
+     * 其 {@code unitPriceAmount} 忽略（组件按各自零售价计价，见计划书 §2.3）。
+     */
+    public record CreateLineCommand(long skuId, int qty, long unitPriceAmount,
+                                    Integer discountRate, Long bundleId) {
+
+        /** 兼容 M1~M2.5 的普通 SKU 行。 */
+        public CreateLineCommand(long skuId, int qty, long unitPriceAmount, Integer discountRate) {
+            this(skuId, qty, unitPriceAmount, discountRate, null);
+        }
     }
 
     public record CreateCommand(long customerId, long warehouseId, LocalDate bizDate,
                                 String remark, List<CreateLineCommand> lines, String requestId) {
     }
 
+    private record Allocation(long warehouseId, int qty) {
+    }
+
+    /**
+     * 展开后的可落库行。
+     *
+     * <p>套装行会展开成多条组件行；{@code allocations} 记录该组件行在各仓的预占数量。
+     */
+    private record PreparedLine(long skuId, int qty, long unitPriceAmount, int discountRate,
+                                long amount, Long bundleId, Integer bundleGroupNo,
+                                Integer bundleRatio, List<Allocation> allocations) {
+    }
+
     // ─────────────────────────── 建单（同时预占） ───────────────────────────
 
     /**
-     * 创建出货单，并逐行预占库存（FR-SAL-01）。
-     *
-     * <p><b>整单原子性</b>：本方法在单个事务内完成"建单 + 全部行预占"。
-     * 任意一行预占失败（库存不足），异常抛出让事务回滚 ——
-     * 之前成功的行的预占、以及单据头与明细，全部一起消失。
-     *
-     * <p>这条性质由 TC-SAL-003 专门验证（3 行明细，第 3 行不足，前 2 行的预占必须归零）。
+     * 指定仓建单（原有语义，FR-SAL-01）。
      */
     @Transactional
     public SalesOrder create(CreateCommand cmd) {
+        return createInternal(cmd, false);
+    }
+
+    /**
+     * 自动选仓建单（FR-SAL-11）：按仓库 priority 逐仓吃量，单仓不足才跨仓拆分配。
+     *
+     * <p>命令中的 {@code warehouseId} 被忽略（可传 0）；订单头记录首个分配仓。
+     */
+    @Transactional
+    public SalesOrder createAutoSplit(CreateCommand cmd) {
+        return createInternal(cmd, true);
+    }
+
+    private SalesOrder createInternal(CreateCommand cmd, boolean autoSplit) {
         Optional<SalesOrder> existing = orders.findByRequestId(cmd.requestId());
         if (existing.isPresent()) {
             return orders.findById(existing.get().id()).orElseThrow();
         }
-
-        requireCustomerEnabled(cmd.customerId());
-        requireWarehouseEnabled(cmd.warehouseId());
         if (cmd.lines() == null || cmd.lines().isEmpty()) {
             throw new BusinessException(ErrorCode.SYS_VALIDATION_ERROR, "出货单至少需要一行明细");
         }
@@ -122,58 +163,64 @@ public class SalesOrderApplicationService {
         // 账期锁：置于幂等短路之后，重复提交不产生改动，锁账后也应原样返回首次结果。
         periodGuard.requireOpen(bizDate);
 
-        // ① 先算金额（纯计算，不碰数据库）
+        List<Warehouse> autoWarehouses = List.of();
+        if (autoSplit) {
+            autoWarehouses = warehouses.findEnabledByPriority();
+            if (autoWarehouses.isEmpty()) {
+                throw new BusinessException(ErrorCode.MDM_WAREHOUSE_NOT_FOUND,
+                        "没有启用的仓库，无法自动选仓");
+            }
+        } else {
+            requireWarehouseEnabled(cmd.warehouseId());
+        }
+
+        // ① 展开套装 + 计算金额/分配（不碰数据库写）
+        Map<Long, Map<Long, Integer>> availableCache = new HashMap<>();
+        List<PreparedLine> prepared = prepareLines(cmd.lines(), autoSplit, cmd.warehouseId(),
+                autoWarehouses, availableCache);
         long totalAmount = 0;
         int totalQty = 0;
-        List<long[]> computed = new ArrayList<>();   // skuId, qty, unitPrice, discountRate, amount
-        for (CreateLineCommand line : cmd.lines()) {
-            if (line.qty() <= 0) {
-                throw new BusinessException(ErrorCode.SYS_VALIDATION_ERROR,
-                        "明细数量必须为正：skuId=%d, qty=%d".formatted(line.skuId(), line.qty()));
-            }
-            if (line.unitPriceAmount() < 0) {
-                throw new BusinessException(ErrorCode.SYS_VALIDATION_ERROR,
-                        "单价不能为负：skuId=%d".formatted(line.skuId()));
-            }
-            int rate = line.discountRate() == null ? NO_DISCOUNT : line.discountRate();
-            if (rate <= 0 || rate > NO_DISCOUNT) {
-                throw new BusinessException(ErrorCode.SYS_VALIDATION_ERROR,
-                        "折扣率非法：%d，必须是 1~10000 的整数万分比".formatted(rate));
-            }
-            requireSkuEnabled(line.skuId());
-            long amount = lineAmount(line.qty(), line.unitPriceAmount(), rate);
-            totalAmount = Math.addExact(totalAmount, amount);
+        for (PreparedLine line : prepared) {
+            totalAmount = Math.addExact(totalAmount, line.amount());
             totalQty += line.qty();
-            computed.add(new long[]{line.skuId(), line.qty(), line.unitPriceAmount(), rate, amount});
         }
 
-        // ② 建单据头与明细
+        // ② ★ 信用校验必须在任何预占之前（硬验收 6）
+        CreditService.Approval approval = credit.check(cmd.customerId(), totalAmount);
+
+        // ③ 建单据头与明细
+        long headerWarehouseId = autoSplit
+                ? firstAllocationWarehouse(prepared)
+                : cmd.warehouseId();
         String orderNo = numberGenerator.next(DocumentNumberGenerator.DocType.SALES_ORDER, bizDate);
-        long orderId = orders.insertHeader(orderNo, cmd.customerId(), cmd.warehouseId(), bizDate,
+        long orderId = orders.insertHeader(orderNo, cmd.customerId(), headerWarehouseId, bizDate,
                 totalAmount, totalQty, periodOf(bizDate), trimToNull(cmd.remark()), cmd.requestId(),
-                actors.current().map(com.erp.shared.security.ActorContext.Actor::id).orElse(null));
+                actors.current().map(ActorContext.Actor::id).orElse(null));
         int lineNo = 1;
-        for (long[] c : computed) {
-            orders.insertLine(orderId, lineNo++, c[0], (int) c[1], c[2], (int) c[3], c[4]);
+        for (PreparedLine line : prepared) {
+            orders.insertLine(orderId, lineNo++, line.skuId(), line.qty(),
+                    line.unitPriceAmount(), line.discountRate(), line.amount(),
+                    line.bundleId(), line.bundleGroupNo(), line.bundleRatio());
         }
+        credit.recordSnapshot(approval, totalAmount, orderId, cmd.requestId());
 
-        // ③ 逐行预占（任一行失败 → 整个事务回滚）
-        //
-        //    使用 reserveFefo 而不是 reserve：出货单在批次维度上是"无知"的
-        //    （批次由 FEFO 在出货时决定），因此预占必须由 INV 按效期自动分段。
-        //    一行可能拆成多段预占（例如 12 件 = B1 的 10 + B2 的 2），
-        //    每一段都要登记，出货/作废时逐段消费或释放。
+        // ④ 逐行逐仓预占（任一段失败 → 整个事务回滚）
         List<SalesOrderLine> lines = orders.findLines(orderId);
-        for (SalesOrderLine line : lines) {
-            List<ReserveResult> segments = inventory.reserveFefo(
-                    line.skuId(), cmd.warehouseId(), line.qty(),
-                    reservationRequestId(cmd.requestId(), line.lineNo()));
+        for (int i = 0; i < lines.size(); i++) {
+            SalesOrderLine line = lines.get(i);
+            PreparedLine preparedLine = prepared.get(i);
             int seq = 1;
-            for (ReserveResult r : segments) {
-                orders.attachReservation(line.id(), r.reservationId(), seq++, r.reservedQty());
+            for (Allocation allocation : preparedLine.allocations()) {
+                List<ReserveResult> segments = inventory.reserveFefo(
+                        line.skuId(), allocation.warehouseId(), allocation.qty(),
+                        reservationRequestId(cmd.requestId(), line.lineNo(),
+                                allocation.warehouseId()));
+                for (ReserveResult r : segments) {
+                    orders.attachReservation(line.id(), r.reservationId(), seq++,
+                            r.reservedQty(), r.warehouseId(), r.batchNo());
+                }
             }
         }
-
         return require(orderId);
     }
 
@@ -213,22 +260,10 @@ public class SalesOrderApplicationService {
     }
 
     /**
-     * 作废出货单（FR-SAL-04，M2.5 补全红冲闭环）。
+     * 作废出货单（FR-SAL-04，M2.5 红冲闭环）。
      *
-     * <p><b>未出货</b>：释放预占，状态 → VOIDED，不动实存、不写流水。
-     *
-     * <p><b>已出货（PARTIAL/COMPLETED）</b>：红冲 —— 按原 `SALES_OUT` 流水逐批次回补实存，
-     * 写 `SALES_REVERSAL` 正向流水，状态 → VOIDED。规则：
-     * <ul>
-     *   <li>有退货数量（`returnedQty > 0`）拒绝：退货已经回补过库存，再全额红冲会双补；</li>
-     *   <li>账期已锁拒绝（`SET_PERIOD_CLOSED`）；</li>
-     *   <li>`Σ shippedQty` 必须等于原 `SALES_OUT` 流水净额，否则拒绝（防流水漂移下红冲）；</li>
-     *   <li>同 `X-Request-Id` 重放幂等返回；新键重复作废报 `SAL_STATUS_ILLEGAL`。</li>
-     * </ul>
-     *
-     * <p><b>并发</b>：先做「状态 + version」条件 UPDATE，再做库存反向流水。
-     * 状态 UPDATE 是串行化点：并发异键只有一个能成功，另一个在库存动之前就失败；
-     * 同键后到者重读后走幂等返回。
+     * <p>未出货：释放预占；已出货：按原 SALES_OUT 流水逐批次回补并写 SALES_REVERSAL。
+     * V2-3 额外约束：应收已收款的单据拒绝红冲，避免"钱收了、单作废"的死账。
      */
     @Transactional
     public SalesOrder voidOrder(long id, String requestId) {
@@ -238,8 +273,6 @@ public class SalesOrderApplicationService {
         }
         SalesOrder o = require(id);
 
-        // ① 已作废：同键幂等返回；异键报状态非法。放在账期检查之前，
-        //    这样"首次成功后账期才被锁"的重放仍然返回首次结果。
         if (o.status() == DocumentStatus.VOIDED) {
             if (orders.isVoidedByRequest(o.id(), requestId)) {
                 return o;
@@ -248,15 +281,12 @@ public class SalesOrderApplicationService {
                     "出货单 %s 已作废（首次作废请求与本次不同），不能再次作废"
                             .formatted(o.orderNo()));
         }
-
-        // ② 账期锁
         periodGuard.requireOpen(o.bizDate());
 
         if (o.anyShipped()) {
             return reverseShippedOrder(o, requestId);
         }
 
-        // ③ 未出货：原语义（释放预占），状态更新带幂等键
         DocumentStatusMachine.requireTransition(o.status(), DocumentStatus.VOIDED,
                 ErrorCode.SAL_STATUS_ILLEGAL, o.orderNo());
         if (!markVoided(o, requestId, false)) {
@@ -270,7 +300,6 @@ public class SalesOrderApplicationService {
         return require(id);
     }
 
-    /** 已出货单据的红冲：校验 → 状态串行化 → 库存逐批次回补 → 释放未出货预占。 */
     private SalesOrder reverseShippedOrder(SalesOrder o, String requestId) {
         if (o.anyReturned()) {
             int returned = o.lines().stream().mapToInt(SalesOrderLine::returnedQty).sum();
@@ -288,12 +317,15 @@ public class SalesOrderApplicationService {
             throw new BusinessException(ErrorCode.SAL_STATUS_ILLEGAL,
                     "出货单 %s 的累计出货量 %d 与 SALES_OUT 流水净额 %d 不一致，拒绝红冲"
                             .formatted(o.orderNo(), shipped, ledgerOut),
-                    java.util.Map.of("orderNo", o.orderNo(), "shippedQty", shipped,
+                    Map.of("orderNo", o.orderNo(), "shippedQty", shipped,
                             "ledgerQty", ledgerOut));
         }
 
+        // 已收款不可红冲：在动库存之前拒绝，保证失败无副作用
+        receivables.reverseForVoid(o.id());
+
         if (!markVoided(o, requestId, true)) {
-            return require(o.id());   // 并发同键：另一个请求已完成红冲，本请求幂等收口
+            return require(o.id());
         }
 
         int reversed = inventory.reverseSalesOut(o.orderNo(), o.id(), requestId);
@@ -302,7 +334,6 @@ public class SalesOrderApplicationService {
                     "出货单 %s 红冲数量 %d 与累计出货量 %d 不一致，已回滚"
                             .formatted(o.orderNo(), reversed, shipped));
         }
-        // PARTIAL 单据里未出货行的预占仍是 ACTIVE，必须释放；COMPLETED 行均为 CONSUMED，自动跳过。
         for (SalesOrderLine line : o.lines()) {
             for (long reservationId : line.reservationIds()) {
                 inventory.releaseIfActive(reservationId);
@@ -311,14 +342,6 @@ public class SalesOrderApplicationService {
         return require(o.id());
     }
 
-    /**
-     * 状态条件更新 + 幂等键；失败时按「同键重放 / 已退货 / 并发冲突」分流。
-     *
-     * <p>红冲多一个 `NOT EXISTS returned_qty > 0` 条件：与并发退货入库靠
-     * `sales_orders` 行锁串行化，退货先提交则这里 0 行。
-     *
-     * @return true = 本次请求完成了状态翻转；false = 并发同键的另一请求已完成
-     */
     private boolean markVoided(SalesOrder o, String requestId, boolean noReturnsAllowed) {
         boolean updated;
         try {
@@ -340,7 +363,7 @@ public class SalesOrderApplicationService {
         SalesOrder latest = require(o.id());
         if (latest.status() == DocumentStatus.VOIDED
                 && orders.isVoidedByRequest(latest.id(), requestId)) {
-            return false;   // 并发同键：另一个请求已完成，本请求幂等收口
+            return false;
         }
         if (latest.anyReturned()) {
             throw new BusinessException(ErrorCode.SAL_STATUS_ILLEGAL,
@@ -361,14 +384,8 @@ public class SalesOrderApplicationService {
     /**
      * 出货确认：把预占转为实际出库（FR-SAL-02）。
      *
-     * <p>调用 {@link InventoryApplicationService#shipOut}，由 INV 模块按 FEFO
-     * 拆批次扣减，单笔可产生多条流水。本模块不关心批次怎么拆。
-     *
-     * <p>出货完成后：
-     * <ul>
-     *   <li>全部出完 → COMPLETED；否则 → PARTIAL；</li>
-     *   <li>对应预占记录被消费（实存与预占同时减少）。</li>
-     * </ul>
+     * <p>V2-3：按预占的 {@code warehouse_id} 分组出库，支持自动选仓/跨仓拆分配；
+     * 出货完成后按本次实际出货金额登记应收。
      */
     @Transactional
     public SalesOrder ship(long id, String requestId) {
@@ -380,25 +397,41 @@ public class SalesOrderApplicationService {
         }
         periodGuard.requireOpen(o.bizDate());
 
+        long shippedAmount = 0;
         for (SalesOrderLine line : o.lines()) {
             int openQty = line.openQty();
             if (openQty <= 0) {
                 continue;
+            }
+            Map<Long, List<ActiveReservation>> byWarehouse =
+                    activeReservationsByWarehouse(line, o.warehouseId());
+            int reserved = byWarehouse.values().stream()
+                    .flatMap(List::stream).mapToInt(ActiveReservation::reservedQty).sum();
+            if (reserved != openQty) {
+                throw new BusinessException(ErrorCode.INV_INSUFFICIENT_STOCK,
+                        "出货单 %s 第 %d 行预占不足：未出货 %d，ACTIVE 预占 %d"
+                                .formatted(o.orderNo(), line.lineNo(), openQty, reserved),
+                        Map.of("orderNo", o.orderNo(), "lineNo", line.lineNo(),
+                                "openQty", openQty, "reservedQty", reserved));
             }
             if (!orders.applyShippedQty(line.id(), openQty)) {
                 throw new BusinessException(ErrorCode.SAL_STATUS_ILLEGAL,
                         "出货数量超出单据数量（并发冲突）：出货单 %s 第 %d 行"
                                 .formatted(o.orderNo(), line.lineNo()));
             }
-            inventory.shipOut(line.skuId(), o.warehouseId(), openQty,
-                    "SALES_OUT", o.orderNo(), o.id(),
-                    shipRequestId(requestId, line.lineNo()));
-            // ★ 预占转出库后必须把预占记录标记为已消费。
-            //   shipOut 只改了余额行的数量，若不同步更新状态，预占记录会永远停在 ACTIVE，
-            //   导致在途量统计虚高、且无法区分"已发货"与"仍占用"。
-            for (long reservationId : line.reservationIds()) {
-                inventory.consumeReservation(reservationId);
+            for (Map.Entry<Long, List<ActiveReservation>> entry : byWarehouse.entrySet()) {
+                long warehouseId = entry.getKey();
+                int qty = entry.getValue().stream()
+                        .mapToInt(ActiveReservation::reservedQty).sum();
+                inventory.shipOut(line.skuId(), warehouseId, qty,
+                        "SALES_OUT", o.orderNo(), o.id(),
+                        shipRequestId(requestId, line.lineNo(), warehouseId));
+                for (ActiveReservation reservation : entry.getValue()) {
+                    inventory.consumeReservation(reservation.id());
+                }
             }
+            shippedAmount = Math.addExact(shippedAmount, lineAmount(
+                    openQty, line.unitPriceAmount(), line.discountRate()));
         }
 
         SalesOrder refreshed = require(id);
@@ -408,7 +441,29 @@ public class SalesOrderApplicationService {
         DocumentStatusMachine.requireTransition(refreshed.status(), target,
                 ErrorCode.SAL_STATUS_ILLEGAL, refreshed.orderNo());
         transition(refreshed, target);
+        receivables.recordShipment(id, refreshed.customerId(), refreshed.bizDate(), shippedAmount);
         return require(id);
+    }
+
+    /** 按 ACTIVE 预占的仓库分组；历史数据缺 warehouse_id 时回退到订单头仓库。 */
+    private Map<Long, List<ActiveReservation>> activeReservationsByWarehouse(
+            SalesOrderLine line, long fallbackWarehouseId) {
+        Map<Long, ActiveReservation> activeById = new LinkedHashMap<>();
+        for (ActiveReservation r : inventory.findActiveReservations(line.reservationIds())) {
+            activeById.put(r.id(), r);
+        }
+        Map<Long, List<ActiveReservation>> grouped = new LinkedHashMap<>();
+        for (LineReservation segment : line.reservations()) {
+            ActiveReservation active = activeById.get(segment.reservationId());
+            if (active == null) {
+                continue;
+            }
+            long warehouseId = segment.warehouseId() == null
+                    ? (active.warehouseId() == 0 ? fallbackWarehouseId : active.warehouseId())
+                    : segment.warehouseId();
+            grouped.computeIfAbsent(warehouseId, k -> new ArrayList<>()).add(active);
+        }
+        return grouped;
     }
 
     // ─────────────────────────── 查询 ───────────────────────────
@@ -429,12 +484,6 @@ public class SalesOrderApplicationService {
 
     /**
      * 行金额 = round(qty × unitPrice × discountRate / 10000)，四舍五入到分。
-     *
-     * <p><b>为什么用 BigDecimal 而不是 long 直接乘</b>：
-     * 先乘后除会丢掉中间精度（{@code 3 × 333 × 9000 / 10000} 若用整数除会截断）。
-     * 而用 {@code double} 会出现 {@code 116.09999999999999} 这类二进制小数尾巴
-     * （ADR-0005 禁止浮点金额的原因）。
-     * BigDecimal 全程十进制，再用 {@link RoundingMode#HALF_UP} 落到分，结果可复现。
      */
     public static long lineAmount(int qty, long unitPriceAmount, int discountRate) {
         BigDecimal raw = BigDecimal.valueOf(unitPriceAmount)
@@ -444,6 +493,156 @@ public class SalesOrderApplicationService {
         return raw.longValueExact();
     }
 
+    // ─────────────────────────── 展开与选仓 ───────────────────────────
+
+    private List<PreparedLine> prepareLines(List<CreateLineCommand> lines, boolean autoSplit,
+                                            long fixedWarehouseId, List<Warehouse> autoWarehouses,
+                                            Map<Long, Map<Long, Integer>> availableCache) {
+        List<PreparedLine> prepared = new ArrayList<>();
+        int bundleGroupNo = 0;
+        for (CreateLineCommand line : lines) {
+            if (line.qty() <= 0) {
+                throw new BusinessException(ErrorCode.SYS_VALIDATION_ERROR,
+                        "明细数量必须为正：skuId=%d, qty=%d"
+                                .formatted(line.skuId(), line.qty()));
+            }
+            int rate = line.discountRate() == null ? NO_DISCOUNT : line.discountRate();
+            if (rate <= 0 || rate > NO_DISCOUNT) {
+                throw new BusinessException(ErrorCode.SYS_VALIDATION_ERROR,
+                        "折扣率非法：%d，必须是 1~10000 的整数万分比".formatted(rate));
+            }
+            boolean hasSku = line.skuId() > 0;
+            boolean hasBundle = line.bundleId() != null;
+            if (hasSku == hasBundle) {
+                throw new BusinessException(ErrorCode.SYS_VALIDATION_ERROR,
+                        "每行必须且只能指定 skuId 或 bundleId 之一");
+            }
+            if (hasBundle) {
+                bundleGroupNo++;
+                prepared.addAll(expandBundle(line, rate, bundleGroupNo, autoSplit,
+                        fixedWarehouseId, autoWarehouses, availableCache));
+            } else {
+                if (line.unitPriceAmount() < 0) {
+                    throw new BusinessException(ErrorCode.SYS_VALIDATION_ERROR,
+                            "单价不能为负：skuId=%d".formatted(line.skuId()));
+                }
+                Sku sku = requireSkuEnabled(line.skuId());
+                List<Allocation> allocations = autoSplit
+                        ? allocateSku(sku.id(), line.qty(), autoWarehouses, availableCache)
+                        : List.of(new Allocation(fixedWarehouseId, line.qty()));
+                prepared.add(new PreparedLine(sku.id(), line.qty(), line.unitPriceAmount(),
+                        rate, lineAmount(line.qty(), line.unitPriceAmount(), rate),
+                        null, null, null, allocations));
+            }
+        }
+        return prepared;
+    }
+
+    private List<PreparedLine> expandBundle(CreateLineCommand line, int rate, int groupNo,
+                                            boolean autoSplit, long fixedWarehouseId,
+                                            List<Warehouse> autoWarehouses,
+                                            Map<Long, Map<Long, Integer>> availableCache) {
+        ProductBundle bundle = bundleService.requireEnabled(line.bundleId());
+        List<Allocation> bundleAllocations = autoSplit
+                ? allocateBundle(bundle, line.qty(), autoWarehouses, availableCache)
+                : List.of(new Allocation(fixedWarehouseId, line.qty()));
+        List<PreparedLine> components = new ArrayList<>();
+        for (BundleItem item : bundle.items()) {
+            Sku component = requireSkuEnabled(item.componentSkuId());
+            int componentQty = Math.multiplyExact(line.qty(), item.ratioQty());
+            List<Allocation> componentAllocations = bundleAllocations.stream()
+                    .map(a -> new Allocation(a.warehouseId(),
+                            Math.multiplyExact(a.qty(), item.ratioQty())))
+                    .toList();
+            components.add(new PreparedLine(component.id(), componentQty,
+                    component.retailPriceAmount(), rate,
+                    lineAmount(componentQty, component.retailPriceAmount(), rate),
+                    bundle.id(), groupNo, item.ratioQty(), componentAllocations));
+        }
+        return components;
+    }
+
+    /** 单仓够则只产生一个分配；不足才按 priority 进入下一仓。 */
+    private List<Allocation> allocateSku(long skuId, int qty, List<Warehouse> warehousesInPriority,
+                                         Map<Long, Map<Long, Integer>> cache) {
+        List<Allocation> allocations = new ArrayList<>();
+        int remaining = qty;
+        for (Warehouse warehouse : warehousesInPriority) {
+            int available = remainingAvailable(skuId, warehouse.id(), cache);
+            int take = Math.min(remaining, available);
+            if (take > 0) {
+                allocations.add(new Allocation(warehouse.id(), take));
+                consumeAvailable(skuId, warehouse.id(), take, cache);
+                remaining -= take;
+            }
+            if (remaining == 0) {
+                break;
+            }
+        }
+        if (remaining > 0) {
+            throw new BusinessException(ErrorCode.INV_INSUFFICIENT_STOCK,
+                    "库存不足：SKU %d 在所有启用仓合计仍差 %d 件".formatted(skuId, remaining),
+                    Map.of("skuId", skuId, "shortage", remaining));
+        }
+        return allocations;
+    }
+
+    /** 套装按仓成套吃量：每仓可用套装 = min(组件可用 ÷ 配比)。 */
+    private List<Allocation> allocateBundle(ProductBundle bundle, int bundleQty,
+                                            List<Warehouse> warehousesInPriority,
+                                            Map<Long, Map<Long, Integer>> cache) {
+        List<Allocation> allocations = new ArrayList<>();
+        int remaining = bundleQty;
+        for (Warehouse warehouse : warehousesInPriority) {
+            int availableBundles = Integer.MAX_VALUE;
+            for (BundleItem item : bundle.items()) {
+                availableBundles = Math.min(availableBundles,
+                        remainingAvailable(item.componentSkuId(), warehouse.id(), cache)
+                                / item.ratioQty());
+            }
+            int take = Math.min(remaining, Math.max(0, availableBundles));
+            if (take > 0) {
+                allocations.add(new Allocation(warehouse.id(), take));
+                for (BundleItem item : bundle.items()) {
+                    consumeAvailable(item.componentSkuId(), warehouse.id(),
+                            Math.multiplyExact(take, item.ratioQty()), cache);
+                }
+                remaining -= take;
+            }
+            if (remaining == 0) {
+                break;
+            }
+        }
+        if (remaining > 0) {
+            throw new BusinessException(ErrorCode.INV_INSUFFICIENT_STOCK,
+                    "套装 %s 库存不足：还差 %d 套（按组件可用量÷配比计算）"
+                            .formatted(bundle.code(), remaining),
+                    Map.of("bundleId", bundle.id(), "shortage", remaining));
+        }
+        return allocations;
+    }
+
+    private int remainingAvailable(long skuId, long warehouseId,
+                                   Map<Long, Map<Long, Integer>> cache) {
+        return cache.computeIfAbsent(skuId, k -> new HashMap<>())
+                .computeIfAbsent(warehouseId, w -> inventory.availableQty(skuId, warehouseId));
+    }
+
+    private void consumeAvailable(long skuId, long warehouseId, int qty,
+                                  Map<Long, Map<Long, Integer>> cache) {
+        cache.computeIfAbsent(skuId, k -> new HashMap<>())
+                .merge(warehouseId, -qty, Integer::sum);
+    }
+
+    private static long firstAllocationWarehouse(List<PreparedLine> prepared) {
+        return prepared.stream()
+                .flatMap(p -> p.allocations().stream())
+                .map(Allocation::warehouseId)
+                .findFirst()
+                .orElseThrow(() -> new BusinessException(ErrorCode.SYS_VALIDATION_ERROR,
+                        "没有可用的库存分配"));
+    }
+
     // ─────────────────────────── 内部辅助 ───────────────────────────
 
     private void transition(SalesOrder o, DocumentStatus target) {
@@ -451,16 +650,6 @@ public class SalesOrderApplicationService {
             throw new BusinessException(ErrorCode.SAL_STATUS_ILLEGAL,
                     "出货单 %s 状态推进冲突（并发修改），请刷新后重试：期望 %s -> %s"
                             .formatted(o.orderNo(), o.status(), target));
-        }
-    }
-
-    private void requireCustomerEnabled(long customerId) {
-        var c = customers.findById(customerId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.SYS_NOT_FOUND,
-                        "客户不存在：id=%d".formatted(customerId)));
-        if (!c.enabled()) {
-            throw new BusinessException(ErrorCode.SYS_VALIDATION_ERROR,
-                    "客户已停用，不能建单：%s".formatted(c.code()));
         }
     }
 
@@ -474,33 +663,36 @@ public class SalesOrderApplicationService {
         }
     }
 
-    private void requireSkuEnabled(long skuId) {
-        var s = skus.findById(skuId)
+    private Sku requireSkuEnabled(long skuId) {
+        Sku s = skus.findById(skuId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.MDM_SKU_NOT_FOUND,
                         "SKU 不存在：id=%d".formatted(skuId)));
         if (!s.enabled()) {
             throw new BusinessException(ErrorCode.SYS_VALIDATION_ERROR,
                     "SKU 已停用，不能建单：id=%d".formatted(skuId));
         }
+        return s;
     }
 
-    /**
-     * 预占的 requestId 必须<b>按行</b>唯一。
-     *
-     * <p>{@code inventory_reservations} 的唯一约束是 {@code request_id}。
-     * 一张出货单多行若共用一个 requestId，第二行预占就会命中第一行的幂等记录，
-     * 表现为"只预占了第一行，其余行静默没预占" —— 这是最危险的一类缺陷：
-     * 没有报错，但库存没锁住，之后出货时才失败。
-     */
-    private static String reservationRequestId(String baseRequestId, int lineNo) {
-        String base = baseRequestId == null || baseRequestId.isBlank() ? "so-reserve" : baseRequestId;
-        return base + ":R" + lineNo;
+    /** 预占幂等键按「行 + 仓」唯一；截断以适配 VARCHAR(64)。 */
+    private static String reservationRequestId(String baseRequestId, int lineNo, long warehouseId) {
+        String base = baseRequestId == null || baseRequestId.isBlank()
+                ? "so-reserve" : baseRequestId;
+        String suffix = ":R" + lineNo + ":W" + warehouseId;
+        if (base.length() > 64 - suffix.length()) {
+            base = base.substring(0, 64 - suffix.length());
+        }
+        return base + suffix;
     }
 
-    /** 出货流水的 requestId 同理按行唯一（见 {{@code uq_ledger_request}}）。 */
-    private static String shipRequestId(String baseRequestId, int lineNo) {
+    /** 出货流水幂等键按「行 + 仓」唯一；截断以适配 VARCHAR(64)。 */
+    private static String shipRequestId(String baseRequestId, int lineNo, long warehouseId) {
         String base = baseRequestId == null || baseRequestId.isBlank() ? "so-ship" : baseRequestId;
-        return base + ":S" + lineNo;
+        String suffix = ":S" + lineNo + ":W" + warehouseId;
+        if (base.length() > 64 - suffix.length()) {
+            base = base.substring(0, 64 - suffix.length());
+        }
+        return base + suffix;
     }
 
     private static String periodOf(LocalDate bizDate) {

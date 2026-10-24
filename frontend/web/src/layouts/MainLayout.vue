@@ -12,6 +12,7 @@ import {
   House,
   Key,
   Menu as MenuIcon,
+  Money,
   OfficeBuilding,
   RefreshLeft,
   Sell,
@@ -97,7 +98,12 @@ const allMenus: MenuItem[] = [
   { path: '/inventory-transfers', title: '调拨作业', icon: Van, permission: 'inv:read' },
   { path: '/inventory-stock-ops', title: '盘点与调整', icon: Files, permission: 'inv:read' },
   // V2-4 追加：毛利分析，只往后加，不重排既有菜单
-  { path: '/margin', title: '毛利分析', icon: TrendCharts, permission: 'cst:read' },]
+  { path: '/margin', title: '毛利分析', icon: TrendCharts, permission: 'cst:read' },
+  // V2-3 销售闭环：继续往后追加，不重排
+  { path: '/sales-quotes', title: '报价单', icon: Tickets, permission: 'sal:read' },
+  { path: '/shipments', title: '拣货发货', icon: Van, permission: 'sal:read' },
+  { path: '/receivables', title: '应收 / 收款', icon: Money, permission: 'sal:read' },
+]
 
 const visibleMenus = computed(() =>
   allMenus.filter((m) => !m.permission || session.hasPermission(m.permission)),

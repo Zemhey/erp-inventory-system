@@ -1,6 +1,7 @@
 package com.erp.mdm.application;
 
 import com.erp.mdm.domain.Sku;
+import com.erp.mdm.domain.SkuFilter;
 import com.erp.mdm.repository.ProductRepository;
 import com.erp.mdm.repository.SkuRepository;
 import com.erp.shared.error.BusinessException;
@@ -43,7 +44,25 @@ public class SkuApplicationService {
     }
 
     public record CreateCommand(long productId, String color, String size, String barcode,
-                                long retailPriceAmount, boolean enabled) {
+                                long retailPriceAmount, boolean enabled,
+                                String seasonCode, String bandCode,
+                                java.time.LocalDate launchDate) {
+
+        public CreateCommand(long productId, String color, String size, String barcode,
+                             long retailPriceAmount, boolean enabled) {
+            this(productId, color, size, barcode, retailPriceAmount, enabled, null, null, null);
+        }
+    }
+
+    /** 季节/年份/波段维度更新（FR-MDM-08）；null 表示保持原值。 */
+    public record DimensionsCommand(String seasonCode, String bandCode,
+                                    java.time.LocalDate launchDate) {
+    }
+
+    /** 全量更新：基础字段 + 季节/年份/波段；维度为 null 表示保持原值。 */
+    public record UpdateCommand(String barcode, Long retailPriceAmount, Boolean enabled,
+                                String seasonCode, String bandCode,
+                                java.time.LocalDate launchDate) {
     }
 
     /**
@@ -63,7 +82,10 @@ public class SkuApplicationService {
                 requireText(cmd.size(), "尺码"),
                 trimToNull(cmd.barcode()),
                 requireNonNegative(cmd.retailPriceAmount(), "零售价"),
-                cmd.enabled());
+                cmd.enabled(),
+                trimToNull(cmd.seasonCode()),
+                trimToNull(cmd.bandCode()),
+                cmd.launchDate());
         return skus.findById(id).orElseThrow();
     }
 
@@ -116,6 +138,47 @@ public class SkuApplicationService {
     @Transactional(readOnly = true)
     public PageResult<Sku> page(Long productId, String color, String skuSize, int page, int pageSize) {
         return skus.page(productId, color, skuSize, page, pageSize);
+    }
+
+    /** 季节/年份/波段筛选（FR-MDM-08）。 */
+    @Transactional(readOnly = true)
+    public PageResult<Sku> page(SkuFilter filter, int page, int pageSize) {
+        return skus.page(filter, page, pageSize);
+    }
+
+    /** 更新 SKU 的季节/波段/上市日期；null 表示保持原值。 */
+    @Transactional
+    public Sku updateDimensions(long id, DimensionsCommand cmd) {
+        Sku current = require(id);
+        boolean ok = skus.updateDimensions(id,
+                cmd.seasonCode() == null ? current.seasonCode() : trimToNull(cmd.seasonCode()),
+                cmd.bandCode() == null ? current.bandCode() : trimToNull(cmd.bandCode()),
+                cmd.launchDate() == null ? current.launchDate() : cmd.launchDate());
+        if (!ok) {
+            throw new BusinessException(ErrorCode.MDM_SKU_NOT_FOUND,
+                    "SKU 不存在：id=%d".formatted(id));
+        }
+        return require(id);
+    }
+
+    /** 基础字段 + 维度一次性更新，避免控制器里两次事务造成半更新。 */
+    @Transactional
+    public Sku update(long id, UpdateCommand cmd) {
+        Sku current = require(id);
+        long retail = cmd.retailPriceAmount() == null
+                ? current.retailPriceAmount() : cmd.retailPriceAmount();
+        requireNonNegative(retail, "零售价");
+        boolean ok = skus.update(id, trimToNull(cmd.barcode()), retail,
+                cmd.enabled() == null || cmd.enabled());
+        if (!ok) {
+            throw new BusinessException(ErrorCode.MDM_SKU_NOT_FOUND,
+                    "SKU 不存在：id=%d".formatted(id));
+        }
+        skus.updateDimensions(id,
+                cmd.seasonCode() == null ? current.seasonCode() : trimToNull(cmd.seasonCode()),
+                cmd.bandCode() == null ? current.bandCode() : trimToNull(cmd.bandCode()),
+                cmd.launchDate() == null ? current.launchDate() : cmd.launchDate());
+        return require(id);
     }
 
     /**
