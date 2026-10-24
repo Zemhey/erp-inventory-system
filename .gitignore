@@ -115,3 +115,7 @@ infra/deploy/offline/.context/
 # 课程要求提交的打包产物/截图等，如需入库请用 git add -f 强制添加
 *.zip
 !docs/assets/*.zip
+
+# Python（scripts/*.py 会生成）
+__pycache__/
+*.pyc
