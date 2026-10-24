@@ -7,6 +7,7 @@ import {
   Checked,
   Coin,
   DataAnalysis,
+  Files,
   Goods,
   House,
   Key,
@@ -16,7 +17,11 @@ import {
   Sell,
   ShoppingCart,
   SwitchButton,
+  Tickets,
+  TrendCharts,
   User,
+  Van,
+  Wallet,
 } from '@element-plus/icons-vue'
 import { useSessionStore } from '@/stores/session'
 
@@ -85,7 +90,14 @@ const allMenus: MenuItem[] = [
   // V2-6 追加：审批与权限管理（同样是"只往后加"）
   { path: '/approvals', title: '审批工作台', icon: Checked, permission: 'aps:read' },
   { path: '/iam', title: '用户与角色', icon: Key, permission: 'iam:read' },
-]
+  // V2-2 采购闭环：继续追加，不重排既有菜单
+  { path: '/purchase-requisitions', title: '请购与质检', icon: Tickets, permission: 'pur:read' },
+  { path: '/supplier-payables', title: '应付与付款', icon: Wallet, permission: 'pur:payable' },
+  // 追加式新增（V2-1）：库存作业两页，接在报表之后，不重排既有条目
+  { path: '/inventory-transfers', title: '调拨作业', icon: Van, permission: 'inv:read' },
+  { path: '/inventory-stock-ops', title: '盘点与调整', icon: Files, permission: 'inv:read' },
+  // V2-4 追加：毛利分析，只往后加，不重排既有菜单
+  { path: '/margin', title: '毛利分析', icon: TrendCharts, permission: 'cst:read' },]
 
 const visibleMenus = computed(() =>
   allMenus.filter((m) => !m.permission || session.hasPermission(m.permission)),

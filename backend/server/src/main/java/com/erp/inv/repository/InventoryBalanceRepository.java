@@ -35,9 +35,11 @@ public class InventoryBalanceRepository {
             rs.getLong("sku_id"),
             rs.getLong("warehouse_id"),
             rs.getString("batch_no"),
+            rs.getObject("production_date", java.time.LocalDate.class),
             rs.getObject("expiry_date", java.time.LocalDate.class),
             rs.getInt("on_hand_qty"),
             rs.getInt("reserved_qty"),
+            rs.getInt("frozen_qty"),
             rs.getInt("available_qty"),
             rs.getInt("version"));
 
@@ -53,8 +55,8 @@ public class InventoryBalanceRepository {
         java.util.List<Object> args = new java.util.ArrayList<>(List.of(skuId, warehouseId, batchNo));
         String predicate = scope.warehouseOnly("warehouse_id", args);
         List<InventoryBalance> rows = jdbc.query("""
-                SELECT id, sku_id, warehouse_id, batch_no, expiry_date,
-                       on_hand_qty, reserved_qty, available_qty, version
+                SELECT id, sku_id, warehouse_id, batch_no, production_date, expiry_date,
+                       on_hand_qty, reserved_qty, frozen_qty, available_qty, version
                   FROM inventory_balances
                  WHERE sku_id = ? AND warehouse_id = ? AND batch_no = ?
                 """ + predicate, MAPPER, args.toArray());
@@ -63,8 +65,8 @@ public class InventoryBalanceRepository {
 
     public List<InventoryBalance> query(Long skuId, Long warehouseId, String batchNo, boolean onlyAvailable) {
         StringBuilder sql = new StringBuilder("""
-                SELECT id, sku_id, warehouse_id, batch_no, expiry_date,
-                       on_hand_qty, reserved_qty, available_qty, version
+                SELECT id, sku_id, warehouse_id, batch_no, production_date, expiry_date,
+                       on_hand_qty, reserved_qty, frozen_qty, available_qty, version
                   FROM inventory_balances WHERE 1 = 1
                 """);
         List<Object> args = new java.util.ArrayList<>();
@@ -98,8 +100,8 @@ public class InventoryBalanceRepository {
      */
     public List<InventoryBalance> findFefoCandidates(long skuId, long warehouseId) {
         return jdbc.query("""
-                SELECT id, sku_id, warehouse_id, batch_no, expiry_date,
-                       on_hand_qty, reserved_qty, available_qty, version
+                SELECT id, sku_id, warehouse_id, batch_no, production_date, expiry_date,
+                       on_hand_qty, reserved_qty, frozen_qty, available_qty, version
                   FROM inventory_balances
                  WHERE sku_id = ? AND warehouse_id = ? AND on_hand_qty > 0
                  ORDER BY expiry_date NULLS LAST, batch_no
@@ -119,8 +121,8 @@ public class InventoryBalanceRepository {
      */
     public List<InventoryBalance> findFefoShippableCandidates(long skuId, long warehouseId) {
         return jdbc.query("""
-                SELECT id, sku_id, warehouse_id, batch_no, expiry_date,
-                       on_hand_qty, reserved_qty, available_qty, version
+                SELECT id, sku_id, warehouse_id, batch_no, production_date, expiry_date,
+                       on_hand_qty, reserved_qty, frozen_qty, available_qty, version
                   FROM inventory_balances
                  WHERE sku_id = ? AND warehouse_id = ? AND reserved_qty > 0
                  ORDER BY expiry_date NULLS LAST, batch_no
@@ -131,7 +133,8 @@ public class InventoryBalanceRepository {
      * ★ 原子预占（防超卖的核心）。
      *
      * <p>把"校验可用量"和"写入预占"压进<b>一条带条件的 UPDATE</b>：
-     * {@code WHERE reserved_qty + ? <= on_hand_qty} 由数据库在行锁下原子求值。
+     * {@code WHERE reserved_qty + ? <= on_hand_qty - frozen_qty}
+     * 由数据库在行锁下原子求值（冻结量不可被预占，FR-INV-10）。
      *
      * <p>为什么这样做：先 SELECT 判断、再 UPDATE 的写法在并发下必然超卖
      * （两个事务都读到可用量 5，各自预占 5，结果预占 10）。
@@ -150,7 +153,7 @@ public class InventoryBalanceRepository {
                        version      = version + 1,
                        updated_at   = now()
                  WHERE sku_id = ? AND warehouse_id = ? AND batch_no = ?
-                   AND reserved_qty + ? <= on_hand_qty
+                   AND reserved_qty + ? <= on_hand_qty - frozen_qty
                 """, qty, skuId, warehouseId, batchNo, qty);
         return updated == 1;
     }
@@ -222,8 +225,8 @@ public class InventoryBalanceRepository {
      * <p>两个条件缺一不可：
      * <ul>
      *   <li>{@code on_hand_qty >= qty} —— 不把实存减成负数（DB CHECK 是最后兜底）；</li>
-     *   <li>{@code reserved_qty <= on_hand_qty - qty} —— 回退后预占量不得超过实存
-     *       （否则会违反 {@code ck_reserved_le_onhand}，且可用量变负）。</li>
+     *   <li>{@code reserved_qty + frozen_qty <= on_hand_qty - qty} —— 回退后预占/冻结量
+     *       不得超过实存（否则会违反 {@code ck_frozen_reserved_le_onhand}，且可用量变负）。</li>
      * </ul>
      *
      * <p>返回 {@code false} 表示该批次当前库存不足以回退（货已卖出或被预占），
@@ -237,8 +240,49 @@ public class InventoryBalanceRepository {
                        updated_at  = now()
                  WHERE sku_id = ? AND warehouse_id = ? AND batch_no = ?
                    AND on_hand_qty >= ?
-                   AND reserved_qty <= on_hand_qty - ?
+                   AND reserved_qty + frozen_qty <= on_hand_qty - ?
                 """, qty, skuId, warehouseId, batchNo, qty, qty);
         return updated == 1;
+    }
+
+    /**
+     * 冻结库存（FR-INV-10）。
+     *
+     * <p>与预占同样用<b>一条带条件的 UPDATE</b> 完成"检查 + 写入"：
+     * {@code frozen_qty + qty <= on_hand_qty - reserved_qty}。
+     * 条件不满足说明可用量不足（已被预占或已冻结），返回 false 由应用层翻译成业务错误。
+     */
+    public boolean freeze(long skuId, long warehouseId, String batchNo, int qty) {
+        int updated = jdbc.update("""
+                UPDATE inventory_balances
+                   SET frozen_qty = frozen_qty + ?,
+                       version    = version + 1,
+                       updated_at = now()
+                 WHERE sku_id = ? AND warehouse_id = ? AND batch_no = ?
+                   AND frozen_qty + ? <= on_hand_qty - reserved_qty
+                """, qty, skuId, warehouseId, batchNo, qty);
+        return updated == 1;
+    }
+
+    /** 解冻（人工解冻 / 超时解冻）：只减冻结量，不动实存与预占。 */
+    public boolean releaseFrozen(long skuId, long warehouseId, String batchNo, int qty) {
+        int updated = jdbc.update("""
+                UPDATE inventory_balances
+                   SET frozen_qty = frozen_qty - ?,
+                       version    = version + 1,
+                       updated_at = now()
+                 WHERE sku_id = ? AND warehouse_id = ? AND batch_no = ?
+                   AND frozen_qty >= ?
+                """, qty, skuId, warehouseId, batchNo, qty);
+        return updated == 1;
+    }
+
+    /** 某 (SKU, 仓库, 批次) 当前冻结量；行不存在返回 0。 */
+    public int frozenQty(long skuId, long warehouseId, String batchNo) {
+        Integer v = jdbc.queryForObject("""
+                SELECT COALESCE(MAX(frozen_qty), 0) FROM inventory_balances
+                 WHERE sku_id = ? AND warehouse_id = ? AND batch_no = ?
+                """, Integer.class, skuId, warehouseId, batchNo);
+        return v == null ? 0 : v;
     }
 }

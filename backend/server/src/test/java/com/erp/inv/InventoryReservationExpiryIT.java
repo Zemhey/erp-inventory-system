@@ -54,6 +54,9 @@ class InventoryReservationExpiryIT extends PostgresTestBase {
     private InventoryApplicationService inventory;
 
     @Autowired
+    private com.erp.inv.application.InventoryOperationsApplicationService operations;
+
+    @Autowired
     private JdbcTemplate jdbc;
 
     @Autowired
@@ -181,7 +184,7 @@ class InventoryReservationExpiryIT extends PostgresTestBase {
 
         // ① 先只走定时入口。测试容器里没有调度线程（上面已断言），所以手工实例化直接触发。
         //    若这个 @Scheduled 方法只是个空壳，两条预占会一起留在 ACTIVE，下面立刻红。
-        new ReservationExpiryScheduler(inventory).expireOverdueReservations();
+        new ReservationExpiryScheduler(inventory, operations).expireOverdueReservations();
         assertThat(status(byScheduler.reservationId()))
                 .as("定时入口必须真的调到 expireOverdueReservations()")
                 .isEqualTo("EXPIRED");

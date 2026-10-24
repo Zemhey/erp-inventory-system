@@ -377,6 +377,11 @@ class IamDeepeningIT extends PostgresTestBase {
         // 该账号没有 iam:read（VIEWER 的种子里有 iam:read，为避免依赖它，直接用 ADMIN）
         long adminId = admin.createUser("apiadmin", "Ap1!admin", "接口管理员", true,
                 List.of("ADMIN"));
+        // ★ createUser 一律置 must_change_password=TRUE（FR-IAM-06 的正确行为）。
+        //   若不在此清掉，PasswordExpiryFilter 会把所有业务请求拦成
+        //   IAM_PASSWORD_EXPIRED，本用例就会得到一个与"权限"毫无关系的 403。
+        //   这里显式清标记，是为了让用例只考"用户管理接口的权限与脱敏"。
+        jdbc.update("UPDATE app_users SET must_change_password = FALSE WHERE id = ?", adminId);
         String adminToken = authentication.login("apiadmin", "Ap1!admin").token();
 
         String body = mvc.perform(get("/api/v1/iam/users")
@@ -501,8 +506,11 @@ class IamDeepeningIT extends PostgresTestBase {
         // 正常仓库集合 → = ANY(?)
         DataScope some = DataScope.warehouses(List.of(1L, 2L));
         java.util.List<Object> args2 = new java.util.ArrayList<>();
+        // ★ 用 IN (?, ?, ...) 而不是 = ANY(?)：JdbcTemplate 会把 Java List 当成
+        //   一个参数，而 PG 驱动只有在参数本身是 java.sql.Array 时才能映射成 BIGINT[]。
+        //   写成 ANY(?) 的后果是运行期 "cannot cast type bigint to bigint[]"（实测 500）。
         assertThat(some.warehousePredicate("warehouse_id", args2))
-                .isEqualTo(" AND warehouse_id = ANY (?)");
+                .isEqualTo(" AND warehouse_id IN (?, ?)");
         assertThat(args2).containsExactly(1L, 2L);
 
         // ALL → 不加谓词
@@ -518,6 +526,7 @@ class IamDeepeningIT extends PostgresTestBase {
                 List.of("VIEWER"));
         long viewerId = admin.createUser("apiviewer", "Ap1!viewer", "接口只读", true,
                 List.of("VIEWER"));
+        jdbc.update("UPDATE app_users SET must_change_password = FALSE WHERE id = ?", viewerId);
         String viewerToken = authentication.login("apiviewer", "Ap1!viewer").token();
 
         // VIEWER 只有 iam:read：能读，不能写
@@ -534,6 +543,8 @@ class IamDeepeningIT extends PostgresTestBase {
         // ADMIN 可以写
         long adminId = admin.createUser("scope_writer", "Sc0pe!writ", "范围管理员", true,
                 List.of("ADMIN"));
+        // 同上：createUser 会置 must_change_password，先清掉再登录
+        jdbc.update("UPDATE app_users SET must_change_password = FALSE WHERE id = ?", adminId);
         String adminToken = authentication.login("scope_writer", "Sc0pe!writ").token();
         mvc.perform(put("/api/v1/iam/users/" + target + "/data-scopes")
                         .header("Authorization", "Bearer " + adminToken)

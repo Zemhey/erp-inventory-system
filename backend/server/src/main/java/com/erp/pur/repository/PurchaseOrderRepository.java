@@ -45,6 +45,9 @@ public class PurchaseOrderRepository {
             rs.getLong("sku_id"),
             rs.getInt("qty"),
             rs.getInt("received_qty"),
+            rs.getInt("qc_qty"),
+            com.erp.pur.domain.QcStatus.valueOf(rs.getString("qc_status")),
+            rs.getString("qc_note"),
             rs.getLong("unit_price_amount"),
             rs.getLong("amount"));
 
@@ -76,13 +79,41 @@ public class PurchaseOrderRepository {
     public long insertHeader(String orderNo, long supplierId, long warehouseId, LocalDate bizDate,
                              long totalAmount, int totalQty, String period, String remark,
                              String requestId, Long createdBy) {
+        return insertHeader(orderNo, supplierId, warehouseId, bizDate, totalAmount, totalQty,
+                period, remark, requestId, "PURCHASE", null, createdBy);
+    }
+
+    /**
+     * 插入主表（V2-2 支持请购单与"请购转订单"的溯源列）。
+     *
+     * @param docType              PURCHASE / REQUISITION
+     * @param sourceRequisitionId  转单生成时指向来源请购单；普通建单为 null
+     */
+    public long insertHeader(String orderNo, long supplierId, long warehouseId, LocalDate bizDate,
+                             long totalAmount, int totalQty, String period, String remark,
+                             String requestId, String docType, Long sourceRequisitionId) {
+        return insertHeader(orderNo, supplierId, warehouseId, bizDate, totalAmount, totalQty,
+                period, remark, requestId, docType, sourceRequisitionId, null);
+    }
+
+    /**
+     * 插入主表。
+     *
+     * <p>{@code createdBy} 参与数据权限的"按本人"判定（FR-IAM-04）；
+     * {@code null} 仅用于系统任务/历史迁移。
+     */
+    public long insertHeader(String orderNo, long supplierId, long warehouseId, LocalDate bizDate,
+                             long totalAmount, int totalQty, String period, String remark,
+                             String requestId, String docType, Long sourceRequisitionId,
+                             Long createdBy) {
         KeyHolder keys = new GeneratedKeyHolder();
         jdbc.update(con -> {
             var ps = con.prepareStatement("""
                     INSERT INTO purchase_orders
                         (order_no, status, supplier_id, warehouse_id, biz_date,
-                         total_amount, total_qty, period, remark, request_id, created_by)
-                    VALUES (?, 'DRAFT', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         total_amount, total_qty, period, remark, request_id,
+                         doc_type, source_requisition_id, created_by)
+                    VALUES (?, 'DRAFT', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, new String[]{"id"});
             ps.setString(1, orderNo);
             ps.setLong(2, supplierId);
@@ -93,10 +124,16 @@ public class PurchaseOrderRepository {
             ps.setString(7, period);
             ps.setString(8, remark);
             ps.setString(9, requestId);
-            if (createdBy == null) {
-                ps.setNull(10, java.sql.Types.BIGINT);
+            ps.setString(10, docType);
+            if (sourceRequisitionId == null) {
+                ps.setNull(11, java.sql.Types.BIGINT);
             } else {
-                ps.setLong(10, createdBy);
+                ps.setLong(11, sourceRequisitionId);
+            }
+            if (createdBy == null) {
+                ps.setNull(12, java.sql.Types.BIGINT);
+            } else {
+                ps.setLong(12, createdBy);
             }
             return ps;
         }, keys);
@@ -133,7 +170,7 @@ public class PurchaseOrderRepository {
         return jdbc.query("""
                 SELECT id, order_no, status, supplier_id, warehouse_id, biz_date,
                        total_amount, total_qty, period, remark, version
-                  FROM purchase_orders WHERE id = ?
+                  FROM purchase_orders WHERE id = ? AND doc_type = 'PURCHASE'
                 """ + predicate, ORDER_MAPPER, args.toArray()).stream().findFirst();
     }
 
@@ -141,7 +178,7 @@ public class PurchaseOrderRepository {
         return jdbc.query("""
                 SELECT id, order_no, status, supplier_id, warehouse_id, biz_date,
                        total_amount, total_qty, period, remark, version
-                  FROM purchase_orders WHERE order_no = ?
+                  FROM purchase_orders WHERE order_no = ? AND doc_type = 'PURCHASE'
                 """, ORDER_MAPPER, orderNo).stream().findFirst();
     }
 
@@ -149,13 +186,14 @@ public class PurchaseOrderRepository {
         return jdbc.query("""
                 SELECT id, order_no, status, supplier_id, warehouse_id, biz_date,
                        total_amount, total_qty, period, remark, version
-                  FROM purchase_orders WHERE request_id = ?
+                  FROM purchase_orders WHERE request_id = ? AND doc_type = 'PURCHASE'
                 """, ORDER_MAPPER, requestId).stream().findFirst();
     }
 
     public List<PurchaseOrderLine> findLines(long orderId) {
         return jdbc.query("""
-                SELECT id, line_no, sku_id, qty, received_qty, unit_price_amount, amount
+                SELECT id, line_no, sku_id, qty, received_qty, qc_qty, qc_status, qc_note,
+                       unit_price_amount, amount
                   FROM purchase_order_lines WHERE order_id = ? ORDER BY line_no
                 """, LINE_MAPPER, orderId);
     }
@@ -176,7 +214,7 @@ public class PurchaseOrderRepository {
         return jdbc.update("""
                 UPDATE purchase_orders
                    SET status = ?, version = version + 1, updated_at = now()
-                 WHERE id = ? AND status = ? AND version = ?
+                 WHERE id = ? AND status = ? AND version = ? AND doc_type = 'PURCHASE'
                 """, to.name(), id, from.name(), expectedVersion) == 1;
     }
 
@@ -191,7 +229,7 @@ public class PurchaseOrderRepository {
                 UPDATE purchase_orders
                    SET status = 'VOIDED', void_request_id = ?,
                        version = version + 1, updated_at = now()
-                 WHERE id = ? AND status = ? AND version = ?
+                 WHERE id = ? AND status = ? AND version = ? AND doc_type = 'PURCHASE'
                 """, requestId, id, from.name(), expectedVersion) == 1;
     }
 
@@ -218,6 +256,7 @@ public class PurchaseOrderRepository {
                 UPDATE purchase_order_lines
                    SET received_qty = received_qty + ?
                  WHERE id = ? AND received_qty + ? <= qty
+                   AND order_id IN (SELECT id FROM purchase_orders WHERE doc_type = 'PURCHASE')
                 """, qty, lineId, qty) == 1;
     }
 
@@ -234,11 +273,44 @@ public class PurchaseOrderRepository {
      * <p>{@code total} 用同一个 WHERE 算，所以总条数与可见条数一致，
      * 不会出现"第 1 页 3 条、第 2 页 0 条"的假象。
      */
+    /**
+     * 写回累计质检量（FR-PUR-05）。
+     *
+     * <p>状态由<b>累加后的数量</b>推导，而不是由本次调用方传入 ——
+     * 否则分批到货时两批的质检结果会互相覆盖。
+     *
+     * @return 是否更新成功（false = 行不存在或合格量超过累计到货量）
+     */
+    public boolean applyQc(long lineId, int qcQty, String note) {
+        return jdbc.update("""
+                UPDATE purchase_order_lines
+                   SET qc_qty = qc_qty + ?,
+                       qc_status = CASE
+                           WHEN qc_qty + ? = 0 THEN 'FAILED'
+                           WHEN qc_qty + ? < received_qty THEN 'PARTIAL'
+                           ELSE 'PASSED'
+                       END,
+                       qc_note = COALESCE(?, qc_note)
+                 WHERE id = ? AND qc_qty + ? <= received_qty
+                """, qcQty, qcQty, qcQty, note, lineId, qcQty) == 1;
+    }
+
+    /**
+     * 锁住一行进货明细，串行化并发退货（FR-PUR-06）。
+     *
+     * <p>退货数量上限要靠"合格量 − 已退量"计算，先锁行再聚合，避免两个并发退货
+     * 都读到同一个已退量而各自通过。
+     */
+    public boolean lockLine(long lineId) {
+        return !jdbc.queryForList(
+                "SELECT id FROM purchase_order_lines WHERE id = ? FOR UPDATE", Long.class, lineId)
+                .isEmpty();
+    }
     public PageResult<PurchaseOrder> page(DocumentStatus status, Long supplierId, int page, int size) {
         int p = PageResult.normalizePage(page);
         int s = PageResult.normalizeSize(size);
         List<Object> args = new ArrayList<>();
-        StringBuilder where = new StringBuilder(" WHERE 1 = 1");
+        StringBuilder where = new StringBuilder(" WHERE doc_type = 'PURCHASE'");
         if (status != null) {
             where.append(" AND status = ?");
             args.add(status.name());

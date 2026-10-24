@@ -221,6 +221,19 @@ DELETE FROM sales_order_line_reservations
 DELETE FROM sales_order_lines WHERE order_id IN (SELECT id FROM e2e_so);
 DELETE FROM sales_orders WHERE id IN (SELECT id FROM e2e_so);
 
+-- V2-2 采购闭环：先清收货/应付/退货，再删进货行（po_receipt_lines 引用 purchase_order_lines）
+DELETE FROM payable_allocations
+ WHERE supplier_id IN (SELECT id FROM e2e_suppliers)
+    OR payable_id IN (SELECT id FROM supplier_payables WHERE purchase_order_id IN (SELECT id FROM e2e_po));
+DELETE FROM supplier_payables
+ WHERE purchase_order_id IN (SELECT id FROM e2e_po)
+    OR receipt_id IN (SELECT id FROM po_receipts WHERE purchase_order_id IN (SELECT id FROM e2e_po));
+DELETE FROM purchase_returns WHERE purchase_order_id IN (SELECT id FROM e2e_po);
+DELETE FROM po_receipt_lines
+ WHERE purchase_order_line_id IN (SELECT id FROM purchase_order_lines WHERE order_id IN (SELECT id FROM e2e_po))
+    OR receipt_id IN (SELECT id FROM po_receipts WHERE purchase_order_id IN (SELECT id FROM e2e_po));
+DELETE FROM po_receipts WHERE purchase_order_id IN (SELECT id FROM e2e_po);
+
 DELETE FROM purchase_order_lines WHERE order_id IN (SELECT id FROM e2e_po);
 DELETE FROM purchase_orders WHERE id IN (SELECT id FROM e2e_po);
 

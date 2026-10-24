@@ -4,9 +4,9 @@
 ![Java](https://img.shields.io/badge/Java-17-007396?logo=openjdk&logoColor=white)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.3-6DB33F?logo=springboot&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-251%20passing-brightgreen)
-![Coverage](https://img.shields.io/badge/line%20coverage-81.1%25-brightgreen)
-![Branch](https://img.shields.io/badge/branch%20coverage-59.8%25-yellowgreen)
+![Tests](https://img.shields.io/badge/tests-593%20passing-brightgreen)
+![Coverage](https://img.shields.io/badge/line%20coverage-86.3%25-brightgreen)
+![Branch](https://img.shields.io/badge/branch%20coverage-64.7%25-yellowgreen)
 
 > **多端 B/S 进销存 SaaS 平台 + 配套自动化测试体系**
 > Java 17 · Spring Boot 3 · PostgreSQL 16 · Vue 3 · uni-app
@@ -85,7 +85,7 @@
 
 ## 项目状态
 
-**当前阶段：M0/M1/M2/M3/M7/M8 完成 ✅，M4 两批、M2.5 红冲与 M6 制品已合并（进销存业务闭环 + 红冲 + Web 10 页 + miniapp 10 页 + 251 条后端用例 + 19 条 Web E2E + miniapp 8 条 H5 E2E + MCP 6 工具 + 单机版一键包）· 下一步：V2 商业化扩展（批次 2 的 V2-1~V2-6 六条泳道）**
+**当前阶段：M0/M1/M2/M3/M7/M8 完成 ✅，M4 两批、M2.5 红冲与 M6 制品已合并；V2 批次 2 已合并 V2-1 库存作业、V2-2 采购闭环、V2-4 成本毛利、V2-5 审计可观测（进销存业务闭环 + 红冲 + 库存作业 + 采购闭环 + 成本毛利 + 审计 + Web 15 页 + miniapp 10 页 + 593 条后端用例 + 20 条 Web E2E 两遍全绿 + miniapp 8 条 H5 E2E + MCP 6 工具 + 单机版一键包）· 下一步：继续 V2-3/V2-6**
 
 - ✅ 方向与路线确定（行业、技术栈、测试体系）
 - ✅ 规划文档（00~07 + 11 条 ADR）

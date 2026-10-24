@@ -16,6 +16,15 @@ public class TestDataFactory {
 
     private static final AtomicInteger SEQ = new AtomicInteger(1);
 
+    /**
+     * 迁移种下的「角色 → 权限」快照（进程内只拍一次）。
+     *
+     * <p>见 {@link #restoreSeedRolePermissions()} 的说明：跨泳道共享的配置不能手抄清单。
+     */
+    private static java.util.List<Object[]> seedPermissionsSnapshot;
+    /** 迁移种下的角色编码清单（同上）。 */
+    private static java.util.List<String> seedRoleCodes = java.util.List.of();
+
     private final JdbcTemplate jdbc;
 
     public TestDataFactory(JdbcTemplate jdbc) {
@@ -84,15 +93,22 @@ public class TestDataFactory {
         //   settlement_periods 也在列 —— 残留一行 CLOSED 会让后续所有进货/出货/退货用例
         //   被 PeriodGuard 拦成 SET_PERIOD_CLOSED（计划书 §6 坑 3 的同一条防线）。
         jdbc.execute("""
-                TRUNCATE inventory_ledger, inventory_reservations, inventory_balances,
+                TRUNCATE margin_records, cost_monthly, cost_layers,
+                         transfer_lines, inventory_transfers,
+                         stocktake_lines, stocktakes,
+                         inventory_adjustments, inventory_freezes,
+                         inventory_ledger, inventory_reservations, inventory_balances,
                          sales_order_line_reservations, return_order_lines,
+                         payable_allocations, supplier_payables, purchase_returns,
+                         po_receipt_lines, po_receipts,
                          purchase_order_lines, sales_order_lines,
                          return_orders, purchase_orders, sales_orders,
                          daily_settlements, settlement_periods,
                          document_sequences, idempotency_keys,
                          skus, products, warehouses, suppliers, customers,
                          data_scopes,
-                         app_user_roles, app_users
+                         app_user_roles, app_users,
+                         audit_logs
                 RESTART IDENTITY CASCADE
                 """);
         // ★★ 审批的两张表<b>刻意不放进 TRUNCATE</b>：{@code approval_flows} 与
@@ -178,34 +194,38 @@ public class TestDataFactory {
      * {@code V14__iam_deepening_and_approval.sql}（iam 与 aps 两组权限码）。
      */
     public void restoreSeedRolePermissions() {
+        // ★★ 为什么"自动快照"而不是"手抄一份种子清单"：
+        //
+        //   角色权限是**跨泳道共享的配置**：V3 种 mdm/pur/sal/inv、V5 种 set/rpt/FINANCE、
+        //   V7 给 FINANCE 补 mdm:read、V13 给 VIEWER 种 sys:read、V2-2 种 pur:payable、
+        //   V2-4 种 cst:read、V14 种 iam:*/aps:*……
+        //   手抄一份清单的后果是：**每来一条并行泳道，这份清单就悄悄过期一次**，
+        //   而症状是"别人刚种好的权限在测试里凭空消失，一堆 403 看起来像自己的 bug"。
+        //   （实测：抄写的清单漏了 V13 的 sys:read 与 V2-4 的 cst:read，
+        //     AuditQueryIT / CostApiIT / ReturnOrderApiIT 一起变红。）
+        //
+        //   正确做法：第一次调用时把**迁移后的真实种子**拍成快照（进程内静态），
+        //   之后每条用例都从快照精确恢复。新增迁移时这份快照自动跟上，无需维护。
+        if (seedPermissionsSnapshot == null) {
+            seedPermissionsSnapshot = jdbc.query(
+                    "SELECT role_id, permission FROM app_role_permissions",
+                    (rs, i) -> new Object[]{rs.getLong("role_id"), rs.getString("permission")});
+            seedRoleCodes = jdbc.query("SELECT code FROM app_roles",
+                    (rs, i) -> rs.getString("code"));
+        }
         jdbc.update("DELETE FROM app_role_permissions");
-        jdbc.update("""
-                INSERT INTO app_role_permissions (role_id, permission)
-                SELECT r.id, p.permission FROM app_roles r
-                JOIN (VALUES
-                    ('ADMIN','mdm:*'),('ADMIN','pur:*'),('ADMIN','sal:*'),('ADMIN','inv:*'),
-                    ('ADMIN','rma:*'),('ADMIN','set:*'),('ADMIN','rpt:*'),('ADMIN','nl:*'),
-                    ('ADMIN','iam:*'),('ADMIN','aps:*'),
-                    ('PURCHASER','mdm:read'),('PURCHASER','pur:create'),('PURCHASER','pur:submit'),
-                    ('PURCHASER','pur:approve'),('PURCHASER','pur:receive'),('PURCHASER','pur:void'),
-                    ('PURCHASER','inv:read'),('PURCHASER','pur:read'),
-                    ('PURCHASER','aps:submit'),('PURCHASER','aps:read'),('PURCHASER','iam:read'),
-                    ('SALESPERSON','mdm:read'),('SALESPERSON','sal:create'),('SALESPERSON','sal:submit'),
-                    ('SALESPERSON','sal:ship'),('SALESPERSON','sal:approve'),('SALESPERSON','sal:void'),
-                    ('SALESPERSON','sal:read'),('SALESPERSON','inv:read'),
-                    ('SALESPERSON','aps:submit'),('SALESPERSON','aps:read'),('SALESPERSON','iam:read'),
-                    ('VIEWER','mdm:read'),('VIEWER','inv:read'),('VIEWER','pur:read'),
-                    ('VIEWER','sal:read'),('VIEWER','aps:read'),('VIEWER','iam:read'),
-                    ('FINANCE','mdm:read'),('FINANCE','set:read'),('FINANCE','set:daily'),
-                    ('FINANCE','set:monthly'),('FINANCE','set:reconcile'),('FINANCE','rpt:read'),
-                    ('FINANCE','rma:read'),('FINANCE','aps:read'),('FINANCE','aps:approve'),
-                    ('FINANCE','iam:read')
-                ) AS p(role_code, permission) ON r.code = p.role_code
-                """);
-        // 用例临时建的角色（不在种子里的）随用户一起被清掉即可，但为了避免
-        // uq_app_role_code 冲突，这里把非种子角色也一并删除。
-        jdbc.update("DELETE FROM app_roles WHERE code NOT IN "
-                + "('ADMIN','PURCHASER','SALESPERSON','VIEWER','FINANCE')");
+        for (Object[] row : seedPermissionsSnapshot) {
+            jdbc.update("INSERT INTO app_role_permissions (role_id, permission) VALUES (?, ?) "
+                    + "ON CONFLICT DO NOTHING", (Long) row[0], (String) row[1]);
+        }
+        // 用例临时建的角色（不在种子里的）删掉，避免 uq_app_role_code 冲突。
+        // 注意这里用**快照到的编码清单**，而不是硬编码的四个/五个名字。
+        if (!seedRoleCodes.isEmpty()) {
+            String placeholders = String.join(", ",
+                    java.util.Collections.nCopies(seedRoleCodes.size(), "?"));
+            jdbc.update("DELETE FROM app_roles WHERE code NOT IN (" + placeholders + ")",
+                    seedRoleCodes.toArray());
+        }
     }
 
     /**
@@ -280,6 +300,29 @@ public class TestDataFactory {
 
     public int reserved(long skuId, long warehouseId, String batchNo) {
         return balanceColumn(skuId, warehouseId, batchNo, "reserved_qty");
+    }
+
+    public int frozen(long skuId, long warehouseId, String batchNo) {
+        return balanceColumn(skuId, warehouseId, batchNo, "frozen_qty");
+    }
+
+    /** 设置 SKU 的补货阈值（FR-INV-12/13）。 */
+    public void skuLevels(long skuId, int minLevel, int maxLevel) {
+        jdbc.update("UPDATE skus SET min_level = ?, max_level = ? WHERE id = ?",
+                minLevel, maxLevel, skuId);
+    }
+
+    /** 设置仓库优先级（数值越大越优先）。 */
+    public void warehousePriority(long warehouseId, int priority) {
+        jdbc.update("UPDATE warehouses SET priority = ? WHERE id = ?", priority, warehouseId);
+    }
+
+    /** 按业务类型数流水条数（断言"差异为 0 的行不产生调整流水"）。 */
+    public int ledgerCountByType(String bizRefNo, String bizType) {
+        Integer n = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM inventory_ledger WHERE biz_ref_no = ? AND biz_type = ?
+                """, Integer.class, bizRefNo, bizType);
+        return n == null ? 0 : n;
     }
 
     public int available(long skuId, long warehouseId, String batchNo) {

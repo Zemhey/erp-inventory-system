@@ -32,6 +32,16 @@ public class DocumentNumberGenerator {
     public enum DocType {
         /** 进货单 PURCHASE ORDER。 */
         PURCHASE_ORDER("PO"),
+        /** 请购单 PURCHASE REQUISITION（V2-2）。 */
+        PURCHASE_REQUISITION("PR"),
+        /** 到货单 GOODS RECEIPT（V2-2）。 */
+        PURCHASE_RECEIPT("GR"),
+        /** 采购退货单 PURCHASE RETURN（V2-2）。 */
+        PURCHASE_RETURN("RT"),
+        /** 供应商应付单 ACCOUNTS PAYABLE（V2-2）。 */
+        SUPPLIER_PAYABLE("AP"),
+        /** 付款单 PAYMENT（V2-2）。 */
+        SUPPLIER_PAYMENT("PY"),
         /** 出货单 SALES ORDER。 */
         SALES_ORDER("SO"),
         /** 退货单 RETURN ORDER（M2 使用）。 */
@@ -39,7 +49,9 @@ public class DocumentNumberGenerator {
         /** 调拨单 TRANSFER ORDER（P1 使用）。 */
         TRANSFER_ORDER("TO"),
         /** 盘点单 STOCKTAKE ORDER（P2 使用）。 */
-        STOCKTAKE_ORDER("ST");
+        STOCKTAKE_ORDER("ST"),
+        /** 库存调整单 ADJUSTMENT（V2-1 FR-INV-09）。 */
+        ADJUSTMENT("AJ");
 
         private final String prefix;
 

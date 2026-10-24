@@ -60,6 +60,11 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/api/v1/auth/login").permitAll()
                 // 健康检查给探针用（不含业务数据）
                 .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
+                // ★ V2-5 FR-SYS-09：Prometheus 抓取端点必须匿名可访问 —— 抓取器不会带 JWT。
+                //   它只暴露计数/耗时等度量，不含任何业务明细；生产环境应再用
+                //   Nginx 内网白名单或 management.server.port 把它从公网摘出去
+                //   （见 .plan/V2-5-计划书.md §7 风险 R3）。
+                .requestMatchers("/actuator/prometheus", "/actuator/info").permitAll()
                 // 结构化健康检查端点只查不变量，不允许匿名访问
                 .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                 .anyRequest().authenticated())

@@ -58,6 +58,10 @@ dependencies {
     // @RequirePermission 的切面实现需要 AOP 支持（spring-boot-starter-aop 引入 aspectjweaver）
     implementation("org.springframework.boot:spring-boot-starter-aop")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
+    // ★ V2-5 FR-SYS-09：/actuator/prometheus 需要 Prometheus 注册表实现。
+    //   actuator 只带来 micrometer-core（内存指标），没有它就没有 prometheus 端点。
+    //   纯追加一行，便于多泳道合并（见 .plan/V2-5-计划书.md §2.3）。
+    implementation("io.micrometer:micrometer-registry-prometheus")
 
     implementation("org.flywaydb:flyway-core")
     implementation("org.flywaydb:flyway-database-postgresql")
@@ -81,6 +85,8 @@ dependencies {
     testImplementation("org.testcontainers:postgresql")
     // ArchUnit：用测试守住架构约束（计划书 §3.3、S7）
     testImplementation("com.tngtech.archunit:archunit-junit5:1.3.0")
+    // jqwik：V2-4 成本守恒属性测试（INV-11，≥1000 组随机流水）
+    testImplementation("net.jqwik:jqwik:1.8.5")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
