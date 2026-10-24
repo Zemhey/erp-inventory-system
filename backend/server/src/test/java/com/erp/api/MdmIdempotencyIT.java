@@ -674,6 +674,50 @@ class MdmIdempotencyIT extends PostgresTestBase {
                 Boolean.class, customerB)).isTrue();
     }
 
+    /**
+     * ★ 全项目唯一一条能抓住"AUDITED_ATTR 漂移"的用例。
+     *
+     * <p><b>为什么必须数全部行，而不是按 (resource_type, action, resource_id) 数</b>：
+     * 切面若忘了置 {@code AuditSafetyNetFilter.AUDITED_ATTR}，兜底过滤器会以为"处理器没跑"，
+     * 补一条 {@code result=FAIL} 的兜底审计。而那条兜底行的 {@code resource_id} 取自
+     * URI 末段的纯数字 —— {@code /warehouses} 末段是 "warehouses"、
+     * {@code /warehouses/42/disable} 末段是 "disable"，都不是数字，于是 resource_id 为 <b>NULL</b>。
+     * 按资源维度过滤的断言（TC-API-090/094 那种）看不见它，删掉 setAttribute 照样绿。
+     * 这里改用总行数差值 + "不许出现被记成成功的失败"两道网，把那个漂移钉死。
+     */
+    @Test
+    @CaseId("TC-MDM-042")
+    @DisplayName("★ 首次调用恰好 1 行审计、重放 0 行新增（兜底过滤器不得补写 FAIL）")
+    void firstWriteAuditsOnce_replayAddsNoRowAtAll() throws Exception {
+        long base = totalAudits();
+
+        String body = write("code", "W-042", "name", "计数仓库");
+        long id = idOf(sendPost("/api/v1/warehouses", "req-mdm-042-create", body)
+                .andExpect(status().isCreated()).andReturn());
+        assertThat(totalAudits()).as("首次创建必须恰好留一条审计").isEqualTo(base + 1);
+
+        sendPost("/api/v1/warehouses", "req-mdm-042-create", body).andExpect(status().isCreated());
+        assertThat(totalAudits())
+                .as("重放一行都不许多（含兜底那条）。最近一条审计=%s", latestAuditRow())
+                .isEqualTo(base + 1);
+
+        sendPost("/api/v1/warehouses/" + id + "/disable", "req-mdm-042-disable", "{}")
+                .andExpect(status().isOk());
+        assertThat(totalAudits()).as("真实停用恰好 1 行").isEqualTo(base + 2);
+
+        sendPost("/api/v1/warehouses/" + id + "/disable", "req-mdm-042-disable", "{}")
+                .andExpect(status().isOk());
+        assertThat(totalAudits())
+                .as("★ 若切面忘了置 AUDITED_ATTR，这里会多出一条 result=FAIL 的兜底审计")
+                .isEqualTo(base + 2);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM audit_logs
+                 WHERE result = 'FAIL' AND error_code LIKE 'HTTP%'
+                """, Long.class))
+                .as("一次成功的重放被记成失败，比重复留痕更糟")
+                .isEqualTo(0L);
+    }
+
     // ─────────────────────────── 夹具与断言辅助 ───────────────────────────
 
     private long createWarehouse(String code, String requestId) {
@@ -740,6 +784,25 @@ class MdmIdempotencyIT extends PostgresTestBase {
                  WHERE resource_type = ? AND action = ? AND resource_id = ?
                 """, Long.class, resourceType, action, String.valueOf(resourceId));
         return n == null ? 0L : n;
+    }
+
+    /** 全表计数：兜底过滤器补的那些行 resource_id 是 NULL，只有不筛维度才看得见。 */
+    private long totalAudits() {
+        Long n = jdbc.queryForObject("SELECT COUNT(*) FROM audit_logs", Long.class);
+        return n == null ? 0L : n;
+    }
+
+    /**
+     * 最近一条审计的关键列，只用于失败信息。
+     *
+     * <p>把漂移的"作案现场"直接写进断言消息：将来有人删掉 {@code AUDITED_ATTR} 那行时，
+     * 不必再连库翻 {@code audit_logs} 就能看见是哪一层补写的、{@code resource_id} 到底是不是 NULL。
+     */
+    private String latestAuditRow() {
+        return String.valueOf(jdbc.queryForMap("""
+                SELECT result, action, error_code, resource_id
+                  FROM audit_logs ORDER BY id DESC LIMIT 1
+                """));
     }
 
     /**
