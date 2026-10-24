@@ -409,6 +409,7 @@ onPullDownRefresh(() => {
           class="card line-card"
           :class="{ 'line-focused': lineIdOf(line) === focusedLineId }"
           :data-line-id="lineIdOf(line)"
+          :data-barcode="barcodeOf(line.skuId) || 'none'"
           @click="focusLine(line)"
         >
           <view class="row-between line-head">
