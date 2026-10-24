@@ -47,38 +47,24 @@ public class SalesQuoteRepository {
             total_amount, total_qty, remark, convert_request_id, converted_order_id, version
             """;
 
-    private final JdbcTemplate jdbc;
+    private final com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc;
 
-    public SalesQuoteRepository(JdbcTemplate jdbc) {
+    public SalesQuoteRepository(com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 
     public long insertHeader(String quoteNo, long customerId, LocalDate bizDate,
                              LocalDate validUntil, long totalAmount, int totalQty,
                              String remark, String requestId) {
-        KeyHolder keys = new GeneratedKeyHolder();
-        jdbc.update(con -> {
-            var ps = con.prepareStatement("""
+        return com.erp.shared.tenant.TenantJdbc.insertReturningId(jdbc,
+                """
                     INSERT INTO sales_quotes
                         (quote_no, status, customer_id, biz_date, valid_until,
                          total_amount, total_qty, remark, request_id)
                     VALUES (?, 'DRAFT', ?, ?, ?, ?, ?, ?, ?)
-                    """, new String[]{"id"});
-            ps.setString(1, quoteNo);
-            ps.setLong(2, customerId);
-            ps.setObject(3, bizDate);
-            ps.setObject(4, validUntil);
-            ps.setLong(5, totalAmount);
-            ps.setInt(6, totalQty);
-            ps.setString(7, remark);
-            ps.setString(8, requestId);
-            return ps;
-        }, keys);
-        Number id = keys.getKey();
-        if (id == null) {
-            throw new IllegalStateException("插入报价单后未取得主键：" + quoteNo);
-        }
-        return id.longValue();
+                    RETURNING id
+                    """,
+                new Object[]{quoteNo, customerId, bizDate, validUntil, totalAmount, totalQty, remark, requestId});
     }
 
     public void insertLine(long quoteId, int lineNo, long skuId, int qty,

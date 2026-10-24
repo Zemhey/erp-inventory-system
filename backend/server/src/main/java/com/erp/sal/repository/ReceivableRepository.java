@@ -42,9 +42,9 @@ public class ReceivableRepository {
                     rs.getString("remark"),
                     List.of());
 
-    private final JdbcTemplate jdbc;
+    private final com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc;
 
-    public ReceivableRepository(JdbcTemplate jdbc) {
+    public ReceivableRepository(com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 
@@ -206,26 +206,14 @@ public class ReceivableRepository {
 
     public long insertReceipt(String receiptNo, long customerId, long amount, LocalDate bizDate,
                               String remark, String requestId) {
-        KeyHolder keys = new GeneratedKeyHolder();
-        jdbc.update(con -> {
-            var ps = con.prepareStatement("""
+        return com.erp.shared.tenant.TenantJdbc.insertReturningId(jdbc,
+                """
                     INSERT INTO customer_receipts
                         (receipt_no, customer_id, amount, biz_date, remark, request_id)
                     VALUES (?, ?, ?, ?, ?, ?)
-                    """, new String[]{"id"});
-            ps.setString(1, receiptNo);
-            ps.setLong(2, customerId);
-            ps.setLong(3, amount);
-            ps.setObject(4, bizDate);
-            ps.setString(5, remark);
-            ps.setString(6, requestId);
-            return ps;
-        }, keys);
-        Number id = keys.getKey();
-        if (id == null) {
-            throw new IllegalStateException("插入收款单后未取得主键：" + receiptNo);
-        }
-        return id.longValue();
+                    RETURNING id
+                    """,
+                new Object[]{receiptNo, customerId, amount, bizDate, remark, requestId});
     }
 
     public void insertAllocation(long receiptId, long receivableId, long amount) {

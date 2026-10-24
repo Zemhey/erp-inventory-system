@@ -26,6 +26,47 @@ import org.testcontainers.containers.PostgreSQLContainer;
  */
 public abstract class PostgresTestBase {
 
+    /**
+     * ★ V2-7 FR-TNT-04：**测试线程的默认租户绑定**。
+     *
+     * <p><b>为什么测试基类要绑定租户</b>：生产里租户来自 HTTP 请求
+     * （{@code JwtAuthenticationFilter} 按 token 的 {@code tid} 绑定）。而集成测试
+     * 大多是<b>直接调应用服务</b>（不起 MockMvc），那条路径上没有任何东西会绑定租户
+     * —— 于是 {@code TenantSql} 会抛 {@code SYS_TENANT_CONTEXT_MISSING}，
+     * 现有 956 条用例会成片变红。
+     *
+     * <p><b>为什么这是"集中一处"而不是逐条改用例</b>：956 条用例里绝大多数只关心
+     * 业务语义，不关心"数据属于哪个租户"。在基类统一绑默认租户，等价于给它们一个
+     * 与生产一致的运行环境（默认租户就是存量数据的归属），<b>一行用例都不用改</b>。
+     *
+     * <p><b>为什么每条用例都重新绑一次</b>：测试线程会被 JUnit 复用，而上一条用例
+     * （或被调代码的缺陷）可能留下过别的租户绑定。每条用例前清空再绑，
+     * 让"顺序依赖"无处藏身。
+     *
+     * <p><b>需要别的租户时</b>：用例内部用
+     * {@code TenantContext.callIn(TenantId.DEMO, …)} 或
+     * {@code new TestDataFactory(jdbc).inTenant(TenantId.DEMO)}，
+     * 它们会在结束时精确回退到这里的默认绑定。
+     */
+    @org.junit.jupiter.api.BeforeEach
+    void bindDefaultTenant() {
+        com.erp.shared.tenant.TenantContext.clearForTest();
+        com.erp.shared.tenant.TenantContext.bindForTest(
+                com.erp.shared.tenant.TenantId.DEFAULT);
+    }
+
+    /**
+     * 每个用例结束后清空绑定栈。
+     *
+     * <p>用"整体清空"而不是"逐层 pop"：用例内部可能嵌套了若干次 {@code callIn}，
+     * 正常路径会各自回退；但若被测代码有缺陷漏了回退，逐层 pop 也无法知道该退几层。
+     * 清空是最稳的收尾，代价只是"用例之间不共享绑定"—— 而它们本来就不该共享。
+     */
+    @org.junit.jupiter.api.AfterEach
+    void unbindTenant() {
+        com.erp.shared.tenant.TenantContext.clearForTest();
+    }
+
     static {
         assertDockerAvailable();
     }

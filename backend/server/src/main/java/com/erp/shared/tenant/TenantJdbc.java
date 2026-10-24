@@ -45,7 +45,12 @@ public final class TenantJdbc {
     public static long insertReturningId(TenantAwareJdbcTemplate jdbc, String sql, Object... args) {
         Long id = jdbc.queryForObject(sql, Long.class, args);
         if (id == null) {
-            throw new IllegalStateException("INSERT … RETURNING id 未返回主键：" + sql.strip());
+            // 正常不会发生（RETURNING id 对成功插入必有一行）。保留这条断言的意义：
+            // 若有人把 RETURNING 写漏了，零行会让 queryForObject 抛
+            // EmptyResultDataAccessException（信息很含糊），而这里给的是
+            // "到底哪条 SQL 没返回主键"。
+            throw new IllegalStateException(
+                    "INSERT … RETURNING id 未返回主键：" + sql.strip());
         }
         return id;
     }

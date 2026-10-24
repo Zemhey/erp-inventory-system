@@ -30,9 +30,9 @@ public class SupplierRepository {
             rs.getString("address"),
             rs.getBoolean("enabled"));
 
-    private final JdbcTemplate jdbc;
+    private final com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc;
 
-    public SupplierRepository(JdbcTemplate jdbc) {
+    public SupplierRepository(com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 
@@ -44,23 +44,15 @@ public class SupplierRepository {
      */
     public long insert(String code, String name, String contactName, String contactPhone,
                        String address, boolean enabled, String requestId) {
-        KeyHolder keys = new GeneratedKeyHolder();
         try {
-            jdbc.update(con -> {
-                var ps = con.prepareStatement("""
+            return com.erp.shared.tenant.TenantJdbc.insertReturningId(jdbc,
+                    """
                         INSERT INTO suppliers (code, name, contact_name, contact_phone, address,
                                                enabled, create_request_id)
                         VALUES (?, ?, ?, ?, ?, ?, ?)
-                        """, new String[]{"id"});
-                ps.setString(1, code);
-                ps.setString(2, name);
-                ps.setString(3, contactName);
-                ps.setString(4, contactPhone);
-                ps.setString(5, address);
-                ps.setBoolean(6, enabled);
-                ps.setString(7, requestId);
-                return ps;
-            }, keys);
+                        RETURNING id
+                        """,
+                    new Object[]{code, name, contactName, contactPhone, address, enabled, requestId});
         } catch (DataIntegrityViolationException ex) {
             BusinessException duplicatedCode = DbErrors.translate(ex, "uq_supplier_code",
                     ErrorCode.MDM_CODE_DUPLICATED, "供应商编码已存在：code=%s".formatted(code));
@@ -75,11 +67,6 @@ public class SupplierRepository {
             }
             throw ex;
         }
-        Number id = keys.getKey();
-        if (id == null) {
-            throw new IllegalStateException("插入供应商后未取得主键：code=" + code);
-        }
-        return id.longValue();
     }
 
     public Optional<Supplier> findById(long id) {

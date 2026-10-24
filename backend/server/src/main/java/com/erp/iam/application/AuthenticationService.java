@@ -6,6 +6,7 @@ import com.erp.iam.repository.AppUserRepository;
 import com.erp.iam.security.JwtTokenService;
 import com.erp.shared.error.BusinessException;
 import com.erp.shared.error.ErrorCode;
+import com.erp.shared.tenant.TenantContext;
 import com.erp.shared.time.ClockProvider;
 import java.time.Instant;
 import java.util.List;
@@ -80,7 +81,7 @@ public class AuthenticationService {
      * @param passwordExpiresAt  密码过期时刻（ISO-8601；null = 不过期）
      * @param passwordRules      当前生效的密码规则（前端展示在改密页，免得用户反复试错）
      */
-    public record LoginResult(String token, String username, String displayName,
+    public record LoginResult(String token, long tenantId, String username, String displayName,
                               List<String> roles, List<String> permissions,
                               boolean mustChangePassword, String passwordExpiresAt,
                               List<String> passwordRules) {
@@ -109,13 +110,27 @@ public class AuthenticationService {
             throw new BusinessException(ErrorCode.SYS_VALIDATION_ERROR, "用户名与密码不能为空");
         }
 
-        AppUser user = users.findByUsername(name).orElse(null);
+        // ★ V2-7 FR-TNT-04：登录是"唯一一个还不知道租户就要读库"的入口。
+        //   用户名是全局唯一的（app_users.username），但**按用户名查行**这一步
+        //   本身就要读 app_users，而那张表受租户过滤 —— 于是这里必须显式跨租户。
+        //
+        //   为什么这不是后门：① 它只读"用户名 → 账号"这一次查找，定位到账号后
+        //   **立即**改用该账号自己的租户绑定（见下面的 runIn）；② 它不经过
+        //   任何业务接口，只由本方法与定时任务调用；③ 有人若在别处打开它，
+        //   TenantSqlGuardTest 会在整轮测试里扫出来（见该类的说明）。
+        AppUser user = TenantContext.callAsSystem(() -> users.findByUsername(name).orElse(null));
         if (user == null) {
             // 不做计数（无主可记），但仍走一次密码编码以拉平响应时间差异，
             // 避免通过"响应快慢"反推用户名是否存在。
             passwordEncoder.matches(rawPassword, "$2a$10$abcdefghijklmnopqrstuv");
             throw new BusinessException(ErrorCode.IAM_BAD_CREDENTIALS, "用户名或密码错误");
         }
+        // 从这里开始，一切读写都在**该账号自己的租户**下进行。
+        return TenantContext.callIn(user.tenantId(), () -> completeLogin(user, rawPassword, name));
+    }
+
+    /** 登录的"已定位到账号"部分；调用方保证已绑定该账号的租户。 */
+    private LoginResult completeLogin(AppUser user, String rawPassword, String name) {
         if (!user.enabled()) {
             throw new BusinessException(ErrorCode.IAM_ACCOUNT_DISABLED, "账号已停用：" + name);
         }
@@ -142,7 +157,8 @@ public class AuthenticationService {
         users.recordLoginSuccess(user.id(), clock.now());
         AppUser fresh = users.findById(user.id()).orElse(user);
         boolean mustChange = passwordPolicy.mustChange(fresh, nowInstant()).isPresent();
-        return new LoginResult(tokens.issue(fresh), fresh.username(), fresh.displayName(),
+        return new LoginResult(tokens.issue(fresh), fresh.tenantId(), fresh.username(),
+                fresh.displayName(),
                 fresh.roles(), fresh.permissions().stream().sorted().toList(),
                 mustChange,
                 fresh.passwordExpiresAt() == null ? null : fresh.passwordExpiresAt().toString(),
@@ -211,13 +227,31 @@ public class AuthenticationService {
                 .flatMap(u -> passwordPolicy.mustChange(u, nowInstant()));
     }
 
-    /** 按 token 解析当前用户（每次请求都回库取角色，禁用/改权限立即生效）。 */
+    /**
+     * 按 token 解析当前用户（每次请求都回库取角色，禁用/改权限立即生效）。
+     *
+     * <p><b>★ V2-7：这里必须走系统旁路。</b>原因是一个先后顺序问题 ——
+     * 过滤器要先用 token 找到"这个人属于哪个租户"（见 {@code JwtAuthenticationFilter}），
+     * 才能绑定租户上下文；而"找人"本身要读 {@code app_users}，那张表受租户过滤。
+     * 于是这是一个**先有鸡还是先有蛋**的位置：此刻还不知道租户。
+     *
+     * <p>安全性由两点保证：① token 的签名与有效期已经校验（{@code tokens.verify}），
+     * 因此能查出来的必是合法签发的账号；② 查到的账号立刻带着<b>它自己的</b>
+     * {@code tenantId} 去绑定上下文，后续一切读写都在那个租户下。
+     * 这是系统旁路的两个合法用途之一（另一个是登录）。
+     */
     @Transactional(readOnly = true)
     public java.util.Optional<AppUser> resolve(String token) {
-        return tokens.verify(token).flatMap(users::findByUsername);
+        return tokens.verify(token).flatMap(name -> TenantContext.callAsSystem(
+                () -> users.findByUsername(name)));
     }
 
-    /** 按用户名取用户（供权限切面使用，保证以数据库权限为准而非 token 快照）。 */
+    /**
+     * 按用户名取用户（供权限切面使用，保证以数据库权限为准而非 token 快照）。
+     *
+     * <p>此时租户上下文<b>已经</b>由过滤器绑定，因此这里不需要旁路 ——
+     * 它只会查到"当前租户里的这个用户名"。
+     */
     @Transactional(readOnly = true)
     public java.util.Optional<AppUser> resolveUsername(String username) {
         return users.findByUsername(username);

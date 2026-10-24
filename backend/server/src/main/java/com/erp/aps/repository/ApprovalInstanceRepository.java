@@ -45,9 +45,9 @@ public class ApprovalInstanceRepository {
             initiator_id, version
             """;
 
-    private final JdbcTemplate jdbc;
+    private final com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc;
 
-    public ApprovalInstanceRepository(JdbcTemplate jdbc) {
+    public ApprovalInstanceRepository(com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 
@@ -60,28 +60,15 @@ public class ApprovalInstanceRepository {
      */
     public long insert(long flowId, ApprovalGate.BizType bizType, long bizId, String bizRefNo,
                        long amount, long initiatorId, String requestId) {
-        KeyHolder keys = new GeneratedKeyHolder();
-        jdbc.update(con -> {
-            var ps = con.prepareStatement("""
+        return com.erp.shared.tenant.TenantJdbc.insertReturningId(jdbc,
+                """
                     INSERT INTO approval_instances
                         (flow_id, biz_type, biz_id, biz_ref_no, amount, current_step,
                          status, initiator_id, request_id, version)
                     VALUES (?, ?, ?, ?, ?, 1, 'DRAFT', ?, ?, 0)
-                    """, new String[]{"id"});
-            ps.setLong(1, flowId);
-            ps.setString(2, bizType.name());
-            ps.setLong(3, bizId);
-            ps.setString(4, bizRefNo);
-            ps.setLong(5, amount);
-            ps.setLong(6, initiatorId);
-            ps.setString(7, requestId);
-            return ps;
-        }, keys);
-        Number id = keys.getKey();
-        if (id == null) {
-            throw new IllegalStateException("插入审批实例后未取得主键：bizRefNo=" + bizRefNo);
-        }
-        return id.longValue();
+                    RETURNING id
+                    """,
+                new Object[]{flowId, bizType.name(), bizId, bizRefNo, amount, initiatorId, requestId});
     }
 
     public Optional<ApprovalInstance> findById(long id) {

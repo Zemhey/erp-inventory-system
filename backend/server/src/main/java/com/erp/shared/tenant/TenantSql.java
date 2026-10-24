@@ -145,52 +145,175 @@ public final class TenantSql {
     // ─────────────────────────── SELECT ───────────────────────────
 
     private static Rewritten rewriteSelect(String sql, long tenantId) {
-        List<TableSite> sites = collectSites(sql);
-        if (sites.isEmpty() || alreadyScoped(sql)) {
+        if (collectSites(sql).isEmpty()) {
             return new Rewritten(sql, false);
         }
-        return new Rewritten(appendPredicates(sql, sites, tenantId), true);
+        String out = rewriteScope(sql, tenantId);
+        return new Rewritten(out, !out.equals(sql));
     }
 
-    private static String appendPredicates(String sql, List<TableSite> sites, long tenantId) {
-        // ★ 集合运算（UNION / INTERSECT / EXCEPT）必须**逐分支**处理：
-        //   把谓词统一追加在 UNION 之前只会过滤掉第一个分支，第二个分支照样跨租户。
-        //   而 UNION 的语义是"并集"，所以每个分支各自收窄才是正确做法。
-        int unionIdx = minPositive(
-                indexOfTopLevel(sql, "union", 0),
-                indexOfTopLevel(sql, "intersect", 0),
-                indexOfTopLevel(sql, "except", 0));
-        if (unionIdx > 0) {
-            String left = sql.substring(0, unionIdx);
-            String rest = sql.substring(unionIdx);
-            // 右分支从集合运算符之后的下一个 SELECT 起
-            int secondSelect = indexOfTopLevel(rest, "select", 0);
-            String glue = rest.substring(0, secondSelect);
-            String right = rest.substring(secondSelect);
-            Rewritten l = rewriteSelect(left.stripTrailing(), tenantId);
-            Rewritten r = rewriteSelect(right.stripLeading(), tenantId);
-            return l.sql() + " " + glue.strip() + " " + r.sql();
+    /**
+     * 改写**一个作用域**（一条 SELECT / 一个带 FROM 的括号子查询）。
+     *
+     * <p><b>★ 为什么必须逐层处理而不是一条 WHERE 打天下</b>：SQL 的
+     * {@code FROM} 只对**本层**可见。把派生表内层的表名写到外层 WHERE 上，
+     * PostgreSQL 会直接报 {@code missing FROM-clause entry for table}；
+     * 而把 {@code EXISTS (…)} 这种"表达式子查询"当成有 WHERE 的子句，
+     * 会拼出 {@code …) WHERE 1 = 1 …} 这种非法语法。两者都实测踩到过。
+     *
+     * <p>处理顺序：① 先递归改括号内的子语句（它们各自成域）；
+     * ② 再为本层直接出现的表追加谓词。
+     * 先递归是必要的 —— 递归会改变文本长度，后做的外层插入用重新计算的偏移。
+     */
+    private static String rewriteScope(String sql, long tenantId) {
+        // ① 自底向上：把每个括号里的"看起来是完整语句"的片段先改写掉
+        StringBuilder rewritten = new StringBuilder(sql);
+        List<int[]> regions = parenthesizedRegions(rewritten.toString());
+        // 从后往前替换，避免前面的替换影响后面的下标
+        for (int i = regions.size() - 1; i >= 0; i--) {
+            int open = regions.get(i)[0];
+            int close = regions.get(i)[1];
+            String inner = rewritten.substring(open + 1, close);
+            String head = firstKeyword(inner.strip());
+            if ("select".equals(head) || "with".equals(head)) {
+                String innerNew = rewriteScope(inner, tenantId);
+                rewritten.replace(open + 1, close, innerNew);
+            }
         }
+        String sql2 = rewritten.toString();
 
+        // ② 本层：只认深度 0 的 FROM / JOIN 目标
+        List<TableSite> sites = collectSitesAtDepthZero(sql2);
+        if (sites.isEmpty()) {
+            return sql2;
+        }
+        if (alreadyScopedAtDepthZero(sql2, sites)) {
+            return sql2;
+        }
         StringBuilder predicates = new StringBuilder();
         for (TableSite site : sites) {
             predicates.append(" AND ").append(qualified(site))
                     .append(".tenant_id = ").append(tenantId);
         }
+        int whereIdx = indexOfTopLevel(sql2, "where", 0);
+        int guardEnd = minPositive(
+                indexOfTopLevel(sql2, "group", 0),
+                indexOfTopLevel(sql2, "order", 0),
+                indexOfTopLevel(sql2, "limit", 0),
+                indexOfTopLevel(sql2, "offset", 0),
+                indexOfTopLevel(sql2, "for update", 0));
+        if (whereIdx >= 0) {
+            int insertAt = guardEnd > whereIdx ? guardEnd : sql2.length();
+            return insert(sql2, insertAt, predicates.toString().strip());
+        }
+        int insertAt = guardEnd >= 0 ? guardEnd : sql2.length();
+        return insert(sql2, insertAt, "WHERE 1 = 1" + predicates);
+    }
+
+    /** 所有括号区间（含嵌套），按左括号位置升序。 */
+    private static List<int[]> parenthesizedRegions(String sql) {
+        List<int[]> out = new ArrayList<>();
+        boolean inSingle = false;
+        int depth = 0;
+        int openAt = -1;
+        for (int i = 0; i < sql.length(); i++) {
+            char c = sql.charAt(i);
+            if (c == '\'') {
+                inSingle = !inSingle;
+                continue;
+            }
+            if (inSingle) {
+                continue;
+            }
+            if (c == '(') {
+                if (depth == 0) {
+                    openAt = i;
+                }
+                depth++;
+            } else if (c == ')') {
+                depth--;
+                if (depth == 0 && openAt >= 0) {
+                    out.add(new int[]{openAt, i});
+                    openAt = -1;
+                }
+            }
+        }
+        return out;
+    }
+
+    /**
+     * 收集**深度 0** 的 FROM / JOIN 目标（不看括号里的）。
+     *
+     * <p>与 {@link #collectSites} 的区别：后者会把子查询里的表也算进来，
+     * 那些表对外层 WHERE 不可见，写上去就是 {@code missing FROM-clause entry}。
+     */
+    static List<TableSite> collectSitesAtDepthZero(String sql) {
+        List<TableSite> sites = new ArrayList<>();
+        boolean inSingle = false;
+        int depth = 0;
+        Matcher kw = Pattern.compile("(?i)\\b(from|join)\\b").matcher(sql);
+        while (kw.find()) {
+            // 计算该关键字处（含）之前的括号深度
+            depth = 0;
+            inSingle = false;
+            for (int i = 0; i < kw.start(); i++) {
+                char c = sql.charAt(i);
+                if (c == '\'') {
+                    inSingle = !inSingle;
+                } else if (!inSingle && c == '(') {
+                    depth++;
+                } else if (!inSingle && c == ')') {
+                    depth--;
+                }
+            }
+            if (depth != 0) {
+                continue;
+            }
+            if (precededBy(sql, kw.start(), "do") || precededBy(sql, kw.start(), "conflict")
+                    || precededBy(sql, kw.start(), "for")) {
+                continue;
+            }
+            int after = kw.end();
+            while (after < sql.length() && Character.isWhitespace(sql.charAt(after))) {
+                after++;
+            }
+            if (after < sql.length() && sql.charAt(after) == '(') {
+                continue;
+            }
+            Matcher tok = TABLE_TOKEN.matcher(sql);
+            tok.region(after, sql.length());
+            if (!tok.lookingAt()) {
+                continue;
+            }
+            String word = tok.group().toLowerCase(Locale.ROOT);
+            if (KEYWORDS.contains(word) || !TABLES.contains(word)) {
+                continue;
+            }
+            sites.add(new TableSite(word, tok.start(), tok.end(), aliasAfter(sql, tok.end())));
+        }
+        return sites;
+    }
+
+    /** 本层的表是否都已有谓词。 */
+    private static boolean alreadyScopedAtDepthZero(String sql, List<TableSite> sites) {
         int whereIdx = indexOfTopLevel(sql, "where", 0);
+        if (whereIdx < 0) {
+            return false;
+        }
         int guardEnd = minPositive(
                 indexOfTopLevel(sql, "group", 0),
                 indexOfTopLevel(sql, "order", 0),
                 indexOfTopLevel(sql, "limit", 0),
                 indexOfTopLevel(sql, "offset", 0),
                 indexOfTopLevel(sql, "for update", 0));
-        if (whereIdx >= 0) {
-            int insertAt = guardEnd > whereIdx ? guardEnd : sql.length();
-            return insert(sql, insertAt, predicates.toString().strip());
+        String whereClause = sql.substring(whereIdx,
+                guardEnd > whereIdx ? guardEnd : sql.length());
+        for (TableSite site : sites) {
+            if (!whereClause.contains(qualified(site) + ".tenant_id")) {
+                return false;
+            }
         }
-        int insertAt = guardEnd >= 0 ? guardEnd : sql.length();
-        // predicates 自带前导 " AND "，glue 补到 "WHERE 1 = 1" 即可
-        return insert(sql, insertAt, "WHERE 1 = 1" + predicates);
+        return true;
     }
 
     // ─────────────────────────── INSERT ───────────────────────────
@@ -226,14 +349,28 @@ public final class TenantSql {
         }
 
         if (valuesIdx < 0) {
-            // INSERT … SELECT：列清单不动（触发器按会话租户填充），
-            // 只把内部 SELECT 按规则 1 过滤，避免源表跨租户。
-            String head = sql.substring(0, selectIdx);
-            String tail = sql.substring(selectIdx);
-            Rewritten inner = rewriteSelect(tail, tenantId);
-            return new Rewritten(head + inner.sql(), true);
-        }
+            // ★ INSERT … SELECT：列清单尾部加 tenant_id，SELECT 列表尾部加字面量，
+            //   并把内部 SELECT 按作用域规则过滤（避免源表跨租户）。
+            //
+            //   为什么不能只靠 BEFORE INSERT 触发器：触发器能在 tenant_id 为 NULL 时
+            //   填充值，但**列清单里必须有 tenant_id 这一列**，那列才会被写入。
+            //   列清单不含它时，触发器填的值不会落库 —— 于是行会落进默认租户。
+            int selectStop = minPositive(
+                    indexOfTopLevel(sql, "on conflict", close + 1),
+                    indexOfTopLevel(sql, "returning", close + 1));
+            if (selectStop < 0) {
+                selectStop = sql.length();
+            }
+            String selected = sql.substring(selectIdx, selectStop);
+            Rewritten filtered = rewriteSelect(selected, tenantId);
 
+            String head = sql.substring(0, selectIdx);
+            String tail = sql.substring(selectStop);
+            String withCol = head.substring(0, close) + ", tenant_id"
+                    + head.substring(close);
+            return new Rewritten(rewriteOnConflictTarget(
+                    withCol + filtered.sql() + ", " + tenantId + tail, table), true);
+        }
         // ★ 只认 VALUES 之后、且在 ON CONFLICT / RETURNING 之前的那几组括号。
         //   不设上界会把 ON CONFLICT (request_id) 的目标列表也当成"一行 VALUES"，
         //   于是往里塞租户**值**，产生 (tenant_id, request_id, 7) 这种非法目标 ——
@@ -269,7 +406,7 @@ public final class TenantSql {
         // 先取 ON CONFLICT 目标的**位置**（此时还没插值），再做值插入，
         // 否则先插值会让目标括号的偏移错开。
         String withColumn = out.toString();
-        return new Rewritten(rewriteOnConflictTarget(withColumn), true);
+        return new Rewritten(rewriteOnConflictTarget(withColumn, table), true);
     }
 
     /**
@@ -284,7 +421,33 @@ public final class TenantSql {
      *
      * <p>{@code ON CONFLICT DO NOTHING}（无目标）不动：它对任何唯一冲突都成立。
      */
-    private static String rewriteOnConflictTarget(String sql) {
+    /**
+     * {@code ON CONFLICT (列…)} 的目标列表前缀 {@code tenant_id} —— **仅对 V16 改过
+     * 复合唯一索引的表**。
+     *
+     * <p><b>★ 为什么要按表区分（实测踩出来的）</b>：{@code ON CONFLICT (目标)} 必须能在
+     * 目标列上找到一个**存在的**唯一索引。V16 只把"去掉租户维就会跨租户撞号"的那些
+     * 约束改成了 {@code (tenant_id, …)}；{@code customer_receivables.uq_receivable_order
+     * (sales_order_id)} 这类含全局唯一代理 id 的约束**刻意没改**（天然不可能跨租户冲突）。
+     * 对没改的表硬加 {@code tenant_id}，PG 会报
+     * {@code there is no unique or exclusion constraint matching the ON CONFLICT
+     * specification} —— 实测让 87 条应收用例一起变红。
+     *
+     * <p>因此这里维护一份白名单（与 V16 §⑤/§④ 逐条对应）；{@code TenantSchemaIT}
+     * 断言"白名单里的表确实有以 tenant_id 开头的唯一索引"，白名单漂移也会被抓到。
+     */
+    private static final Set<String> ON_CONFLICT_SCOPED = Set.of(
+            "inventory_ledger", "inventory_reservations", "purchase_orders", "sales_orders", "return_orders",
+            "inventory_transfers", "stocktakes", "inventory_adjustments",
+            "inventory_freezes", "payable_allocations", "sales_quotes", "so_shipments",
+            "approval_flows", "approval_instances",
+            "warehouses", "suppliers", "customers", "products", "skus",
+            "document_sequences", "idempotency_keys", "settlement_periods");
+
+    private static String rewriteOnConflictTarget(String sql, String table) {
+        if (!ON_CONFLICT_SCOPED.contains(table)) {
+            return sql;
+        }
         int idx = indexOfTopLevel(sql, "on conflict", 0);
         if (idx < 0) {
             return sql;
@@ -300,11 +463,87 @@ public final class TenantSql {
         if (close < 0) {
             return sql;
         }
-        // ★ 目标列表里**只加列名，不能带值**：ON CONFLICT 的目标是"索引列清单"，
-        //   写成 (tenant_id, request_id, 7) 会是语法错误（7 不是列）。
-        //   这里同时避开"已经把 VALUES 行尾的值插进目标括号"这类位置错乱：
-        //   只在 '(' 之后插列名。
-        return sql.substring(0, i + 1) + "tenant_id, " + sql.substring(i + 1);
+        // ★ 目标列表里**只加列名，不能带值**（目标是"索引列清单"，7 不是列）；
+        //   已带 tenant_id 的不重复加。
+        String target = sql.substring(i + 1, close);
+        boolean already = target.toLowerCase(Locale.ROOT).contains("tenant_id");
+        StringBuilder out = new StringBuilder(sql);
+        if (!already) {
+            out.insert(i + 1, "tenant_id, ");
+            close += "tenant_id, ".length();
+        }
+        // ★★ 关键：这些唯一索引都是**部分索引**（带 WHERE 谓词）。
+        //   PostgreSQL 规定：ON CONFLICT 用"列清单"推断索引时，索引必须**无条件**
+        //   （不能是部分索引）；要用部分索引就必须在 ON CONFLICT 后显式给出同样的
+        //   WHERE 谓词。V16 把幂等键索引都建成了 `(tenant_id, request_id)
+        //   WHERE request_id IS NOT NULL`，于是不带谓词的 ON CONFLICT 会报
+        //   "there is no unique or exclusion constraint matching the ON CONFLICT
+        //   specification"（实测：16+15+12+5 条用例因此变红）。
+        //   目标列里已经有 request_id / create_request_id 这类列时，补上同一个谓词。
+        // ★★ 关键：这些唯一索引都是**部分索引**（带 WHERE 谓词）。
+        //   PostgreSQL 规定：ON CONFLICT 用"列清单"推断索引时，索引必须**无条件**
+        //   （不能是部分索引）；要用部分索引就必须在 ON CONFLICT 后、**DO 之前**
+        //   显式给出同样的 WHERE 谓词。位置写错（放到 DO NOTHING 之后）会变成语法错误。
+        String targetCols = out.substring(i + 1, close);
+        String predicate = partialIndexPredicate(targetCols);
+        if (predicate != null) {
+            // ON CONFLICT 的目标括号之后紧接的应当是 WHERE 谓词，然后才是 DO NOTHING /
+            // DO UPDATE。写错顺序（放到 DO 之后）是语法错误（实测）。
+            int afterParen = close + 1;
+            String rest = out.substring(afterParen).stripLeading();
+            String lower = rest.toLowerCase(Locale.ROOT);
+            if (!lower.startsWith("where")) {
+                out.insert(afterParen, " WHERE " + predicate);
+            }
+
+        }
+        return out.toString();
+    }
+
+    /**
+     * 部分唯一索引的谓词 —— 必须与 V16 里的定义**逐字一致**，否则 PG 仍认不出索引。
+     *
+     * <p>只覆盖本项目真实存在的几种形状；匹配不上就返回 {@code null}
+     * （即不补谓词，保持原语义），因为"猜一个错的谓词"比"不补"更危险。
+     */
+    private static String partialIndexPredicate(String cols) {
+        String c = cols.toLowerCase(Locale.ROOT);
+        if (c.contains("request_id")) {
+            return "request_id IS NOT NULL";
+        }
+        if (c.contains("void_request_id")) {
+            return "void_request_id IS NOT NULL";
+        }
+        if (c.contains("receive_request_id")) {
+            return "receive_request_id IS NOT NULL";
+        }
+        if (c.contains("post_request_id")) {
+            return "post_request_id IS NOT NULL";
+        }
+        if (c.contains("confirm_request_id")) {
+            return "confirm_request_id IS NOT NULL";
+        }
+        if (c.contains("create_request_id")) {
+            return "create_request_id IS NOT NULL";
+        }
+        if (c.contains("disable_request_id")) {
+            return "disable_request_id IS NOT NULL";
+        }
+        if (c.contains("conversion_request_id")) {
+            return "conversion_request_id IS NOT NULL";
+        }
+        if (c.contains("approve_request_id")) {
+            return "approve_request_id IS NOT NULL";
+        }
+        if (c.contains("release_request_id")) {
+            return "release_request_id IS NOT NULL";
+        }
+        if (c.contains("convert_request_id")) {
+            return "convert_request_id IS NOT NULL";
+        }
+        // idempotency_keys / document_sequences / settlement_periods 的主键是
+        // **整表**唯一（非部分索引），不需要 WHERE
+        return null;
     }
 
     // ─────────────────────────── UPDATE / DELETE ───────────────────────────
@@ -585,6 +824,37 @@ public final class TenantSql {
     /** 供守卫测试判断某条 SQL 是否带了租户谓词。 */
     public static boolean mentionsTenant(String sql) {
         return sql != null && sql.toLowerCase(Locale.ROOT).contains("tenant_id");
+    }
+
+    /**
+     * 这条语句是否**触及**业务表（因而需要租户上下文）。
+     *
+     * <p><b>为什么需要这个判断</b>：{@code TRUNCATE}（造数/清理）、
+     * {@code CREATE/ALTER}（迁移）、以及只读 {@code tenants} /
+     * {@code flyway_schema_history} 的语句<b>不需要</b>租户绑定 ——
+     * 它们要么是 DDL 不受过滤，要么操作的是跨租户共享的元数据。
+     * 若把它们也要求绑定租户，造数工具与启动期校验会因为"没有请求上下文"
+     * 直接抛 {@code SYS_TENANT_CONTEXT_MISSING}，而那不是缺陷。
+     *
+     * <p>反过来，这个判断**不能**放宽到"看起来没有 FROM 就算安全"：
+     * 它只回答"要不要绑定租户"，改写判断仍由 {@link #rewrite} 独立完成。
+     */
+    public static boolean touchesBusinessTables(String sql) {
+        if (sql == null || sql.isBlank()) {
+            return false;
+        }
+        // ★ 只对 DML（SELECT / WITH / INSERT / UPDATE / DELETE）判断。
+        //   `TRUNCATE products, warehouses …` 里也会被 collectSites 认出表名
+        //   （"warehouses" 前面没有 FROM），但它是 **DDL** —— 造数工具与清理脚本
+        //   必须能清空所有租户的数据，不能被租户过滤拦住。
+        //   实测踩到过：不排除 DDL 时，TestDataFactory.truncateAll() 在每条用例的
+        //   @BeforeEach 就抛 SYS_TENANT_CONTEXT_MISSING，整套测试全红。
+        String head = firstKeyword(stripTrailingSemicolon(sql));
+        if (!"select".equals(head) && !"with".equals(head) && !"insert".equals(head)
+                && !"update".equals(head) && !"delete".equals(head)) {
+            return false;
+        }
+        return !collectSites(stripTrailingSemicolon(sql)).isEmpty();
     }
 
     /** {@code tenant_id} 的出现次数（幂等判定用）。 */

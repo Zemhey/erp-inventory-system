@@ -50,10 +50,10 @@ public class PurchaseReturnRepository {
               FROM purchase_returns
             """;
 
-    private final JdbcTemplate jdbc;
+    private final com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc;
     private final ObjectMapper json;
 
-    public PurchaseReturnRepository(JdbcTemplate jdbc, ObjectMapper json) {
+    public PurchaseReturnRepository(com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc, ObjectMapper json) {
         this.jdbc = jdbc;
         this.json = json;
     }
@@ -61,32 +61,15 @@ public class PurchaseReturnRepository {
     public long insert(String returnNo, long purchaseOrderId, long supplierId, long warehouseId,
                        LocalDate bizDate, String period, int totalQty, long totalAmount,
                        String remark, List<PurchaseReturnLine> lines, String requestId) {
-        KeyHolder keys = new GeneratedKeyHolder();
-        jdbc.update(con -> {
-            var ps = con.prepareStatement("""
+        return com.erp.shared.tenant.TenantJdbc.insertReturningId(jdbc,
+                """
                     INSERT INTO purchase_returns
                         (return_no, purchase_order_id, supplier_id, warehouse_id, biz_date,
                          period, status, total_qty, total_amount, remark, lines, request_id)
                     VALUES (?, ?, ?, ?, ?, ?, 'DRAFT', ?, ?, ?, ?::jsonb, ?)
-                    """, new String[]{"id"});
-            ps.setString(1, returnNo);
-            ps.setLong(2, purchaseOrderId);
-            ps.setLong(3, supplierId);
-            ps.setLong(4, warehouseId);
-            ps.setObject(5, bizDate);
-            ps.setString(6, period);
-            ps.setInt(7, totalQty);
-            ps.setLong(8, totalAmount);
-            ps.setString(9, remark);
-            ps.setString(10, linesJson(lines));
-            ps.setString(11, requestId);
-            return ps;
-        }, keys);
-        Number id = keys.getKey();
-        if (id == null) {
-            throw new IllegalStateException("插入采购退货单后未取得主键：returnNo=" + returnNo);
-        }
-        return id.longValue();
+                    RETURNING id
+                    """,
+                new Object[]{returnNo, purchaseOrderId, supplierId, warehouseId, bizDate, period, totalQty, totalAmount, remark, linesJson(lines), requestId});
     }
 
     public Optional<PurchaseReturn> findById(long id) {

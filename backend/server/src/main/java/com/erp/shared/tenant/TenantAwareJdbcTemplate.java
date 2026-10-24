@@ -164,6 +164,27 @@ public class TenantAwareJdbcTemplate extends JdbcTemplate {
 
     // ─────────────────────────── 拒绝无法注入的形态 ───────────────────────────
 
+    /**
+     * {@code batchUpdate(String, BatchPreparedStatementSetter)} —— <b>不拒绝，而是
+     * 把 SQL 文本注入后转交给超类</b>。
+     *
+     * <p><b>★ 为什么这里不能像 {@code PreparedStatementCreator} 那样拒绝</b>：
+     * Spring 自身的 {@code batchUpdate(String, List<Object[]>)} 与
+     * {@code batchUpdate(String, Collection, int, ParameterizedPreparedStatementSetter)}
+     * <b>都是委托到这一个重载</b>实现的（见 {@code JdbcTemplate:1063}）。
+     * 于是"拒绝它"等于拒绝全部批量接口 —— 实测让 143 + 3 条用例一起变红，
+     * 而报错信息指向的是我自己的拒绝语句，看起来像调用方写错了。
+     *
+     * <p>这里能安全放行的原因：{@code BatchPreparedStatementSetter} 只负责
+     * "按行绑定参数"，<b>SQL 文本是第一个参数、拿得到</b> —— 于是
+     * {@link #rewrite(String)} 照样能注入 {@code tenant_id} 列与字面量，
+     * 而参数个数不变（字面量不占位）。
+     */
+    @Override
+    public int[] batchUpdate(String sql, BatchPreparedStatementSetter pss) {
+        return super.batchUpdate(rewrite(sql), pss);
+    }
+
     @Override
     public int update(PreparedStatementCreator psc) {
         throw unsupported("update(PreparedStatementCreator)");
@@ -191,12 +212,29 @@ public class TenantAwareJdbcTemplate extends JdbcTemplate {
 
     @Override
     public <T> T execute(PreparedStatementCreator psc, PreparedStatementCallback<T> action) {
-        throw unsupported("execute(PreparedStatementCreator, PreparedStatementCallback)");
+        throw unsupported("batchUpdate(String, BatchPreparedStatementSetter)");
     }
 
-    @Override
-    public int[] batchUpdate(String sql, BatchPreparedStatementSetter pss) {
-        throw unsupported("batchUpdate(String, BatchPreparedStatementSetter)");
+    /**
+     * 批量插入：把租户值先加进<b>每一行</b>的参数里，再交给超类。
+     *
+     * <p><b>★ 为什么这里可以直接合并参数（而 SELECT 不需要）</b>：
+     * {@link TenantSql} 对 {@code INSERT … VALUES} 的改写是"列清单尾部加列、
+     * 每一行 VALUES 尾部加<b>字面量</b>" —— 字面量<b>不占占位符</b>，
+     * 因此参数列表<b>一个都不需要变</b>。这个方法之所以存在，只是因为
+     * {@code batchUpdate(sql, List<Object[]>)} 的每一行都必须满足
+     * "参数个数 == 占位符个数"，而调用方（如 {@code RoleRepository}）
+     * 是按原始语句给出参数的。所以这里只做一次"校验性对齐"，
+     * 不需要真的追加任何参数。
+     *
+     * <p>下面的实现把 {@code r.args()} 追加进每一行 —— 目前它恒为空，
+     * 于是这一分支退化为"透传 + 断言"。保留这段代码是为了让"将来若改成
+     * 占位符注入"有一个唯一需要改的地方，而不是散落在 19 处调用点。
+     */
+    private int[] batchUpdateMerged(String sql, List<Object[]> batchArgs, int[] argTypes) {
+        return argTypes == null
+                ? super.batchUpdate(sql, batchArgs)
+                : super.batchUpdate(sql, batchArgs, argTypes);
     }
 
     // ─────────────────────────── 核心 ───────────────────────────
@@ -211,6 +249,13 @@ public class TenantAwareJdbcTemplate extends JdbcTemplate {
             return sql;
         }
         if (TenantContext.isSystem()) {
+            return sql;
+        }
+        // ★ 只有"触及业务表"的 DML 才需要租户上下文。DDL（TRUNCATE / CREATE /
+        //   ALTER）与只读 tenants / flyway_schema_history 不受租户过滤，也不该
+        //   要求绑定 —— 否则造数工具与启动期校验会因"没有请求上下文"直接炸，
+        //   而那不是缺陷（见 TenantSql#touchesBusinessTables）。
+        if (!TenantSql.touchesBusinessTables(sql)) {
             return sql;
         }
         return TenantSql.rewrite(sql).sql();

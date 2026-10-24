@@ -47,9 +47,9 @@ public class ShipmentRepository {
             confirm_request_id, version
             """;
 
-    private final JdbcTemplate jdbc;
+    private final com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc;
 
-    public ShipmentRepository(JdbcTemplate jdbc) {
+    public ShipmentRepository(com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 
@@ -99,24 +99,14 @@ public class ShipmentRepository {
 
     public long insertShipment(long planId, String shipmentNo, long salesOrderId,
                                long warehouseId) {
-        KeyHolder keys = new GeneratedKeyHolder();
-        jdbc.update(con -> {
-            var ps = con.prepareStatement("""
+        return com.erp.shared.tenant.TenantJdbc.insertReturningId(jdbc,
+                """
                     INSERT INTO so_shipments
                         (plan_id, shipment_no, sales_order_id, warehouse_id, status)
                     VALUES (?, ?, ?, ?, 'DRAFT')
-                    """, new String[]{"id"});
-            ps.setLong(1, planId);
-            ps.setString(2, shipmentNo);
-            ps.setLong(3, salesOrderId);
-            ps.setLong(4, warehouseId);
-            return ps;
-        }, keys);
-        Number id = keys.getKey();
-        if (id == null) {
-            throw new IllegalStateException("插入发货单后未取得主键：" + shipmentNo);
-        }
-        return id.longValue();
+                    RETURNING id
+                    """,
+                new Object[]{planId, shipmentNo, salesOrderId, warehouseId});
     }
 
     public void insertLine(long shipmentId, int lineNo, long salesOrderLineId, long skuId,

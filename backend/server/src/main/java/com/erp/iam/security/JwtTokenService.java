@@ -64,6 +64,7 @@ public class JwtTokenService {
         return Jwts.builder()
                 .subject(user.username())
                 .claim("uid", user.id())
+                .claim("tid", user.tenantId())
                 .claim("roles", user.roles())
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plus(ttl)))

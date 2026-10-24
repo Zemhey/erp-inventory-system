@@ -51,7 +51,7 @@ public class PurchaseOrderRepository {
             rs.getLong("unit_price_amount"),
             rs.getLong("amount"));
 
-    private final JdbcTemplate jdbc;
+    private final com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc;
 
     /**
      * 数据权限（FR-IAM-04）。
@@ -63,8 +63,7 @@ public class PurchaseOrderRepository {
      */
     private final com.erp.shared.scope.ScopeContext scope;
 
-    public PurchaseOrderRepository(JdbcTemplate jdbc,
-                                   com.erp.shared.scope.ScopeContext scope) {
+    public PurchaseOrderRepository(com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc, com.erp.shared.scope.ScopeContext scope) {
         this.jdbc = jdbc;
         this.scope = scope;
     }
@@ -106,42 +105,16 @@ public class PurchaseOrderRepository {
                              long totalAmount, int totalQty, String period, String remark,
                              String requestId, String docType, Long sourceRequisitionId,
                              Long createdBy) {
-        KeyHolder keys = new GeneratedKeyHolder();
-        jdbc.update(con -> {
-            var ps = con.prepareStatement("""
+        return com.erp.shared.tenant.TenantJdbc.insertReturningId(jdbc,
+                """
                     INSERT INTO purchase_orders
                         (order_no, status, supplier_id, warehouse_id, biz_date,
                          total_amount, total_qty, period, remark, request_id,
                          doc_type, source_requisition_id, created_by)
                     VALUES (?, 'DRAFT', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, new String[]{"id"});
-            ps.setString(1, orderNo);
-            ps.setLong(2, supplierId);
-            ps.setLong(3, warehouseId);
-            ps.setObject(4, bizDate);
-            ps.setLong(5, totalAmount);
-            ps.setInt(6, totalQty);
-            ps.setString(7, period);
-            ps.setString(8, remark);
-            ps.setString(9, requestId);
-            ps.setString(10, docType);
-            if (sourceRequisitionId == null) {
-                ps.setNull(11, java.sql.Types.BIGINT);
-            } else {
-                ps.setLong(11, sourceRequisitionId);
-            }
-            if (createdBy == null) {
-                ps.setNull(12, java.sql.Types.BIGINT);
-            } else {
-                ps.setLong(12, createdBy);
-            }
-            return ps;
-        }, keys);
-        Number id = keys.getKey();
-        if (id == null) {
-            throw new IllegalStateException("插入进货单后未取得主键：orderNo=" + orderNo);
-        }
-        return id.longValue();
+                    RETURNING id
+                    """,
+                new Object[]{orderNo, supplierId, warehouseId, bizDate, totalAmount, totalQty, period, remark, requestId, docType, sourceRequisitionId, createdBy});
     }
 
     public void insertLine(long orderId, int lineNo, long skuId, int qty,

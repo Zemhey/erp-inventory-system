@@ -23,12 +23,13 @@ public class AppUserRepository {
 
     /** 账号列表/详情共用的列清单。 */
     private static final String COLUMNS = """
-            id, username, password_hash, display_name, enabled,
+            id, tenant_id, username, password_hash, display_name, enabled,
             failed_attempts, locked_until, password_expires_at, must_change_password
             """;
 
     private static final RowMapper<AppUser> USER_MAPPER = (rs, i) -> new AppUser(
             rs.getLong("id"),
+            rs.getLong("tenant_id"),
             rs.getString("username"),
             rs.getString("password_hash"),
             rs.getString("display_name"),
@@ -45,30 +46,20 @@ public class AppUserRepository {
         return value == null ? null : value.toInstant();
     }
 
-    private final JdbcTemplate jdbc;
+    private final com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc;
 
-    public AppUserRepository(JdbcTemplate jdbc) {
+    public AppUserRepository(com.erp.shared.tenant.TenantAwareJdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 
     public long insert(String username, String passwordHash, String displayName, boolean enabled) {
-        KeyHolder keys = new GeneratedKeyHolder();
-        jdbc.update(con -> {
-            var ps = con.prepareStatement("""
+        return com.erp.shared.tenant.TenantJdbc.insertReturningId(jdbc,
+                """
                     INSERT INTO app_users (username, password_hash, display_name, enabled)
                     VALUES (?, ?, ?, ?)
-                    """, new String[]{"id"});
-            ps.setString(1, username);
-            ps.setString(2, passwordHash);
-            ps.setString(3, displayName);
-            ps.setBoolean(4, enabled);
-            return ps;
-        }, keys);
-        Number id = keys.getKey();
-        if (id == null) {
-            throw new IllegalStateException("插入账号后未取得主键：username=" + username);
-        }
-        return id.longValue();
+                    RETURNING id
+                    """,
+                new Object[]{username, passwordHash, displayName, enabled});
     }
 
     public Optional<AppUser> findByUsername(String username) {
@@ -95,7 +86,7 @@ public class AppUserRepository {
                   JOIN app_user_roles ur ON ur.role_id = rp.role_id
                  WHERE ur.user_id = ?
                 """, String.class, u.id()));
-        return new AppUser(u.id(), u.username(), u.passwordHash(), u.displayName(),
+        return new AppUser(u.id(), u.tenantId(), u.username(), u.passwordHash(), u.displayName(),
                 u.enabled(), u.failedAttempts(), u.lockedUntil(),
                 u.passwordExpiresAt(), u.mustChangePassword(), roles, permissions);
     }

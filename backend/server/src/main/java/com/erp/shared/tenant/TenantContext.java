@@ -177,6 +177,24 @@ public final class TenantContext {
         STACK.remove();
     }
 
+    /**
+     * 测试用：把当前线程**长期绑定**到某个租户，直到显式 {@link #clearForTest()}。
+     *
+     * <p><b>为什么不直接用 {@link #runIn}</b>：{@code runIn} 是"成对的开/闭"，
+     * 会在动作结束时自动解除；而集成测试需要"整条用例都在这个租户下"——
+     * 用例体不是一个能包起来传给 {@code runIn} 的 lambda（它由 JUnit 调用）。
+     *
+     * <p><b>为什么名字带 {@code ForTest}</b>：生产代码<b>不允许</b>用它。
+     * 生产路径必须由 {@code JwtAuthenticationFilter} 按请求绑定；
+     * 长期绑定等于让线程池里的后续请求继承同一个租户 —— 那是最难查的一类缺陷。
+     */
+    public static void bindForTest(long tenantId) {
+        if (!TenantId.isKnown(tenantId)) {
+            throw new IllegalArgumentException("非法租户 id：" + tenantId);
+        }
+        push(new Binding(tenantId, false));
+    }
+
     private static void push(Binding binding) {
         STACK.get().push(binding);
     }

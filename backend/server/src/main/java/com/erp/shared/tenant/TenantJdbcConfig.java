@@ -3,6 +3,7 @@ package com.erp.shared.tenant;
 import javax.sql.DataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -60,19 +61,25 @@ public class TenantJdbcConfig {
     }
 
     /**
-     * 第二道闸门：JDBC 层。
+     * 第二道闸门：{@code JdbcTemplate} 层（{@link TenantAwareJdbcTemplate}）。
      *
-     * <p>用 {@code DataSource} 包一层而不是改连接串：连接串里的
-     * {@code currentSchema} 之类参数无法承载"每次请求不同租户"这件事。
+     * <p><b>★ 这里必须先说清楚一个被放弃的方案，否则下一个读代码的人会以为漏了</b>：
+     * 原本还设计了第三层 TenantDataSource（用动态代理包 JDBC
+     * {@code Connection}，拦 {@code prepareStatement}）—— 理论上它能覆盖
+     * "在 lambda 里自己 {@code prepareStatement}" 的那 19 处 INSERT。
+     *
+     * <p>放弃它的原因不是"没想到"，而是**Spring 的 bean 生命周期不允许**：
+     * 把 {@code DataSource} 包一层并要求"原始 DataSource"作为参数，
+     * 无论用 {@code @Qualifier} 还是 {@code ObjectProvider}，都会形成
+     * {@code tenantDataSource → DataSource → tenantDataSource} 的自引用，
+     * 实测报 {@code BeanCurrentlyInCreationException: unresolvable circular reference}，
+     * 53 个测试类全红。而启动期就炸的隔离层等于没有隔离层。
+     *
+     * <p>于是那 19 处改为"把 SQL 文本提出来"（见 {@code TenantJdbc}）：这不是妥协，
+     * 而是更好的解法 —— 文本可见之后，<b>断言</b>就能直接对着它做
+     * （{@code TenantSqlGuardTest} 逐条检查"这条 INSERT 有没有 tenant_id 列"），
+     * 而动态代理那种"运行时才生效"的拦截根本无法被断言。
      */
-    @Bean
-    @Primary
-    public DataSource dataSource(DataSource original,
-                                 TenantEnforcement enforcement) {
-        return new TenantDataSource(original, enforcement.enabled());
-    }
-
-    /** 第一道闸门：{@code JdbcTemplate} 层。 */
     @Bean
     @Primary
     public org.springframework.jdbc.core.JdbcTemplate jdbcTemplate(
