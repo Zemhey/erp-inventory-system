@@ -36,30 +36,42 @@ public class WarehouseRepository {
         this.jdbc = jdbc;
     }
 
-    public long insert(String code, String name, String address, boolean enabled) {
-        return insert(code, name, address, enabled, 100);
-    }
-
-    public long insert(String code, String name, String address, boolean enabled, int priority) {
+    /**
+     * 插入仓库，可带建单幂等键（V2-C1）。
+     *
+     * <p>{@code create_request_id} 上的局部唯一索引 {@code uq_warehouse_create_request}
+     * 是幂等的<b>最终保证</b>：应用层的"先按键回查"只负责把重放变成友好返回，
+     * 并发下同键的两个请求里必有一个在这里被数据库拦住（与 {@code uq_po_request} 同一分工）。
+     */
+    public long insert(String code, String name, String address, boolean enabled, int priority,
+                       String requestId) {
         KeyHolder keys = new GeneratedKeyHolder();
         try {
             jdbc.update(con -> {
                 var ps = con.prepareStatement("""
-                        INSERT INTO warehouses (code, name, address, enabled, priority)
-                        VALUES (?, ?, ?, ?, ?)
+                        INSERT INTO warehouses (code, name, address, enabled, priority,
+                                                create_request_id)
+                        VALUES (?, ?, ?, ?, ?, ?)
                         """, new String[]{"id"});
                 ps.setString(1, code);
                 ps.setString(2, name);
                 ps.setString(3, address);
                 ps.setBoolean(4, enabled);
                 ps.setInt(5, priority);
+                ps.setString(6, requestId);
                 return ps;
             }, keys);
         } catch (DataIntegrityViolationException ex) {
-            BusinessException translated = DbErrors.translate(ex, "uq_warehouse_code",
+            BusinessException duplicatedCode = DbErrors.translate(ex, "uq_warehouse_code",
                     ErrorCode.MDM_CODE_DUPLICATED, "仓库编码已存在：code=%s".formatted(code));
-            if (translated != null) {
-                throw translated;
+            if (duplicatedCode != null) {
+                throw duplicatedCode;
+            }
+            BusinessException duplicatedRequest = DbErrors.translate(ex, "uq_warehouse_create_request",
+                    ErrorCode.SYS_DUPLICATE_REQUEST,
+                    "幂等键已用于另一次建仓库：requestId=%s".formatted(requestId));
+            if (duplicatedRequest != null) {
+                throw duplicatedRequest;
             }
             throw ex;
         }
@@ -68,6 +80,19 @@ public class WarehouseRepository {
             throw new IllegalStateException("插入仓库后未取得主键：code=" + code);
         }
         return id.longValue();
+    }
+
+    /**
+     * 按建仓库的幂等键回查。
+     *
+     * <p>{@code requestId} 为 null 时条件变成 {@code = NULL}，SQL 语义天然返回空集，
+     * 因此不需要额外的判空分支（与 {@code PurchaseRequisitionRepository.findByRequestId} 一致）。
+     */
+    public Optional<Warehouse> findByRequestId(String requestId) {
+        return jdbc.query("""
+                SELECT id, code, name, address, enabled, priority
+                  FROM warehouses WHERE create_request_id = ?
+                """, MAPPER, requestId).stream().findFirst();
     }
 
     public Optional<Warehouse> findById(long id) {
@@ -114,5 +139,37 @@ public class WarehouseRepository {
         return jdbc.update("""
                 UPDATE warehouses SET enabled = FALSE, updated_at = now() WHERE id = ?
                 """, id) == 1;
+    }
+
+    /**
+     * 带幂等键停用（V2-C1）。
+     *
+     * <p>谓词 {@code AND enabled} 让"已经是停用态"这一事实自己完成幂等：
+     * 重复点击不再写第二行、不再推后 {@code updated_at}，应用服务据 0 行判为重放。
+     * 而"停用后被重新启用、再用原键停一次"会真的生效 —— 那是一次真实的状态变更，
+     * 不该因为键见过就被吞掉。
+     *
+     * <p>键被用在<b>另一行</b>上时（客户端把同一个键打到两个资源），
+     * 局部唯一索引 {@code uq_warehouse_disable_request} 会拦住并翻成 409 ——
+     * 那种情况返回"已停用"是错的，调用方需要知道自己用错了键。
+     *
+     * @return true 表示本次调用真的把启用态改成了停用；false 表示没有可改的（重放）
+     */
+    public boolean disable(long id, String requestId) {
+        try {
+            return jdbc.update("""
+                    UPDATE warehouses
+                       SET enabled = FALSE, disable_request_id = ?, updated_at = now()
+                     WHERE id = ? AND enabled
+                    """, requestId, id) == 1;
+        } catch (DataIntegrityViolationException ex) {
+            BusinessException translated = DbErrors.translate(ex, "uq_warehouse_disable_request",
+                    ErrorCode.SYS_DUPLICATE_REQUEST,
+                    "幂等键已用于另一次停用：requestId=%s".formatted(requestId));
+            if (translated != null) {
+                throw translated;
+            }
+            throw ex;
+        }
     }
 }

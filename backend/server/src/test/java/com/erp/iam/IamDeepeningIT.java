@@ -25,6 +25,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -250,7 +251,7 @@ class IamDeepeningIT extends PostgresTestBase {
         String token = authentication.login("live", "L1ve!pass").token();
 
         // VIEWER 没有 mdm:write → 建商品被拒
-        mvc.perform(post("/api/v1/products")
+        mvc.perform(post("/api/v1/products").header("X-Request-Id", UUID.randomUUID().toString())
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(Map.of(
@@ -264,7 +265,7 @@ class IamDeepeningIT extends PostgresTestBase {
         admin.replacePermissions(viewerRoleId, perms);
 
         // ★ 不重新登录，同一个 token 的下一个请求就必须放行
-        mvc.perform(post("/api/v1/products")
+        mvc.perform(post("/api/v1/products").header("X-Request-Id", UUID.randomUUID().toString())
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(Map.of(
@@ -275,7 +276,7 @@ class IamDeepeningIT extends PostgresTestBase {
         // 再撤掉 → 立刻恢复 403
         admin.replacePermissions(viewerRoleId, List.of("mdm:read", "inv:read",
                 "pur:read", "sal:read", "aps:read", "iam:read"));
-        mvc.perform(post("/api/v1/products")
+        mvc.perform(post("/api/v1/products").header("X-Request-Id", UUID.randomUUID().toString())
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(Map.of(

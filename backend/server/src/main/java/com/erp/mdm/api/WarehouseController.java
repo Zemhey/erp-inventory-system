@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -63,12 +64,22 @@ public class WarehouseController {
         return ResponseEntity.ok(ApiResponses.ok(toMap(warehouses.require(id))));
     }
 
+    /**
+     * 建仓库。
+     *
+     * <p>{@code X-Request-Id} 是契约声明的幂等键，落库为 {@code warehouses.create_request_id}
+     * 的局部唯一索引（V15）：同键重放返回首次建成的那一行，不再插入第二行。
+     * 缺失时由 {@code GlobalExceptionHandler} 翻成 400，
+     * 并被 {@code AuditSafetyNetFilter} 记成一条 FAIL 审计。
+     */
     @PostMapping
     @RequirePermission("mdm:write")
-    public ResponseEntity<Map<String, Object>> create(@Valid @RequestBody CreateRequest req) {
+    public ResponseEntity<Map<String, Object>> create(
+            @RequestHeader("X-Request-Id") @NotBlank String requestId,
+            @Valid @RequestBody CreateRequest req) {
         Warehouse w = warehouses.create(new WarehouseApplicationService.CreateCommand(
                 req.code(), req.name(), req.address(), req.enabled() == null || req.enabled(),
-                req.priority()));
+                req.priority(), requestId));
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.ok(toMap(w)));
     }
 
@@ -82,10 +93,18 @@ public class WarehouseController {
         return ResponseEntity.ok(ApiResponses.ok(toMap(w)));
     }
 
+    /**
+     * 停用仓库。
+     *
+     * <p>契约在这里也声明了 {@code X-Request-Id}，所以停用同样要记住这个键
+     * （{@code warehouses.disable_request_id}）：同键重放不再写第二次。
+     */
     @PostMapping("/{id}/disable")
     @RequirePermission("mdm:write")
-    public ResponseEntity<Map<String, Object>> disable(@PathVariable long id) {
-        warehouses.disable(id);
+    public ResponseEntity<Map<String, Object>> disable(
+            @PathVariable long id,
+            @RequestHeader("X-Request-Id") @NotBlank String requestId) {
+        warehouses.disable(id, requestId);
         return ResponseEntity.ok(ApiResponses.ok(toMap(warehouses.require(id))));
     }
 

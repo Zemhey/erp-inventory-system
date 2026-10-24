@@ -3,6 +3,7 @@ package com.erp.sys.application;
 import com.erp.sys.domain.AuditAction;
 import com.erp.sys.domain.AuditResult;
 import com.erp.shared.error.BusinessException;
+import com.erp.shared.idem.IdempotencyReplay;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.Map;
@@ -127,6 +128,16 @@ public class AuditAspect {
             recordSafely(request, action, resourceType, pathResourceId, beforeJson, null,
                     AuditResult.FAIL, errorCodeOf(ex));
             throw ex;
+        }
+
+        if (IdempotencyReplay.isReplayed(request)) {
+            // 幂等重放：业务侧一行都没写、一个序列都没推进，留痕只会把"谁改了什么"
+            // 稀释成"客户端重试了几次"。日志仍然记录，可观测性没有黑洞。
+            // ★ 但仍然要置 AUDITED_ATTR：否则 AuditSafetyNetFilter 会认为"切面没跑"，
+            //   补一条 result=FAIL 的兜底审计 —— 那比重复更糟，一次成功的重放被记成失败。
+            request.setAttribute(AuditSafetyNetFilter.AUDITED_ATTR, Boolean.TRUE);
+            log.info("幂等重放，跳过审计留痕 path={} actor={}", path, actorNameOf(request));
+            return result;
         }
 
         recordSafely(request, action, resourceType,

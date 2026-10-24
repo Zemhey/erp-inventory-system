@@ -6,6 +6,7 @@ import com.erp.mdm.repository.ProductRepository;
 import com.erp.mdm.repository.SkuRepository;
 import com.erp.shared.error.BusinessException;
 import com.erp.shared.error.ErrorCode;
+import com.erp.shared.idem.IdempotencyReplay;
 import com.erp.shared.web.PageResult;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -46,11 +47,18 @@ public class SkuApplicationService {
     public record CreateCommand(long productId, String color, String size, String barcode,
                                 long retailPriceAmount, boolean enabled,
                                 String seasonCode, String bandCode,
-                                java.time.LocalDate launchDate) {
+                                java.time.LocalDate launchDate, String requestId) {
 
         public CreateCommand(long productId, String color, String size, String barcode,
                              long retailPriceAmount, boolean enabled) {
-            this(productId, color, size, barcode, retailPriceAmount, enabled, null, null, null);
+            this(productId, color, size, barcode, retailPriceAmount, enabled, null, null, null, null);
+        }
+
+        public CreateCommand(long productId, String color, String size, String barcode,
+                             long retailPriceAmount, boolean enabled,
+                             String seasonCode, String bandCode, java.time.LocalDate launchDate) {
+            this(productId, color, size, barcode, retailPriceAmount, enabled,
+                    seasonCode, bandCode, launchDate, null);
         }
     }
 
@@ -74,8 +82,20 @@ public class SkuApplicationService {
     public record MatrixResult(List<Sku> created, int skipped) {
     }
 
+    /**
+     * 建单条 SKU（FR-MDM-01 + V2-C1 幂等）。
+     *
+     * <p>回查-插入-并发兜底三步与 {@link WarehouseApplicationService#create} 同构。
+     * 幂等键与 {@code uq_sku_variant} 是两层互不相干的保护：前者管"同一个请求到了几次"，
+     * 后者管"同一个商品下颜色×尺码是否重复"。
+     */
     @Transactional
     public Sku create(CreateCommand cmd) {
+        var replay = skus.findByRequestId(cmd.requestId());
+        if (replay.isPresent()) {
+            IdempotencyReplay.markCurrentRequest();
+            return replay.get();
+        }
         requireProduct(cmd.productId());
         long id = skus.insert(cmd.productId(),
                 requireText(cmd.color(), "颜色"),
@@ -85,7 +105,8 @@ public class SkuApplicationService {
                 cmd.enabled(),
                 trimToNull(cmd.seasonCode()),
                 trimToNull(cmd.bandCode()),
-                cmd.launchDate());
+                cmd.launchDate(),
+                cmd.requestId());
         return skus.findById(id).orElseThrow();
     }
 

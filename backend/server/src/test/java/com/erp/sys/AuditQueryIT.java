@@ -12,6 +12,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -327,7 +328,7 @@ class AuditQueryIT extends PostgresTestBase {
     }
 
     private long createProduct(String code, String name) throws Exception {
-        MvcResult result = mvc.perform(post("/api/v1/products")
+        MvcResult result = mvc.perform(post("/api/v1/products").header("X-Request-Id", UUID.randomUUID().toString())
                         .header("Authorization", adminAuth)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""

@@ -12,6 +12,7 @@ import com.erp.sys.application.MetricsRecorder;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -69,7 +70,7 @@ class MetricsAndTraceIT extends PostgresTestBase {
     @DisplayName("★ 下单数随成功建单递增（指标真的在计数，不是只注册了个空名字）")
     void orderCreatedCounter_increments() throws Exception {
         double before = metrics.counterValue("erp.order.placed", "orderType", "product");
-        mvc.perform(post("/api/v1/products").header("Authorization", adminAuth)
+        mvc.perform(post("/api/v1/products").header("X-Request-Id", UUID.randomUUID().toString()).header("Authorization", adminAuth)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {"code": "M-P2", "name": "计数商品"}"""));
@@ -83,7 +84,7 @@ class MetricsAndTraceIT extends PostgresTestBase {
     @CaseId("TC-SYS-081")
     @DisplayName("★ 失败数按错误码分维度：非法参数产生 errorCode 维度并 +1")
     void orderFailedCounter_isTaggedByErrorCode() throws Exception {
-        mvc.perform(post("/api/v1/products").header("Authorization", adminAuth)
+        mvc.perform(post("/api/v1/products").header("X-Request-Id", UUID.randomUUID().toString()).header("Authorization", adminAuth)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {"code": "", "name": "缺编码商品"}"""));
@@ -98,7 +99,7 @@ class MetricsAndTraceIT extends PostgresTestBase {
     @CaseId("TC-SYS-082")
     @DisplayName("★ 审计行数 gauge 与实际行数一致（审计链路没停的看板信号）")
     void auditLogsGauge_matchesTable() throws Exception {
-        mvc.perform(post("/api/v1/products").header("Authorization", adminAuth)
+        mvc.perform(post("/api/v1/products").header("X-Request-Id", UUID.randomUUID().toString()).header("Authorization", adminAuth)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {"code": "M-P3", "name": "计数 gauge 商品"}"""));
@@ -135,7 +136,7 @@ class MetricsAndTraceIT extends PostgresTestBase {
     void logsAreRetrievableByTraceId() {
         String traceId = "trace-log-0001";
         List<String> lines = com.erp.support.TraceLogCapture.capture(() ->
-                        mvc.perform(post("/api/v1/products")
+                        mvc.perform(post("/api/v1/products").header("X-Request-Id", UUID.randomUUID().toString())
                                         .header("Authorization", adminAuth)
                                         .header("X-Trace-Id", traceId)
                                         .contentType(MediaType.APPLICATION_JSON)
@@ -153,14 +154,14 @@ class MetricsAndTraceIT extends PostgresTestBase {
     @CaseId("TC-SYS-085")
     @DisplayName("不同请求的 traceId 互不串味（并发安全：MDC 用完即清）")
     void traceIds_doNotLeakBetweenRequests() throws Exception {
-        MvcResult first = mvc.perform(post("/api/v1/products")
+        MvcResult first = mvc.perform(post("/api/v1/products").header("X-Request-Id", UUID.randomUUID().toString())
                         .header("Authorization", adminAuth)
                         .header("X-Trace-Id", "trace-iso-a")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"code": "M-P5", "name": "隔离商品 A"}"""))
                 .andReturn();
-        MvcResult second = mvc.perform(post("/api/v1/products")
+        MvcResult second = mvc.perform(post("/api/v1/products").header("X-Request-Id", UUID.randomUUID().toString())
                         .header("Authorization", adminAuth)
                         .header("X-Trace-Id", "trace-iso-b")
                         .contentType(MediaType.APPLICATION_JSON)

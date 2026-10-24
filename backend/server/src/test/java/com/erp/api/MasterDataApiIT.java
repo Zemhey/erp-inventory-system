@@ -14,6 +14,7 @@ import com.erp.support.TestDataFactory;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -68,7 +69,7 @@ class MasterDataApiIT extends PostgresTestBase {
     @CaseId("TC-API-001")
     @DisplayName("商品：建 → 查 → 改 → 停用 全链路，响应包络符合契约")
     void product_crudFlow() throws Exception {
-        MvcResult created = mvc.perform(post("/api/v1/products")
+        MvcResult created = mvc.perform(post("/api/v1/products").header("X-Request-Id", UUID.randomUUID().toString())
                         .header("Authorization", auth)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(Map.of(
@@ -106,11 +107,11 @@ class MasterDataApiIT extends PostgresTestBase {
     @DisplayName("商品：编码重复 → 409 MDM_CODE_DUPLICATED；不存在 → 404 SYS_NOT_FOUND")
     void product_conflictAndNotFound() throws Exception {
         String body = json.writeValueAsString(Map.of("code", "P-API-DUP", "name", "重复商品"));
-        mvc.perform(post("/api/v1/products").header("Authorization", auth)
+        mvc.perform(post("/api/v1/products").header("X-Request-Id", UUID.randomUUID().toString()).header("Authorization", auth)
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isCreated());
 
-        mvc.perform(post("/api/v1/products").header("Authorization", auth)
+        mvc.perform(post("/api/v1/products").header("X-Request-Id", UUID.randomUUID().toString()).header("Authorization", auth)
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("MDM_CODE_DUPLICATED"));
@@ -124,13 +125,13 @@ class MasterDataApiIT extends PostgresTestBase {
     @CaseId("TC-API-003")
     @DisplayName("★ 参数校验：编码过短 / 名称为空 → 400 SYS_VALIDATION_ERROR（不是 500）")
     void product_validationErrors() throws Exception {
-        mvc.perform(post("/api/v1/products").header("Authorization", auth)
+        mvc.perform(post("/api/v1/products").header("X-Request-Id", UUID.randomUUID().toString()).header("Authorization", auth)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(Map.of("code", "X", "name", "名字"))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("SYS_VALIDATION_ERROR"));
 
-        mvc.perform(post("/api/v1/products").header("Authorization", auth)
+        mvc.perform(post("/api/v1/products").header("X-Request-Id", UUID.randomUUID().toString()).header("Authorization", auth)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(Map.of("code", "P-OK-1", "name", ""))))
                 .andExpect(status().isBadRequest())
@@ -142,7 +143,7 @@ class MasterDataApiIT extends PostgresTestBase {
     @DisplayName("商品列表分页：items/total/page/size 齐全，size 越界被钳制到 200")
     void product_paging() throws Exception {
         for (int i = 1; i <= 3; i++) {
-            mvc.perform(post("/api/v1/products").header("Authorization", auth)
+            mvc.perform(post("/api/v1/products").header("X-Request-Id", UUID.randomUUID().toString()).header("Authorization", auth)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(json.writeValueAsString(
                                     Map.of("code", "P-PG-" + i, "name", "分页商品" + i))))
@@ -171,7 +172,7 @@ class MasterDataApiIT extends PostgresTestBase {
     void sku_createAndMatrix() throws Exception {
         long productId = createProduct("P-SKU-API");
 
-        mvc.perform(post("/api/v1/skus").header("Authorization", auth)
+        mvc.perform(post("/api/v1/skus").header("X-Request-Id", UUID.randomUUID().toString()).header("Authorization", auth)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(Map.of(
                                 "productId", productId, "color", "白色", "size", "L",
@@ -214,7 +215,7 @@ class MasterDataApiIT extends PostgresTestBase {
     @DisplayName("SKU 列表按商品过滤；不存在的商品查 SKU → 404")
     void sku_listAndNotFound() throws Exception {
         long productId = createProduct("P-SKU-LIST");
-        mvc.perform(post("/api/v1/skus").header("Authorization", auth)
+        mvc.perform(post("/api/v1/skus").header("X-Request-Id", UUID.randomUUID().toString()).header("Authorization", auth)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(Map.of(
                                 "productId", productId, "color", "灰色", "size", "XL"))))
@@ -273,7 +274,7 @@ class MasterDataApiIT extends PostgresTestBase {
     @CaseId("TC-API-007")
     @DisplayName("供应商：建 → 重复 409 → 改 → 停用")
     void supplier_crud() throws Exception {
-        MvcResult r = mvc.perform(post("/api/v1/suppliers").header("Authorization", auth)
+        MvcResult r = mvc.perform(post("/api/v1/suppliers").header("X-Request-Id", UUID.randomUUID().toString()).header("Authorization", auth)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(Map.of(
                                 "code", "SUP-API", "name", "接口供应商",
@@ -283,7 +284,7 @@ class MasterDataApiIT extends PostgresTestBase {
                 .andReturn();
         long id = json.readTree(r.getResponse().getContentAsString()).path("data").path("id").asLong();
 
-        mvc.perform(post("/api/v1/suppliers").header("Authorization", auth)
+        mvc.perform(post("/api/v1/suppliers").header("X-Request-Id", UUID.randomUUID().toString()).header("Authorization", auth)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(Map.of("code", "SUP-API", "name", "另一个"))))
                 .andExpect(status().isConflict())
@@ -295,7 +296,7 @@ class MasterDataApiIT extends PostgresTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.name").value("改名供应商"));
 
-        mvc.perform(post("/api/v1/suppliers/" + id + "/disable").header("Authorization", auth))
+        mvc.perform(post("/api/v1/suppliers/" + id + "/disable").header("X-Request-Id", UUID.randomUUID().toString()).header("Authorization", auth))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.enabled").value(false));
 
@@ -308,20 +309,20 @@ class MasterDataApiIT extends PostgresTestBase {
     @CaseId("TC-API-008")
     @DisplayName("★ 客户折扣率：越界 400（契约层校验），合法 9 折成功")
     void customer_discountValidation() throws Exception {
-        mvc.perform(post("/api/v1/customers").header("Authorization", auth)
+        mvc.perform(post("/api/v1/customers").header("X-Request-Id", UUID.randomUUID().toString()).header("Authorization", auth)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(Map.of(
                                 "code", "CUS-API", "name", "接口客户", "discountRate", 0))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("SYS_VALIDATION_ERROR"));
 
-        mvc.perform(post("/api/v1/customers").header("Authorization", auth)
+        mvc.perform(post("/api/v1/customers").header("X-Request-Id", UUID.randomUUID().toString()).header("Authorization", auth)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(Map.of(
                                 "code", "CUS-API", "name", "接口客户", "discountRate", 10001))))
                 .andExpect(status().isBadRequest());
 
-        mvc.perform(post("/api/v1/customers").header("Authorization", auth)
+        mvc.perform(post("/api/v1/customers").header("X-Request-Id", UUID.randomUUID().toString()).header("Authorization", auth)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(Map.of(
                                 "code", "CUS-API", "name", "接口客户",
@@ -335,14 +336,14 @@ class MasterDataApiIT extends PostgresTestBase {
     @CaseId("TC-API-009")
     @DisplayName("仓库：列表返回数组（非分页）；onlyEnabled 过滤生效")
     void warehouse_listAndFilter() throws Exception {
-        MvcResult r = mvc.perform(post("/api/v1/warehouses").header("Authorization", auth)
+        MvcResult r = mvc.perform(post("/api/v1/warehouses").header("X-Request-Id", UUID.randomUUID().toString()).header("Authorization", auth)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(
                                 Map.of("code", "WH-API-1", "name", "接口仓一"))))
                 .andExpect(status().isCreated())
                 .andReturn();
         long id = json.readTree(r.getResponse().getContentAsString()).path("data").path("id").asLong();
-        mvc.perform(post("/api/v1/warehouses").header("Authorization", auth)
+        mvc.perform(post("/api/v1/warehouses").header("X-Request-Id", UUID.randomUUID().toString()).header("Authorization", auth)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(
                                 Map.of("code", "WH-API-2", "name", "接口仓二"))))
@@ -352,7 +353,7 @@ class MasterDataApiIT extends PostgresTestBase {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.length()").value(2));
 
-        mvc.perform(post("/api/v1/warehouses/" + id + "/disable").header("Authorization", auth))
+        mvc.perform(post("/api/v1/warehouses/" + id + "/disable").header("X-Request-Id", UUID.randomUUID().toString()).header("Authorization", auth))
                 .andExpect(status().isOk());
 
         mvc.perform(get("/api/v1/warehouses").param("onlyEnabled", "true").header("Authorization", auth))
@@ -382,7 +383,7 @@ class MasterDataApiIT extends PostgresTestBase {
     }
 
     private long createProduct(String code) throws Exception {
-        MvcResult r = mvc.perform(post("/api/v1/products").header("Authorization", auth)
+        MvcResult r = mvc.perform(post("/api/v1/products").header("X-Request-Id", UUID.randomUUID().toString()).header("Authorization", auth)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(Map.of("code", code, "name", "商品-" + code))))
                 .andExpect(status().isCreated())

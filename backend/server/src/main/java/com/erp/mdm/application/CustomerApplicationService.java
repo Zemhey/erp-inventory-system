@@ -4,6 +4,7 @@ import com.erp.mdm.domain.Customer;
 import com.erp.mdm.repository.CustomerRepository;
 import com.erp.shared.error.BusinessException;
 import com.erp.shared.error.ErrorCode;
+import com.erp.shared.idem.IdempotencyReplay;
 import com.erp.shared.web.PageResult;
 import java.util.Collection;
 import java.util.Map;
@@ -30,15 +31,32 @@ public class CustomerApplicationService {
     }
 
     public record CreateCommand(String code, String name, String phone, int discountRate,
-                                String level, boolean enabled) {
+                                String level, boolean enabled, String requestId) {
+
+        public CreateCommand(String code, String name, String phone, int discountRate,
+                             String level, boolean enabled) {
+            this(code, name, phone, discountRate, level, enabled, null);
+        }
     }
 
     public record UpdateCommand(String name, String phone, int discountRate,
                                 String level, boolean enabled) {
     }
 
+    /**
+     * 建客户（FR-MDM-03 + V2-C1 幂等）。
+     *
+     * <p>回查-插入-并发兜底三步与 {@link WarehouseApplicationService#create} 同构；
+     * 幂等命中时直接返回首次那一行，连折扣率这类业务校验也不再重复跑
+     * —— 重放要的语义是"把上次的结果给我"，不是"再判一次我有没有写错"。
+     */
     @Transactional
     public Customer create(CreateCommand cmd) {
+        var replay = customers.findByRequestId(cmd.requestId());
+        if (replay.isPresent()) {
+            IdempotencyReplay.markCurrentRequest();
+            return replay.get();
+        }
         int rate = requireValidDiscountRate(cmd.discountRate());
         long id = customers.insert(
                 ProductApplicationService.requireText(cmd.code(), "客户编码"),
@@ -46,7 +64,8 @@ public class CustomerApplicationService {
                 ProductApplicationService.trimToNull(cmd.phone()),
                 rate,
                 requireLevel(cmd.level()),
-                cmd.enabled());
+                cmd.enabled(),
+                cmd.requestId());
         return require(id);
     }
 
@@ -109,12 +128,25 @@ public class CustomerApplicationService {
         return require(id);
     }
 
+    /** 停用客户，不带幂等键。 */
     @Transactional
     public void disable(long id) {
         require(id);
         if (!customers.disable(id)) {
             throw new BusinessException(ErrorCode.SYS_NOT_FOUND,
                     "客户不存在：id=%d".formatted(id));
+        }
+    }
+
+    /**
+     * 停用客户（V2-C1 幂等）。0 行（已是停用态）判为重放、不留第二条审计；
+     * 语义与 {@link WarehouseApplicationService#disable(long, String)} 完全一致。
+     */
+    @Transactional
+    public void disable(long id, String requestId) {
+        require(id);
+        if (!customers.disable(id, requestId)) {
+            IdempotencyReplay.markCurrentRequest();
         }
     }
 

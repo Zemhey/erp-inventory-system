@@ -14,6 +14,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -325,7 +326,7 @@ class AuditCoreIT extends PostgresTestBase {
     @DisplayName("★ traceId 贯穿：请求头 → 响应头 → 审计行，三处同值")
     void traceId_propagatesFromHeaderToResponseAndAudit() throws Exception {
         String given = "trace-fixed-0001";
-        MvcResult result = mvc.perform(post("/api/v1/products")
+        MvcResult result = mvc.perform(post("/api/v1/products").header("X-Request-Id", UUID.randomUUID().toString())
                         .header("Authorization", adminAuth)
                         .header("X-Trace-Id", given)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -351,7 +352,7 @@ class AuditCoreIT extends PostgresTestBase {
     @CaseId("TC-SYS-044")
     @DisplayName("无 X-Trace-Id 时自动生成，且响应头与审计行一致")
     void traceId_generatedWhenAbsent() throws Exception {
-        MvcResult result = mvc.perform(post("/api/v1/products")
+        MvcResult result = mvc.perform(post("/api/v1/products").header("X-Request-Id", UUID.randomUUID().toString())
                         .header("Authorization", adminAuth)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -378,7 +379,7 @@ class AuditCoreIT extends PostgresTestBase {
     @DisplayName("按 traceId 能捞出该请求的全部审计（查询接口 /audits/by-trace）")
     void auditsAreRetrievableByTraceId() throws Exception {
         String given = "trace-lookup-0002";
-        mvc.perform(post("/api/v1/products")
+        mvc.perform(post("/api/v1/products").header("X-Request-Id", UUID.randomUUID().toString())
                 .header("Authorization", adminAuth)
                 .header("X-Trace-Id", given)
                 .contentType(MediaType.APPLICATION_JSON)
@@ -542,7 +543,7 @@ class AuditCoreIT extends PostgresTestBase {
     // ─────────────────────────── 辅助 ───────────────────────────
 
     private long createProduct(String code, String name) throws Exception {
-        MvcResult result = mvc.perform(post("/api/v1/products")
+        MvcResult result = mvc.perform(post("/api/v1/products").header("X-Request-Id", UUID.randomUUID().toString())
                         .header("Authorization", adminAuth)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""

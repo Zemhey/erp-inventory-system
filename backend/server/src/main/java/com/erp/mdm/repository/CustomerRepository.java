@@ -45,14 +45,21 @@ public class CustomerRepository {
         this.jdbc = jdbc;
     }
 
+    /**
+     * 插入客户，可带建单幂等键（V2-C1）。
+     *
+     * <p>{@code uq_customer_create_request} 是幂等的最终保证；
+     * 分工与冲突翻译理由见 {@code WarehouseRepository.insert}。
+     */
     public long insert(String code, String name, String phone, int discountRate,
-                       String level, boolean enabled) {
+                       String level, boolean enabled, String requestId) {
         KeyHolder keys = new GeneratedKeyHolder();
         try {
             jdbc.update(con -> {
                 var ps = con.prepareStatement("""
-                        INSERT INTO customers (code, name, phone, discount_rate, level, enabled)
-                        VALUES (?, ?, ?, ?, ?, ?)
+                        INSERT INTO customers (code, name, phone, discount_rate, level, enabled,
+                                               create_request_id)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
                         """, new String[]{"id"});
                 ps.setString(1, code);
                 ps.setString(2, name);
@@ -60,13 +67,20 @@ public class CustomerRepository {
                 ps.setInt(4, discountRate);
                 ps.setString(5, level);
                 ps.setBoolean(6, enabled);
+                ps.setString(7, requestId);
                 return ps;
             }, keys);
         } catch (DataIntegrityViolationException ex) {
-            BusinessException translated = DbErrors.translate(ex, "uq_customer_code",
+            BusinessException duplicatedCode = DbErrors.translate(ex, "uq_customer_code",
                     ErrorCode.MDM_CODE_DUPLICATED, "客户编码已存在：code=%s".formatted(code));
-            if (translated != null) {
-                throw translated;
+            if (duplicatedCode != null) {
+                throw duplicatedCode;
+            }
+            BusinessException duplicatedRequest = DbErrors.translate(ex, "uq_customer_create_request",
+                    ErrorCode.SYS_DUPLICATE_REQUEST,
+                    "幂等键已用于另一次建客户：requestId=%s".formatted(requestId));
+            if (duplicatedRequest != null) {
+                throw duplicatedRequest;
             }
             throw ex;
         }
@@ -180,5 +194,48 @@ public class CustomerRepository {
         return jdbc.update("""
                 UPDATE customers SET enabled = FALSE, updated_at = now() WHERE id = ?
                 """, id) == 1;
+    }
+
+    // ─────────────────────────── 幂等键（V2-C1，见 V15） ───────────────────────────
+
+    /**
+     * 按建客户的幂等键回查。
+     *
+     * <p>null 键走 {@code = NULL} 天然返回空集，不需要判空分支（与
+     * {@code WarehouseRepository.findByRequestId} 同一理由）。
+     */
+    public Optional<Customer> findByRequestId(String requestId) {
+        return jdbc.query("""
+                SELECT id, code, name, phone, discount_rate, level, enabled,
+                       credit_limit, credit_days
+                  FROM customers WHERE create_request_id = ?
+                """, MAPPER, requestId).stream().findFirst();
+    }
+
+    /**
+     * 带幂等键停用。
+     *
+     * <p>谓词与冲突翻译的分工见 {@code WarehouseRepository.disable(long, String)}：
+     * {@code AND enabled} 让"已是停用态"自己完成幂等（0 行 = 无可改）；
+     * 键落在另一行上时由唯一索引拦下并翻成 409。
+     *
+     * @return true 表示本次调用真的改了状态
+     */
+    public boolean disable(long id, String requestId) {
+        try {
+            return jdbc.update("""
+                    UPDATE customers
+                       SET enabled = FALSE, disable_request_id = ?, updated_at = now()
+                     WHERE id = ? AND enabled
+                    """, requestId, id) == 1;
+        } catch (DataIntegrityViolationException ex) {
+            BusinessException translated = DbErrors.translate(ex, "uq_customer_disable_request",
+                    ErrorCode.SYS_DUPLICATE_REQUEST,
+                    "幂等键已用于另一次停用：requestId=%s".formatted(requestId));
+            if (translated != null) {
+                throw translated;
+            }
+            throw ex;
+        }
     }
 }
