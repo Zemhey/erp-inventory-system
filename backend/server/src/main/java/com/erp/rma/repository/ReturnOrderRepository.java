@@ -59,20 +59,25 @@ public class ReturnOrderRepository {
 
     private final JdbcTemplate jdbc;
 
-    public ReturnOrderRepository(JdbcTemplate jdbc) {
+    /** 数据权限（FR-IAM-04）：仓库 + 本人；过滤在仓储层，出口唯一。 */
+    private final com.erp.shared.scope.ScopeContext scope;
+
+    public ReturnOrderRepository(JdbcTemplate jdbc, com.erp.shared.scope.ScopeContext scope) {
         this.jdbc = jdbc;
+        this.scope = scope;
     }
 
+    /** 插入主表。{@code createdBy} 供数据权限"按本人"判定，系统任务可为 null。 */
     public long insertHeader(String orderNo, long originSalesOrderId, long customerId,
                              long warehouseId, LocalDate bizDate, long totalAmount, int totalQty,
-                             String period, String remark, String requestId) {
+                             String period, String remark, String requestId, Long createdBy) {
         KeyHolder keys = new GeneratedKeyHolder();
         jdbc.update(con -> {
             var ps = con.prepareStatement("""
                     INSERT INTO return_orders
                         (order_no, status, origin_sales_order_id, customer_id, warehouse_id,
-                         biz_date, total_amount, total_qty, period, remark, request_id)
-                    VALUES (?, 'DRAFT', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         biz_date, total_amount, total_qty, period, remark, request_id, created_by)
+                    VALUES (?, 'DRAFT', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, new String[]{"id"});
             ps.setString(1, orderNo);
             ps.setLong(2, originSalesOrderId);
@@ -84,6 +89,11 @@ public class ReturnOrderRepository {
             ps.setString(8, period);
             ps.setString(9, remark);
             ps.setString(10, requestId);
+            if (createdBy == null) {
+                ps.setNull(11, java.sql.Types.BIGINT);
+            } else {
+                ps.setLong(11, createdBy);
+            }
             return ps;
         }, keys);
         Number id = keys.getKey();
@@ -106,9 +116,15 @@ public class ReturnOrderRepository {
                 amount, batchNo == null ? "" : batchNo, productionDate, expiryDate);
     }
 
+    /**
+     * 查主表，<b>并施加数据权限</b>：越权 id 查不出行 → 上层 404（不是 403）。
+     */
     public Optional<ReturnOrder> findHeaderById(long id) {
-        return jdbc.query("SELECT " + HEADER_COLUMNS + " FROM return_orders WHERE id = ?",
-                ORDER_MAPPER, id).stream().findFirst();
+        java.util.List<Object> args = new java.util.ArrayList<>();
+        args.add(id);
+        String predicate = scope.predicates("warehouse_id", "created_by", args);
+        return jdbc.query("SELECT " + HEADER_COLUMNS + " FROM return_orders WHERE id = ?"
+                + predicate, ORDER_MAPPER, args.toArray()).stream().findFirst();
     }
 
     /** 建单幂等：同一 request_id 只能建成一张退货单（不变量 INV-9）。 */
@@ -182,6 +198,7 @@ public class ReturnOrderRepository {
             where.append(" AND origin_sales_order_id = ?");
             args.add(originSalesOrderId);
         }
+        where.append(scope.predicates("warehouse_id", "created_by", args));
         Long total = jdbc.queryForObject("SELECT COUNT(*) FROM return_orders" + where,
                 Long.class, args.toArray());
         List<Object> pageArgs = new ArrayList<>(args);

@@ -30,6 +30,38 @@ public enum ErrorCode {
     IAM_ACCOUNT_DISABLED(403),
     /** 密码连续错误达到阈值而锁定。 */
     IAM_ACCOUNT_LOCKED(423),
+    /**
+     * 密码不符合复杂度策略（FR-IAM-06）：长度/字符类别/常见弱口令。
+     *
+     * <p>与 {@code SYS_VALIDATION_ERROR} 分开：前端要能据这个码<b>跳到改密页</b>
+     * 并显示具体缺哪条规则，而不是笼统提示"参数错误"。
+     */
+    IAM_PASSWORD_WEAK(400),
+    /** 密码已过期或被标记为必须修改（FR-IAM-06）：除改密接口外一律拒绝。 */
+    IAM_PASSWORD_EXPIRED(403),
+    /** 用户不存在（FR-IAM-05 用户与角色管理）。 */
+    IAM_USER_NOT_FOUND(404),
+    /** 角色不存在，或引用了未定义的角色编码。 */
+    IAM_ROLE_NOT_FOUND(404),
+    /** 用户名已存在（撞 {@code uq_app_user_username}）。 */
+    IAM_USER_DUPLICATED(409),
+
+    // ── 审批流（FR-IAM-07、FR-APS-01/02）──
+    /** 审批状态非法转移（含"已终态的审批再来一次同意/驳回"）。 */
+    APS_STATUS_ILLEGAL(409),
+    /** 审批实例不存在。 */
+    APS_INSTANCE_NOT_FOUND(404),
+    /** 审批流定义不存在、未启用，或配置不合法（无节点、阈值倒挂）。 */
+    APS_FLOW_NOT_FOUND(404),
+    APS_FLOW_INVALID(400),
+    /** 该单据需要审批，但还没有提交审批实例。 */
+    APS_APPROVAL_REQUIRED(409),
+    /** 该单据的审批仍在进行中 —— 必须先完成审批才能审核单据。 */
+    APS_APPROVAL_PENDING(409),
+    /** 当前账号不是该节点的处理人（不具备节点要求的权限码）。 */
+    APS_NOT_APPROVER(403),
+    /** 同一张单据已有未结的审批实例。 */
+    APS_INSTANCE_ALREADY_OPEN(409),
 
     // ── 库存 ──
     INV_INSUFFICIENT_STOCK(409),

@@ -14,6 +14,8 @@ import java.util.Set;
  * @param enabled        是否启用
  * @param failedAttempts 连续登录失败次数
  * @param lockedUntil    锁定截止时刻（null = 未锁定）
+ * @param passwordExpiresAt 密码过期时刻（null = 不按时间过期，FR-IAM-06）
+ * @param mustChangePassword 是否强制改密（管理员重置密码/首次登录时置真）
  * @param roles          角色编码
  * @param permissions    权限码（角色->权限展开后的并集）
  *
@@ -32,6 +34,7 @@ import java.util.Set;
  */
 public record AppUser(long id, String username, String passwordHash, String displayName,
                       boolean enabled, int failedAttempts, Instant lockedUntil,
+                      Instant passwordExpiresAt, boolean mustChangePassword,
                       List<String> roles, Set<String> permissions) {
 
     public AppUser {

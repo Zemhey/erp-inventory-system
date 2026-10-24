@@ -32,13 +32,16 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtFilter;
+    private final PasswordExpiryFilter passwordExpiryFilter;
     private final AuthenticationService authentication;
     private final ObjectMapper objectMapper;
 
     public SecurityConfig(JwtAuthenticationFilter jwtFilter,
+                          PasswordExpiryFilter passwordExpiryFilter,
                           AuthenticationService authentication,
                           ObjectMapper objectMapper) {
         this.jwtFilter = jwtFilter;
+        this.passwordExpiryFilter = passwordExpiryFilter;
         this.authentication = authentication;
         this.objectMapper = objectMapper;
     }
@@ -73,6 +76,9 @@ public class SecurityConfig {
                         writeError(res, HttpServletResponse.SC_FORBIDDEN, "IAM_FORBIDDEN",
                                 "当前账号无权执行该操作")))
             .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class)
+            // ★ 密码过期拦截必须在 JWT 之后：它依赖已注入的身份来判断"这个人是否必须改密"。
+            //   顺序错了就变成"对所有请求都拦"或"从不拦"。
+            .addFilterAfter(passwordExpiryFilter, JwtAuthenticationFilter.class)
             .httpBasic(AbstractHttpConfigurer::disable)
             .formLogin(AbstractHttpConfigurer::disable);
         return http.build();
