@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -65,10 +66,12 @@ public class SupplierController {
 
     @PostMapping
     @RequirePermission("mdm:write")
-    public ResponseEntity<Map<String, Object>> create(@Valid @RequestBody CreateRequest req) {
+    public ResponseEntity<Map<String, Object>> create(
+            @RequestHeader("X-Request-Id") @NotBlank String requestId,
+            @Valid @RequestBody CreateRequest req) {
         Supplier s = suppliers.create(new SupplierApplicationService.CreateCommand(
                 req.code(), req.name(), req.contactName(), req.contactPhone(), req.address(),
-                req.enabled() == null || req.enabled()));
+                req.enabled() == null || req.enabled(), requestId));
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.ok(toMap(s)));
     }
 
@@ -82,10 +85,13 @@ public class SupplierController {
         return ResponseEntity.ok(ApiResponses.ok(toMap(s)));
     }
 
+    /** 停用供应商。{@code X-Request-Id} 记入 {@code suppliers.disable_request_id}，同键重放不再写第二次。 */
     @PostMapping("/{id}/disable")
     @RequirePermission("mdm:write")
-    public ResponseEntity<Map<String, Object>> disable(@PathVariable long id) {
-        suppliers.disable(id);
+    public ResponseEntity<Map<String, Object>> disable(
+            @PathVariable long id,
+            @RequestHeader("X-Request-Id") @NotBlank String requestId) {
+        suppliers.disable(id, requestId);
         return ResponseEntity.ok(ApiResponses.ok(toMap(suppliers.require(id))));
     }
 

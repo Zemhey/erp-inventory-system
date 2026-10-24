@@ -39,26 +39,41 @@ public class ProductRepository {
         this.jdbc = jdbc;
     }
 
-    public long insert(String code, String name, String category, String season, boolean enabled) {
+    /**
+     * 插入商品，可带建单幂等键（V2-C1）。
+     *
+     * <p>{@code uq_product_create_request} 是幂等的最终保证；
+     * 分工与冲突翻译理由见 {@code WarehouseRepository.insert}。
+     */
+    public long insert(String code, String name, String category, String season, boolean enabled,
+                       String requestId) {
         KeyHolder keys = new GeneratedKeyHolder();
         try {
             jdbc.update(con -> {
                 var ps = con.prepareStatement("""
-                        INSERT INTO products (code, name, category, season, enabled)
-                        VALUES (?, ?, ?, ?, ?)
+                        INSERT INTO products (code, name, category, season, enabled,
+                                              create_request_id)
+                        VALUES (?, ?, ?, ?, ?, ?)
                         """, new String[]{"id"});
                 ps.setString(1, code);
                 ps.setString(2, name);
                 ps.setString(3, category);
                 ps.setString(4, season);
                 ps.setBoolean(5, enabled);
+                ps.setString(6, requestId);
                 return ps;
             }, keys);
         } catch (DataIntegrityViolationException ex) {
-            BusinessException translated = DbErrors.translate(ex, "uq_product_code",
+            BusinessException duplicatedCode = DbErrors.translate(ex, "uq_product_code",
                     ErrorCode.MDM_CODE_DUPLICATED, "商品编码已存在：code=%s".formatted(code));
-            if (translated != null) {
-                throw translated;
+            if (duplicatedCode != null) {
+                throw duplicatedCode;
+            }
+            BusinessException duplicatedRequest = DbErrors.translate(ex, "uq_product_create_request",
+                    ErrorCode.SYS_DUPLICATE_REQUEST,
+                    "幂等键已用于另一次建商品：requestId=%s".formatted(requestId));
+            if (duplicatedRequest != null) {
+                throw duplicatedRequest;
             }
             throw ex;
         }
@@ -126,5 +141,18 @@ public class ProductRepository {
         return jdbc.update("""
                 UPDATE products SET enabled = FALSE, updated_at = now() WHERE id = ?
                 """, id) == 1;
+    }
+
+    /**
+     * 按建商品的幂等键回查。
+     *
+     * <p>null 键走 {@code = NULL} 天然返回空集，不需要判空分支（与
+     * {@code WarehouseRepository.findByRequestId} 同一理由）。
+     */
+    public Optional<Product> findByRequestId(String requestId) {
+        return jdbc.query("""
+                SELECT id, code, name, category, season, enabled
+                  FROM products WHERE create_request_id = ?
+                """, MAPPER, requestId).stream().findFirst();
     }
 }

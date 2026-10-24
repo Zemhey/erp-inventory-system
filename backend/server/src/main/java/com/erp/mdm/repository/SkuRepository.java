@@ -53,19 +53,28 @@ public class SkuRepository {
     public long insert(long productId, String color, String size, String barcode,
                        long retailPriceAmount, boolean enabled) {
         return insert(productId, color, size, barcode, retailPriceAmount, enabled,
-                null, null, null);
+                null, null, null, null);
     }
 
+    /**
+     * 插入 SKU，可带建单幂等键（V2-C1）。
+     *
+     * <p>与 {@code uq_sku_variant}（商品下颜色×尺码唯一）是两层互不相干的保护：
+     * 变体冲突翻成 {@code MDM_SKU_DUPLICATED}，幂等键冲突翻成 {@code SYS_DUPLICATE_REQUEST}。
+     * 分工与冲突翻译理由见 {@code WarehouseRepository.insert}。
+     */
     public long insert(long productId, String color, String size, String barcode,
                        long retailPriceAmount, boolean enabled,
-                       String seasonCode, String bandCode, java.time.LocalDate launchDate) {
+                       String seasonCode, String bandCode, java.time.LocalDate launchDate,
+                       String requestId) {
         KeyHolder keys = new GeneratedKeyHolder();
         try {
             jdbc.update(con -> {
                 var ps = con.prepareStatement("""
                         INSERT INTO skus (product_id, color, size, barcode, retail_price_amount,
-                                          enabled, season_code, band_code, launch_date)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                          enabled, season_code, band_code, launch_date,
+                                          create_request_id)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """, new String[]{"id"});
                 ps.setLong(1, productId);
                 ps.setString(2, color);
@@ -76,15 +85,22 @@ public class SkuRepository {
                 ps.setString(7, seasonCode);
                 ps.setString(8, bandCode);
                 ps.setObject(9, launchDate);
+                ps.setString(10, requestId);
                 return ps;
             }, keys);
         } catch (DataIntegrityViolationException ex) {
-            BusinessException translated = DbErrors.translate(ex, "uq_sku_variant",
+            BusinessException duplicatedVariant = DbErrors.translate(ex, "uq_sku_variant",
                     ErrorCode.MDM_SKU_DUPLICATED,
                     "SKU 重复：商品 %d 下已存在 %s / %s 组合"
                             .formatted(productId, color, size));
-            if (translated != null) {
-                throw translated;
+            if (duplicatedVariant != null) {
+                throw duplicatedVariant;
+            }
+            BusinessException duplicatedRequest = DbErrors.translate(ex, "uq_sku_create_request",
+                    ErrorCode.SYS_DUPLICATE_REQUEST,
+                    "幂等键已用于另一次建 SKU：requestId=%s".formatted(requestId));
+            if (duplicatedRequest != null) {
+                throw duplicatedRequest;
             }
             if (DbErrors.isSqlState(ex, DbErrors.FOREIGN_KEY_VIOLATION)) {
                 throw new BusinessException(ErrorCode.SYS_NOT_FOUND,
@@ -237,5 +253,21 @@ public class SkuRepository {
         Integer n = jdbc.queryForObject("SELECT COUNT(*) FROM skus WHERE product_id = ?",
                 Integer.class, productId);
         return n != null && n > 0;
+    }
+
+    // ─────────────────────────── 幂等键（V2-C1，见 V15） ───────────────────────────
+
+    /**
+     * 按建 SKU 的幂等键回查。
+     *
+     * <p>null 键走 {@code = NULL} 天然返回空集，不需要判空分支（与
+     * {@code WarehouseRepository.findByRequestId} 同一理由）。
+     */
+    public Optional<Sku> findByRequestId(String requestId) {
+        return jdbc.query("""
+                SELECT id, product_id, color, size, barcode, retail_price_amount, enabled,
+                       season_code, band_code, launch_date
+                  FROM skus WHERE create_request_id = ?
+                """, MAPPER, requestId).stream().findFirst();
     }
 }

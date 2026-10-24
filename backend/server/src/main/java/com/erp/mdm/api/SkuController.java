@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -102,12 +103,14 @@ public class SkuController {
 
     @PostMapping
     @RequirePermission("mdm:write")
-    public ResponseEntity<Map<String, Object>> create(@Valid @RequestBody CreateRequest req) {
+    public ResponseEntity<Map<String, Object>> create(
+            @RequestHeader("X-Request-Id") @NotBlank String requestId,
+            @Valid @RequestBody CreateRequest req) {
         Sku s = skus.create(new SkuApplicationService.CreateCommand(
                 req.productId(), req.color(), req.size(), req.barcode(),
                 req.retailPriceAmount() == null ? 0L : req.retailPriceAmount(),
                 req.enabled() == null || req.enabled(),
-                req.seasonCode(), req.bandCode(), req.launchDate()));
+                req.seasonCode(), req.bandCode(), req.launchDate(), requestId));
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.ok(toMap(s)));
     }
 
