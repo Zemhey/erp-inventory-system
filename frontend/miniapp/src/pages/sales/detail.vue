@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { onLoad, onPullDownRefresh, onShow } from '@dcloudio/uni-app'
-import { salApi, type SalesOrder } from '@/api/client'
+import { salApi, shipmentApi, type SalesOrder } from '@/api/client'
 import { useDictionary } from '@/composables/useDictionary'
 import { hasPermission } from '@/stores/session'
 import {
@@ -113,6 +113,58 @@ async function doShip(): Promise<void> {
 
 function openLineSku(skuId: number): void {
   uni.navigateTo({ url: `/pages/products/sku-detail?id=${skuId}` })
+}
+
+/**
+ * 「生成发货计划」入口（FR-SAL-06 的起点）。
+ *
+ * 可点条件与「确认出货」同一批状态：后端 createPlan 要 `order.status().isExecutable()`
+ * （= APPROVED / PARTIAL），而 ALLOWED_ACTIONS.SALES 里能 ship 的正好就是这两个状态。
+ * 两条路径是**并存**的能力，不是新旧替代：
+ * - 确认出货：无拣货明细，按 FEFO 整单出库（老路径，仓库没有逐货位要求时最快）；
+ * - 生成发货计划：按 ACTIVE 预占逐行拆出发货单，仓里扫码确认后再出库（可追责到人和批次）。
+ * 重复点第二次会被后端按「预占已被其他发货计划占用」拒掉，消息原样显示。
+ */
+const canPlan = computed(() => statusAllowsShip.value && hasPermission('sal:pick'))
+
+function confirmCreatePlan(): void {
+  if (!order.value || actionLoading.value) return
+  uni.showModal({
+    title: '生成发货计划',
+    content:
+      '将按本单未出量与现有预占生成发货单（跨仓时按仓库优先级拆成多张），随后在手机上逐行扫码。确定生成吗？',
+    success: (result) => {
+      if (result.confirm) void doCreatePlan()
+    },
+  })
+}
+
+async function doCreatePlan(): Promise<void> {
+  if (!order.value || actionLoading.value) return
+  actionLoading.value = true
+  actionError.value = ''
+
+  // X-Request-Id 由 api/client.ts 注入；后端用它做计划幂等
+  const result = await safe(shipmentApi.createPlan(order.value.id))
+  if (result.ok) {
+    const shipments = result.value.shipments ?? []
+    uni.showToast({ title: `已生成 ${shipments.length} 张发货单`, icon: 'success' })
+    // 单张直接进扫码页；拆仓成多张时回列表，让作业人自己挑从哪张开始
+    if (shipments.length === 1) {
+      setTimeout(() => {
+        uni.navigateTo({ url: `/pages/shipments/detail?id=${shipments[0].id}` })
+      }, 300)
+    } else {
+      setTimeout(() => {
+        uni.navigateTo({ url: '/pages/shipments/shipments' })
+      }, 300)
+    }
+    await load()
+  } else {
+    actionError.value = errorMessage(result.error)
+  }
+
+  actionLoading.value = false
 }
 
 function discountText(rate: number | undefined): string {
@@ -238,6 +290,23 @@ onPullDownRefresh(() => {
         </view>
         <view v-else-if="actionHint" class="card action-note">
           <text class="action-note-text">{{ actionHint }}</text>
+        </view>
+
+        <view v-if="canPlan" class="action-card card">
+          <text class="action-title">发货扫码作业</text>
+          <text class="action-desc">
+            与上面的「确认出货」是两条并存路径：确认出货按 FEFO 整单出库、不留拣货明细；
+            生成发货计划则按预占拆出发货单，仓里逐行扫码后再确认发货，可追责到人、到批次。
+          </text>
+          <button
+            class="btn-primary action-btn plan-btn"
+            hover-class="none"
+            data-action="create-shipment-plan"
+            :disabled="actionLoading"
+            @click="confirmCreatePlan"
+          >
+            生成发货计划
+          </button>
         </view>
 
         <text v-if="dictWarning" class="dict-warning">{{ dictWarning }}</text>
@@ -448,6 +517,13 @@ onPullDownRefresh(() => {
 .action-btn {
   width: 100%;
   margin-top: 20rpx;
+}
+
+/* 次要动作：与「确认出货」同宽但换色，避免两个深色大按钮看起来都是主操作 */
+.plan-btn {
+  background: #ffffff;
+  color: #2c4066;
+  border: 1rpx solid #c9d5e8;
 }
 
 .action-note {

@@ -78,6 +78,70 @@
         "enablePullDownRefresh": true,
         "backgroundTextStyle": "dark"
       }
+    },
+    {
+      "path": "pages/quotes/quotes",
+      "style": {
+        "navigationBarTitleText": "报价单",
+        "enablePullDownRefresh": true,
+        "backgroundTextStyle": "dark"
+      }
+    },
+    {
+      "path": "pages/quotes/detail",
+      "style": {
+        "navigationBarTitleText": "报价单详情",
+        "enablePullDownRefresh": true,
+        "backgroundTextStyle": "dark"
+      }
+    },
+    {
+      "path": "pages/shipments/shipments",
+      "style": {
+        "navigationBarTitleText": "发货作业",
+        "enablePullDownRefresh": true,
+        "backgroundTextStyle": "dark"
+      }
+    },
+    {
+      "path": "pages/shipments/detail",
+      "style": {
+        "navigationBarTitleText": "扫码拣货",
+        "enablePullDownRefresh": true,
+        "backgroundTextStyle": "dark"
+      }
+    },
+    {
+      "path": "pages/receivables/receivables",
+      "style": {
+        "navigationBarTitleText": "客户应收",
+        "enablePullDownRefresh": true,
+        "backgroundTextStyle": "dark"
+      }
+    },
+    {
+      "path": "pages/receivables/detail",
+      "style": {
+        "navigationBarTitleText": "应收与收款",
+        "enablePullDownRefresh": true,
+        "backgroundTextStyle": "dark"
+      }
+    },
+    {
+      "path": "pages/approvals/approvals",
+      "style": {
+        "navigationBarTitleText": "待我审批",
+        "enablePullDownRefresh": true,
+        "backgroundTextStyle": "dark"
+      }
+    },
+    {
+      "path": "pages/approvals/detail",
+      "style": {
+        "navigationBarTitleText": "审批详情",
+        "enablePullDownRefresh": true,
+        "backgroundTextStyle": "dark"
+      }
     }
   ],
   "globalStyle": {
