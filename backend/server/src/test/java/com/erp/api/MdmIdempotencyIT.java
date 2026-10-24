@@ -697,7 +697,9 @@ class MdmIdempotencyIT extends PostgresTestBase {
         assertThat(totalAudits()).as("首次创建必须恰好留一条审计").isEqualTo(base + 1);
 
         sendPost("/api/v1/warehouses", "req-mdm-042-create", body).andExpect(status().isCreated());
-        assertThat(totalAudits()).as("重放一行都不许多（含兜底那条）").isEqualTo(base + 1);
+        assertThat(totalAudits())
+                .as("重放一行都不许多（含兜底那条）。最近一条审计=%s", latestAuditRow())
+                .isEqualTo(base + 1);
 
         sendPost("/api/v1/warehouses/" + id + "/disable", "req-mdm-042-disable", "{}")
                 .andExpect(status().isOk());
@@ -788,6 +790,19 @@ class MdmIdempotencyIT extends PostgresTestBase {
     private long totalAudits() {
         Long n = jdbc.queryForObject("SELECT COUNT(*) FROM audit_logs", Long.class);
         return n == null ? 0L : n;
+    }
+
+    /**
+     * 最近一条审计的关键列，只用于失败信息。
+     *
+     * <p>把漂移的"作案现场"直接写进断言消息：将来有人删掉 {@code AUDITED_ATTR} 那行时，
+     * 不必再连库翻 {@code audit_logs} 就能看见是哪一层补写的、{@code resource_id} 到底是不是 NULL。
+     */
+    private String latestAuditRow() {
+        return String.valueOf(jdbc.queryForMap("""
+                SELECT result, action, error_code, resource_id
+                  FROM audit_logs ORDER BY id DESC LIMIT 1
+                """));
     }
 
     /**
