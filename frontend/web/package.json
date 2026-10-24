@@ -29,5 +29,8 @@
     "vite": "^6.0.7",
     "vue-tsc": "^2.2.0",
     "@types/node": "^22.10.5"
+  },
+  "overrides": {
+    "esbuild": "0.25.11"
   }
 }
