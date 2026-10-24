@@ -55,20 +55,30 @@ public class SalesOrderRepository {
 
     private final JdbcTemplate jdbc;
 
-    public SalesOrderRepository(JdbcTemplate jdbc) {
+    /**
+     * 数据权限（FR-IAM-04）：仓库 + 本人。
+     *
+     * <p>过滤注入在仓储而不是 Controller —— 分页/详情/导出/关联/统计五条取数路径
+     * 只要有一个出口，就不会漏改（越权矩阵正是按这五种方式抽查）。
+     */
+    private final com.erp.shared.scope.ScopeContext scope;
+
+    public SalesOrderRepository(JdbcTemplate jdbc, com.erp.shared.scope.ScopeContext scope) {
         this.jdbc = jdbc;
+        this.scope = scope;
     }
 
+    /** 插入主表。{@code createdBy} 供数据权限"按本人"判定，系统任务可为 null。 */
     public long insertHeader(String orderNo, long customerId, long warehouseId, LocalDate bizDate,
                              long totalAmount, int totalQty, String period, String remark,
-                             String requestId) {
+                             String requestId, Long createdBy) {
         KeyHolder keys = new GeneratedKeyHolder();
         jdbc.update(con -> {
             var ps = con.prepareStatement("""
                     INSERT INTO sales_orders
                         (order_no, status, customer_id, warehouse_id, biz_date,
-                         total_amount, total_qty, period, remark, request_id)
-                    VALUES (?, 'DRAFT', ?, ?, ?, ?, ?, ?, ?, ?)
+                         total_amount, total_qty, period, remark, request_id, created_by)
+                    VALUES (?, 'DRAFT', ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, new String[]{"id"});
             ps.setString(1, orderNo);
             ps.setLong(2, customerId);
@@ -79,6 +89,11 @@ public class SalesOrderRepository {
             ps.setString(7, period);
             ps.setString(8, remark);
             ps.setString(9, requestId);
+            if (createdBy == null) {
+                ps.setNull(10, java.sql.Types.BIGINT);
+            } else {
+                ps.setLong(10, createdBy);
+            }
             return ps;
         }, keys);
         Number id = keys.getKey();
@@ -133,12 +148,21 @@ public class SalesOrderRepository {
                 lineId);
     }
 
+    /**
+     * 查主表，<b>并施加数据权限</b>。
+     *
+     * <p>越权的 id 直接查不出行 → 上层抛 {@code SAL_ORDER_NOT_FOUND}（<b>404 而非 403</b>）：
+     * 403 会泄露"这个 id 存在"，攻击者据此遍历即可枚举全部单据 id。
+     */
     public Optional<SalesOrder> findHeaderById(long id) {
+        java.util.List<Object> args = new java.util.ArrayList<>();
+        args.add(id);
+        String predicate = scope.predicates("warehouse_id", "created_by", args);
         return jdbc.query("""
                 SELECT id, order_no, status, customer_id, warehouse_id, biz_date,
                        total_amount, total_qty, period, remark, version
                   FROM sales_orders WHERE id = ?
-                """, ORDER_MAPPER, id).stream().findFirst();
+                """ + predicate, ORDER_MAPPER, args.toArray()).stream().findFirst();
     }
 
     public Optional<SalesOrder> findByRequestId(String requestId) {
@@ -302,6 +326,12 @@ public class SalesOrderRepository {
                         rs.getLong("unit_price_amount"), rs.getInt("discount_rate")), customerId);
     }
 
+    /**
+     * 分页列表，<b>并施加数据权限</b>。
+     *
+     * <p>"列表注入"防线的关键：仓库过滤<b>不接受外部输入</b>，只认当前登录人的
+     * 数据权限配置。攻击者把别仓的 warehouseId 塞进查询参数也不会影响这里。
+     */
     public PageResult<SalesOrder> page(DocumentStatus status, Long customerId, int page, int size) {
         int p = PageResult.normalizePage(page);
         int s = PageResult.normalizeSize(size);
@@ -315,6 +345,7 @@ public class SalesOrderRepository {
             where.append(" AND customer_id = ?");
             args.add(customerId);
         }
+        where.append(scope.predicates("warehouse_id", "created_by", args));
         Long total = jdbc.queryForObject("SELECT COUNT(*) FROM sales_orders" + where,
                 Long.class, args.toArray());
         List<Object> pageArgs = new ArrayList<>(args);

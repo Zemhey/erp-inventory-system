@@ -19,7 +19,9 @@ import com.erp.shared.document.DocumentStatus;
 import com.erp.shared.document.DocumentStatusMachine;
 import com.erp.shared.error.BusinessException;
 import com.erp.shared.error.ErrorCode;
+import com.erp.shared.approval.ApprovalGate;
 import com.erp.shared.period.PeriodGuard;
+import com.erp.shared.security.ActorContext;
 import com.erp.shared.time.ClockProvider;
 import com.erp.shared.web.PageResult;
 import java.math.BigDecimal;
@@ -63,6 +65,10 @@ public class SalesOrderApplicationService {
     private final ProductBundleService bundleService;
     private final CreditService credit;
     private final ReceivableService receivables;
+    /** 审批闸门（V2-6 FR-IAM-07）：只输出可否，不改单据状态。 */
+    private final ApprovalGate approvalGate;
+    /** 当前操作人（数据权限"按本人"）。 */
+    private final ActorContext actors;
 
     public SalesOrderApplicationService(SalesOrderRepository orders,
                                         WarehouseRepository warehouses,
@@ -73,7 +79,9 @@ public class SalesOrderApplicationService {
                                         PeriodGuard periodGuard,
                                         ProductBundleService bundleService,
                                         CreditService credit,
-                                        ReceivableService receivables) {
+                                        ReceivableService receivables,
+                                        ApprovalGate approvalGate,
+                                        ActorContext actors) {
         this.orders = orders;
         this.warehouses = warehouses;
         this.skus = skus;
@@ -84,6 +92,8 @@ public class SalesOrderApplicationService {
         this.bundleService = bundleService;
         this.credit = credit;
         this.receivables = receivables;
+        this.approvalGate = approvalGate;
+        this.actors = actors;
     }
 
     /** 折扣率基准：10000 = 不打折（整数万分比，ADR-0005）。 */
@@ -184,7 +194,8 @@ public class SalesOrderApplicationService {
                 : cmd.warehouseId();
         String orderNo = numberGenerator.next(DocumentNumberGenerator.DocType.SALES_ORDER, bizDate);
         long orderId = orders.insertHeader(orderNo, cmd.customerId(), headerWarehouseId, bizDate,
-                totalAmount, totalQty, periodOf(bizDate), trimToNull(cmd.remark()), cmd.requestId());
+                totalAmount, totalQty, periodOf(bizDate), trimToNull(cmd.remark()), cmd.requestId(),
+                actors.current().map(ActorContext.Actor::id).orElse(null));
         int lineNo = 1;
         for (PreparedLine line : prepared) {
             orders.insertLine(orderId, lineNo++, line.skuId(), line.qty(),
@@ -229,6 +240,9 @@ public class SalesOrderApplicationService {
     public SalesOrder approve(long id) {
         SalesOrder o = require(id);
         periodGuard.requireOpen(o.bizDate());
+        // ★ 审批闸门：无启用流程时静默通过；有流程时要求审批已通过。不代审批改状态。
+        approvalGate.requireApproved(ApprovalGate.BizType.SALES_ORDER, o.id(),
+                o.orderNo(), o.totalAmount());
         DocumentStatusMachine.requireTransition(o.status(), DocumentStatus.APPROVED,
                 ErrorCode.SAL_STATUS_ILLEGAL, o.orderNo());
         transition(o, DocumentStatus.APPROVED);

@@ -16,7 +16,9 @@ import com.erp.shared.document.DocumentStatusMachine;
 import com.erp.shared.db.DbErrors;
 import com.erp.shared.error.BusinessException;
 import com.erp.shared.error.ErrorCode;
+import com.erp.shared.approval.ApprovalGate;
 import com.erp.shared.period.PeriodGuard;
+import com.erp.shared.security.ActorContext;
 import com.erp.shared.time.ClockProvider;
 import com.erp.shared.web.PageResult;
 import java.time.LocalDate;
@@ -60,6 +62,14 @@ public class PurchaseOrderApplicationService {
      * 这条边界由 ArchUnit 的「单据模块不得依赖 set」规则守住。
      */
     private final PeriodGuard periodGuard;
+    /**
+     * 审批闸门（V2-6 FR-IAM-07）。只依赖 {@code shared.approval} 的接口，实现由 APS 提供 ——
+     * 若这里 import {@code com.erp.aps}，就会与「APS 只输出可否定、不碰单据仓储」形成依赖环。
+     * 这条边界由 ArchUnit 的「aps 不得依赖单据模块仓储」规则反向守住。
+     */
+    private final ApprovalGate approvalGate;
+    /** 当前操作人（数据权限"按本人"与审批发起人）。 */
+    private final ActorContext actors;
 
     public PurchaseOrderApplicationService(PurchaseOrderRepository orders,
                                            PurchaseReceiptRepository receipts,
@@ -70,7 +80,9 @@ public class PurchaseOrderApplicationService {
                                            InventoryApplicationService inventory,
                                            DocumentNumberGenerator numberGenerator,
                                            ClockProvider clock,
-                                           PeriodGuard periodGuard) {
+                                           PeriodGuard periodGuard,
+                                           ApprovalGate approvalGate,
+                                           ActorContext actors) {
         this.orders = orders;
         this.receipts = receipts;
         this.payables = payables;
@@ -81,6 +93,8 @@ public class PurchaseOrderApplicationService {
         this.numberGenerator = numberGenerator;
         this.clock = clock;
         this.periodGuard = periodGuard;
+        this.approvalGate = approvalGate;
+        this.actors = actors;
     }
 
     // ─────────────────────────── 命令 / 结果 ───────────────────────────
@@ -168,7 +182,9 @@ public class PurchaseOrderApplicationService {
 
         String orderNo = numberGenerator.next(DocumentNumberGenerator.DocType.PURCHASE_ORDER, bizDate);
         long orderId = orders.insertHeader(orderNo, cmd.supplierId(), cmd.warehouseId(), bizDate,
-                totalAmount, totalQty, periodOf(bizDate), trimToNull(cmd.remark()), cmd.requestId());
+                totalAmount, totalQty, periodOf(bizDate), trimToNull(cmd.remark()), cmd.requestId(),
+                // 数据权限"按本人"（FR-IAM-04）依赖这一列；系统任务无上下文时为 null
+                actors.current().map(com.erp.shared.security.ActorContext.Actor::id).orElse(null));
         int lineNo = 1;
         for (long[] c : computed) {
             orders.insertLine(orderId, lineNo++, c[0], (int) c[1], c[2], c[3]);
@@ -192,6 +208,10 @@ public class PurchaseOrderApplicationService {
     public PurchaseOrder approve(long id) {
         PurchaseOrder o = require(id);
         periodGuard.requireOpen(o.bizDate());
+        // ★ 审批闸门：无启用流程时静默通过（存量行为不变）；有流程时要求审批已通过。
+        //   注意这里只"问一句"，不代审批改单据状态 —— 状态推进仍在下一行由单据侧自己走。
+        approvalGate.requireApproved(ApprovalGate.BizType.PURCHASE_ORDER, o.id(),
+                o.orderNo(), o.totalAmount());
         DocumentStatusMachine.requireTransition(o.status(), DocumentStatus.APPROVED,
                 ErrorCode.PUR_STATUS_ILLEGAL, o.orderNo());
         transition(o, DocumentStatus.APPROVED);

@@ -1,12 +1,15 @@
 package com.erp.iam.application;
 
 import com.erp.iam.domain.AppUser;
+import com.erp.iam.domain.PasswordPolicy;
 import com.erp.iam.repository.AppUserRepository;
 import com.erp.iam.security.JwtTokenService;
 import com.erp.shared.error.BusinessException;
 import com.erp.shared.error.ErrorCode;
 import com.erp.shared.time.ClockProvider;
+import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -22,6 +25,18 @@ import org.springframework.transaction.annotation.Transactional;
  * <p><b>防用户名枚举</b>："用户不存在"与"密码错误"对外返回<b>同一个</b>错误码
  * （{@code IAM_BAD_CREDENTIALS}），否则攻击者可以先测出哪些用户名存在，
  * 再针对性地爆破。区别只在内部计数上：不存在的用户无从计数，但对外表现一致。
+ *
+ * <p><b>FR-IAM-06 的登录策略（自上而下依次判定）</b>：
+ * <ol>
+ *   <li>账号停用 → {@code IAM_ACCOUNT_DISABLED}；</li>
+ *   <li>账号锁定中 → {@code IAM_ACCOUNT_LOCKED}（不看密码对错，先挡住）；</li>
+ *   <li>密码校验 → 失败计数 + 达到阈值即锁；</li>
+ *   <li><b>密码过期 / 强制改密 → 仍然签发 token</b>，但登录响应带
+ *       {@code mustChangePassword=true}，且除改密与 {@code /auth/me} 外的所有请求
+ *       被 {@code PasswordExpiryFilter} 拦成 {@code IAM_PASSWORD_EXPIRED}。</li>
+ * </ol>
+ * 第 4 条的取舍：若登录直接拒绝过期用户，他就无法调用改密接口（改密要登录）
+ * —— 死锁。所以必须"发 token 但不放行业务接口"。
  */
 @Service
 public class AuthenticationService {
@@ -30,6 +45,7 @@ public class AuthenticationService {
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenService tokens;
     private final ClockProvider clock;
+    private final PasswordPolicy passwordPolicy;
     private final int maxFailedAttempts;
     private final int lockMinutes;
 
@@ -38,26 +54,36 @@ public class AuthenticationService {
                                  JwtTokenService tokens,
                                  ClockProvider clock,
                                  @Value("${erp.iam.max-failed-attempts:5}") int maxFailedAttempts,
-                                 @Value("${erp.iam.lock-minutes:15}") int lockMinutes) {
+                                 @Value("${erp.iam.lock-minutes:15}") int lockMinutes,
+                                 @Value("${erp.iam.password.min-length:8}") int minLength,
+                                 @Value("${erp.iam.password.min-char-classes:3}") int minCharClasses,
+                                 @Value("${erp.iam.password.max-age-days:90}") int maxAgeDays) {
         this.users = users;
         this.passwordEncoder = passwordEncoder;
         this.tokens = tokens;
         this.clock = clock;
         this.maxFailedAttempts = maxFailedAttempts;
         this.lockMinutes = lockMinutes;
+        this.passwordPolicy = new PasswordPolicy(minLength, minCharClasses, maxAgeDays);
     }
 
     /**
      * 登录结果。
      *
-     * @param token        JWT
-     * @param username     用户名
-     * @param displayName  显示名
-     * @param roles        角色编码
-     * @param permissions  权限码
+     * @param token              JWT
+     * @param username           用户名
+     * @param displayName        显示名
+     * @param roles              角色编码
+     * @param permissions        权限码
+     * @param mustChangePassword 是否必须先改密（FR-IAM-06）。前端据此直接跳改密页，
+     *                           而不是等他点开业务页面收到一串 403 才反应过来
+     * @param passwordExpiresAt  密码过期时刻（ISO-8601；null = 不过期）
+     * @param passwordRules      当前生效的密码规则（前端展示在改密页，免得用户反复试错）
      */
     public record LoginResult(String token, String username, String displayName,
-                              List<String> roles, List<String> permissions) {
+                              List<String> roles, List<String> permissions,
+                              boolean mustChangePassword, String passwordExpiresAt,
+                              List<String> passwordRules) {
     }
 
     /**
@@ -115,8 +141,74 @@ public class AuthenticationService {
 
         users.recordLoginSuccess(user.id(), clock.now());
         AppUser fresh = users.findById(user.id()).orElse(user);
+        boolean mustChange = passwordPolicy.mustChange(fresh, nowInstant()).isPresent();
         return new LoginResult(tokens.issue(fresh), fresh.username(), fresh.displayName(),
-                fresh.roles(), fresh.permissions().stream().sorted().toList());
+                fresh.roles(), fresh.permissions().stream().sorted().toList(),
+                mustChange,
+                fresh.passwordExpiresAt() == null ? null : fresh.passwordExpiresAt().toString(),
+                passwordPolicy.describe());
+    }
+
+    /**
+     * 修改自己的密码（FR-IAM-06）。
+     *
+     * <p><b>必须校验旧密码</b>：否则任何拿到 token 的人（token 泄露、
+     * 共用电脑上没退出的会话）都能直接改掉密码把人踢出去。
+     *
+     * <p>改密成功即：写新哈希、按策略设新的过期时刻、清强制改密标记、
+     * 清零失败计数并解锁（见 {@code AppUserRepository.updatePassword}）。
+     *
+     * @param userId      当前用户
+     * @param oldPassword 旧密码（校验用）
+     * @param newPassword 新密码（按策略校验）
+     */
+    @Transactional
+    public void changePassword(long userId, String oldPassword, String newPassword) {
+        AppUser user = users.findById(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.IAM_USER_NOT_FOUND,
+                        "账号不存在：id=" + userId));
+        if (!passwordEncoder.matches(oldPassword, user.passwordHash())) {
+            // 用 IAM_BAD_CREDENTIALS 而不是自造码：语义就是"旧密码不对"
+            throw new BusinessException(ErrorCode.IAM_BAD_CREDENTIALS, "旧密码不正确");
+        }
+        if (passwordEncoder.matches(newPassword, user.passwordHash())) {
+            throw new BusinessException(ErrorCode.IAM_PASSWORD_WEAK,
+                    "新密码不能与旧密码相同");
+        }
+        passwordPolicy.check(newPassword).ifPresent(reason -> {
+            throw new BusinessException(ErrorCode.IAM_PASSWORD_WEAK, reason);
+        });
+        users.updatePassword(userId, passwordEncoder.encode(newPassword),
+                passwordPolicy.expiryOf(nowInstant()), false);
+    }
+
+    /** 管理员重置他人密码：按策略校验、置强制改密标记（不记录明文）。 */
+    @Transactional
+    public void resetPassword(long userId, String newPassword) {
+        passwordPolicy.check(newPassword).ifPresent(reason -> {
+            throw new BusinessException(ErrorCode.IAM_PASSWORD_WEAK, reason);
+        });
+        if (!users.resetPassword(userId, passwordEncoder.encode(newPassword),
+                passwordPolicy.expiryOf(nowInstant()))) {
+            throw new BusinessException(ErrorCode.IAM_USER_NOT_FOUND,
+                    "账号不存在：id=" + userId);
+        }
+    }
+
+    /** 密码策略（供接口把规则透给前端，也供测试断言"可配置"生效）。 */
+    public PasswordPolicy passwordPolicy() {
+        return passwordPolicy;
+    }
+
+    /**
+     * 某账号是否必须先改密（供 {@code PasswordExpiryFilter}）。
+     *
+     * <p>过滤器只需要"要不要拦"，不该自己理解 {@code mustChangePassword} 与
+     * {@code password_expires_at} 的组合语义（两处实现必然漂移）。
+     */
+    public Optional<String> mustChangePasswordReason(long userId) {
+        return users.findById(userId)
+                .flatMap(u -> passwordPolicy.mustChange(u, nowInstant()));
     }
 
     /** 按 token 解析当前用户（每次请求都回库取角色，禁用/改权限立即生效）。 */
@@ -129,6 +221,12 @@ public class AuthenticationService {
     @Transactional(readOnly = true)
     public java.util.Optional<AppUser> resolveUsername(String username) {
         return users.findByUsername(username);
+    }
+
+    /** 按 id 取用户（供 {@code ActorContext} 校验"转办目标人是否具备节点权限"）。 */
+    @Transactional(readOnly = true)
+    public java.util.Optional<AppUser> resolveId(long userId) {
+        return users.findById(userId);
     }
 
     public int maxFailedAttempts() {

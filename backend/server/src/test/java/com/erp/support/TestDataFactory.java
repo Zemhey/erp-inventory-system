@@ -16,6 +16,15 @@ public class TestDataFactory {
 
     private static final AtomicInteger SEQ = new AtomicInteger(1);
 
+    /**
+     * 迁移种下的「角色 → 权限」快照（进程内只拍一次）。
+     *
+     * <p>见 {@link #restoreSeedRolePermissions()} 的说明：跨泳道共享的配置不能手抄清单。
+     */
+    private static java.util.List<Object[]> seedPermissionsSnapshot;
+    /** 迁移种下的角色编码清单（同上）。 */
+    private static java.util.List<String> seedRoleCodes = java.util.List.of();
+
     private final JdbcTemplate jdbc;
 
     public TestDataFactory(JdbcTemplate jdbc) {
@@ -102,10 +111,126 @@ public class TestDataFactory {
                          daily_settlements, settlement_periods,
                          document_sequences, idempotency_keys,
                          skus, products, warehouses, suppliers, customers,
+                         data_scopes,
                          app_user_roles, app_users,
                          audit_logs
                 RESTART IDENTITY CASCADE
                 """);
+        // ★★ 审批的两张表<b>刻意不放进 TRUNCATE</b>：{@code approval_flows} 与
+        //   {@code approval_steps} 的定义行是**配置**（由 V14 迁移种子给出），
+        //   而 TRUNCATE 的 CASCADE 会把引用它的表整表清掉 ——
+        //   TRUNCATE approval_instances CASCADE 会顺手清空 approval_steps，
+        //   连"定义节点"（instance_id IS NULL）一起消失，于是后续用例看到
+        //   "流程存在但没有任何节点"（实测：TC-APS-019 报"在金额 10000 下没有任何可执行节点"）。
+        //
+        //   正确做法是 DELETE：只清实例及其快照节点，定义节点自然保留。
+        //   同时把"启用态"复位成迁移里的初始值（全部停用），
+        //   因为部分唯一索引只允许同类型有一条启用流，用例改过之后必须还原。
+        // ★★ 角色与权限也是**配置**（V3/V5/V7 种子），同样不能 truncate；
+        //   但用例会改它们（"撤掉 pur:approve""给角色加 mdm:write"），
+        //   若不复位，下一条用例就继承了上一条的改坏状态 ——
+        //   症状是"单独跑绿、整套跑红"（实测：TC-IAM-033 之后所有 403 断言全反）。
+        //   这里把种子恢复成迁移里的初始授权（与 V3+V5+V7 的三段 INSERT 一致）。
+        restoreSeedRolePermissions();
+        // 用例自建的流程（如会签/或签）不在种子里，删掉；种子流程保留
+        jdbc.update("DELETE FROM approval_flows WHERE code NOT IN ('PO-STD','SO-STD','RO-STD')");
+        jdbc.update("DELETE FROM approval_steps WHERE instance_id IS NOT NULL");
+        jdbc.update("DELETE FROM approval_instances");
+        jdbc.update("UPDATE approval_flows SET enabled = FALSE");
+        ensureApprovalSeed();
+    }
+
+    /**
+     * 修复/补齐审批流种子（幂等）。
+     *
+     * <p><b>★ 为什么需要"修复"而不只是"假设种子在"</b>：
+     * 测试容器的 PostgreSQL 是 <b>{@code withReuse(true)}</b>（含 {@code PostgresTestBase}
+     * 的复用配置），同一台容器会被本机反复的 {@code gradlew test} 共用。
+     * 早先版本的 {@code truncateAll} 里写过 {@code TRUNCATE ... approval_instances CASCADE}，
+     * 而 CASCADE 会连着清空引用它的 {@code approval_steps} —— <b>连定义节点一起没了</b>。
+     * 那一次破坏留在了复用容器里，之后每次跑都报
+     * "审批流 PO-STD 在金额 50000 下没有任何可执行节点"（看起来像代码 bug，其实是脏库）。
+     *
+     * <p>因此这里做两件事：① 缺 flow 就补 flow；② 缺定义节点就补定义节点。
+     * 这个修复本身也是幂等的，正常干净的库上不会产生任何改动。
+     */
+    public void ensureApprovalSeed() {
+        jdbc.update("""
+                INSERT INTO approval_flows (code, name, biz_type, description, enabled)
+                VALUES ('PO-STD','进货单标准审批','PURCHASE_ORDER','采购主管 → （金额超阈值）财务',FALSE),
+                       ('SO-STD','出货单标准审批','SALES_ORDER','销售主管 → （金额超阈值）财务',FALSE),
+                       ('RO-STD','退货单标准审批','RETURN_ORDER','客服主管 → （金额超阈值）财务',FALSE)
+                ON CONFLICT (code) DO NOTHING
+                """);
+        jdbc.update("""
+                INSERT INTO approval_steps
+                    (flow_id, instance_id, step_no, name, approver_permission, approve_mode,
+                     required_approvals, threshold_amount)
+                SELECT f.id, NULL, s.step_no, s.name, s.permission, 'SINGLE', 1, s.threshold
+                  FROM approval_flows f
+                  JOIN (VALUES
+                    ('PO-STD',1,'采购主管审批','pur:approve',0),
+                    ('PO-STD',2,'财务审批（金额超阈值）','set:monthly',500000),
+                    ('SO-STD',1,'销售主管审批','sal:approve',0),
+                    ('SO-STD',2,'财务审批（金额超阈值）','set:monthly',500000),
+                    ('RO-STD',1,'客服主管审批','rma:approve',0),
+                    ('RO-STD',2,'财务审批（金额超阈值）','set:monthly',500000)
+                  ) AS s(flow_code, step_no, name, permission, threshold)
+                    ON f.code = s.flow_code
+                 WHERE NOT EXISTS (
+                    SELECT 1 FROM approval_steps d
+                     WHERE d.flow_id = f.id AND d.instance_id IS NULL
+                       AND d.step_no = s.step_no)
+                """);
+    }
+
+    /**
+     * 把四个种子角色的权限恢复成 V3/V5/V7 的初始授权。
+     *
+     * <p><b>为什么必须显式恢复而不是"反正用例会自己重建"</b>：
+     * 角色是<b>配置</b>而不是业务数据，{@code truncateAll} 不碰它们；
+     * 而权限测试必然会改角色权限（撤权、加权限、覆盖式保存）。
+     * 只要有一条用例改了不改回来，后续所有 RBAC 断言就会静默反向 ——
+     * 那类失败最难查，因为它取决于用例执行顺序。
+     *
+     * <p>清单与迁移逐条对应：{@code V3__iam.sql}（mdm/pur/sal/inv）、
+     * {@code V5__settlement.sql}（set/rpt + FINANCE）、
+     * {@code V7__finance_mdm_read.sql}（FINANCE 的 mdm:read）、
+     * {@code V14__iam_deepening_and_approval.sql}（iam 与 aps 两组权限码）。
+     */
+    public void restoreSeedRolePermissions() {
+        // ★★ 为什么"自动快照"而不是"手抄一份种子清单"：
+        //
+        //   角色权限是**跨泳道共享的配置**：V3 种 mdm/pur/sal/inv、V5 种 set/rpt/FINANCE、
+        //   V7 给 FINANCE 补 mdm:read、V13 给 VIEWER 种 sys:read、V2-2 种 pur:payable、
+        //   V2-4 种 cst:read、V14 种 iam:*/aps:*……
+        //   手抄一份清单的后果是：**每来一条并行泳道，这份清单就悄悄过期一次**，
+        //   而症状是"别人刚种好的权限在测试里凭空消失，一堆 403 看起来像自己的 bug"。
+        //   （实测：抄写的清单漏了 V13 的 sys:read 与 V2-4 的 cst:read，
+        //     AuditQueryIT / CostApiIT / ReturnOrderApiIT 一起变红。）
+        //
+        //   正确做法：第一次调用时把**迁移后的真实种子**拍成快照（进程内静态），
+        //   之后每条用例都从快照精确恢复。新增迁移时这份快照自动跟上，无需维护。
+        if (seedPermissionsSnapshot == null) {
+            seedPermissionsSnapshot = jdbc.query(
+                    "SELECT role_id, permission FROM app_role_permissions",
+                    (rs, i) -> new Object[]{rs.getLong("role_id"), rs.getString("permission")});
+            seedRoleCodes = jdbc.query("SELECT code FROM app_roles",
+                    (rs, i) -> rs.getString("code"));
+        }
+        jdbc.update("DELETE FROM app_role_permissions");
+        for (Object[] row : seedPermissionsSnapshot) {
+            jdbc.update("INSERT INTO app_role_permissions (role_id, permission) VALUES (?, ?) "
+                    + "ON CONFLICT DO NOTHING", (Long) row[0], (String) row[1]);
+        }
+        // 用例临时建的角色（不在种子里的）删掉，避免 uq_app_role_code 冲突。
+        // 注意这里用**快照到的编码清单**，而不是硬编码的四个/五个名字。
+        if (!seedRoleCodes.isEmpty()) {
+            String placeholders = String.join(", ",
+                    java.util.Collections.nCopies(seedRoleCodes.size(), "?"));
+            jdbc.update("DELETE FROM app_roles WHERE code NOT IN (" + placeholders + ")",
+                    seedRoleCodes.toArray());
+        }
     }
 
     /**
