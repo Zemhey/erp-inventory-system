@@ -67,6 +67,7 @@ class TenantAuthIT extends PostgresTestBase {
     private TestDataFactory data;
     private TenantFixture tenant1;
     private TenantFixture tenant2;
+    private String token1;
     private String token2;
 
     @BeforeEach
@@ -79,6 +80,7 @@ class TenantAuthIT extends PostgresTestBase {
         data.inTenant(TenantId.DEMO).user("tnt_admin_2", "Admin2!", "ADMIN", encoder);
         tenant1 = TenantFixture.create(jdbc, data, TenantId.DEFAULT, "CLOSED");
         tenant2 = TenantFixture.create(jdbc, data, TenantId.DEMO, "OPEN");
+        token1 = authentication.login("tnt_admin_1", "Admin1!").token();
         token2 = authentication.login("tnt_admin_2", "Admin2!").token();
     }
 
@@ -179,6 +181,32 @@ class TenantAuthIT extends PostgresTestBase {
                         .header("Authorization", "Bearer " + viewerToken))
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
                         .status().isNotFound());
+    }
+
+    @Test
+    @CaseId("TC-API-134")
+    @DisplayName("★ 反向越权同样 404：租户 1 的 token 查租户 2 的商品/单据/审计")
+    void reverseDirectionIsAlso404() throws Exception {
+        // 矩阵的主方向是"租户 2 拿租户 1 的 id"；这里反向再打一遍，证明隔离不是单向的
+        for (String path : List.of(
+                "/api/v1/products/" + tenant2.product,
+                "/api/v1/purchase-orders/" + tenant2.purchaseOrder,
+                "/api/v1/sales-orders/" + tenant2.salesOrder,
+                "/api/v1/return-orders/" + tenant2.returnOrder,
+                "/api/v1/audits/" + tenant2.auditId)) {
+            MvcResult cross = mvc.perform(get(path).header("Authorization", "Bearer " + token1))
+                    .andReturn();
+            assertThat(cross.getResponse().getStatus())
+                    .as("租户 1 访问租户 2 的 %s 必须 404", path)
+                    .isEqualTo(404);
+            assertThat(cross.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                    .doesNotContain("IAM_FORBIDDEN");
+        }
+        // 同租户正向对照：租户 1 看自己的商品必须 200
+        mvc.perform(get("/api/v1/products/" + tenant1.product)
+                        .header("Authorization", "Bearer " + token1))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                        .status().isOk());
     }
 
     private long insertDraftPo(long warehouseId) {
