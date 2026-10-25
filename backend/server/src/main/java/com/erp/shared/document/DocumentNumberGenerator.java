@@ -57,7 +57,11 @@ public class DocumentNumberGenerator {
         /** 盘点单 STOCKTAKE ORDER（P2 使用）。 */
         STOCKTAKE_ORDER("ST"),
         /** 库存调整单 ADJUSTMENT（V2-1 FR-INV-09）。 */
-        ADJUSTMENT("AJ");
+        ADJUSTMENT("AJ"),
+        /** 会计凭证 VOUCHER（V3-2 FR-V3-07，纯追加）。 */
+        FIN_VOUCHER("PZ"),
+        /** 费用报销单 EXPENSE CLAIM（V3-2 FR-V3-10，纯追加）。 */
+        FIN_EXPENSE("BX");
 
         private final String prefix;
 

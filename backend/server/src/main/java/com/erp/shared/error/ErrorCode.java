@@ -193,7 +193,45 @@ public enum ErrorCode {
     /** 启用库位容量合计将超过仓库容量。 */
     MDM_LOCATION_CAPACITY_EXCEEDED(409),
     /** 商品规格属性请求非法（键重复、键/值超长、条数超限）。 */
-    MDM_PRODUCT_ATTRIBUTE_INVALID(400);
+    MDM_PRODUCT_ATTRIBUTE_INVALID(400),
+
+    // ── 财务中心（V3-2 · W2，纯追加）──
+    /** 凭证借贷不平（details 带 totalDebit/totalCredit/diff，前端直接显示差额）。 */
+    FIN_VOUCHER_UNBALANCED(400),
+    /** 凭证不存在。 */
+    FIN_VOUCHER_NOT_FOUND(404),
+    /** 凭证状态不允许该动作（如已过账再改/再审）。 */
+    FIN_VOUCHER_STATUS_ILLEGAL(409),
+    /** 分录引用了非末级科目或停用科目。 */
+    FIN_VOUCHER_LINE_INVALID(400),
+    /** 会计科目不存在。 */
+    FIN_ACCOUNT_NOT_FOUND(404),
+    /** 科目编码在本租户已存在（撞 uq_fin_account_code）。 */
+    FIN_ACCOUNT_DUPLICATED(409),
+    /** 科目被凭证分录引用，不许删除（FR-V3-06 验收口径：409）。 */
+    FIN_ACCOUNT_IN_USE(409),
+    /** 科目有期初余额或分录余额时不许停用/改类别。 */
+    FIN_ACCOUNT_HAS_BALANCE(409),
+    /** 银行账户不存在。 */
+    FIN_BANK_ACCOUNT_NOT_FOUND(404),
+    /** 报销单不存在。 */
+    FIN_EXPENSE_NOT_FOUND(404),
+    /** 报销单状态不允许该动作（提交/审批/付款/驳回的非法转移）。 */
+    FIN_EXPENSE_STATUS_ILLEGAL(409),
+    /** 报销明细合计与主表金额不一致。 */
+    FIN_EXPENSE_AMOUNT_MISMATCH(400),
+    /** 发票不存在。 */
+    FIN_INVOICE_NOT_FOUND(404),
+    /** 同一单据累计开票金额超过单据金额（简报 FR-V3-11 验收口径：409）。 */
+    FIN_INVOICE_OVER_AMOUNT(409),
+    /** 发票已作废后不允许再改状态/再作废。 */
+    FIN_INVOICE_STATUS_ILLEGAL(409),
+    /** 生成凭证所依赖的标准科目缺失（租户科目模板被破坏时响亮失败）。 */
+    FIN_ACCOUNTING_TEMPLATE_MISSING(500),
+    /** 财务报表查询期间非法（格式非 yyyy-MM 或区间倒置）。 */
+    FIN_REPORT_PERIOD_INVALID(400),
+    /** 财务域写入的账期已被月结锁定（与 SET_PERIOD_CLOSED 分码：前端按模块提示）。 */
+    FIN_PERIOD_CLOSED(409);
 
     private final int httpStatus;
 
