@@ -4,6 +4,7 @@ import {
   DataAnalysis,
   Files,
   Money,
+  Monitor,
   Notebook,
   RefreshLeft,
   Sell,
@@ -17,7 +18,7 @@ import type { NavGroup, NavItem } from '../nav'
 import type { RouteRecordRaw } from 'vue-router'
 
 /**
- * 报表：报表中心（V3-4 拆版）。
+ * 报表：报表中心与 11 张单报表，外加数据大屏（独立全屏页，列在最后一项）。
  *
  * ★ 每张报表一条独立路由（props 固定 report id），好处是侧边栏能直达、能收藏、
  *   浏览器标题正确；它们共用同一个 ReportCenterView，组件按 :key 重建，
@@ -60,6 +61,7 @@ const items: NavItem[] = [
     permission: 'rpt:read',
   })),
   { path: '/reports', title: '报表（旧版多标签）', icon: Notebook, permission: 'rpt:read' },
+  { path: '/screen', title: '数据大屏', icon: Monitor, permission: 'rpt:read' },
 ]
 
 const routes: RouteRecordRaw[] = [
@@ -83,6 +85,12 @@ const routes: RouteRecordRaw[] = [
     props: { report: entry.id },
     meta: { title: entry.title, permission: 'rpt:read' },
   })),
+  {
+    path: 'screen',
+    name: 'data-screen',
+    component: () => import('@/views/rpt/DataScreenView.vue'),
+    meta: { title: '数据大屏', permission: 'rpt:read' },
+  },
 ]
 
 const group: NavGroup = {

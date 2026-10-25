@@ -11,7 +11,7 @@ import type { NavGroup } from '../nav'
  */
 const group: NavGroup = {
   key: 'tools',
-  title: '工具',
+  title: '系统工具',
   icon: Setting,
   order: 90,
   items: [

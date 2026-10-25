@@ -2,17 +2,17 @@ import { Coin, Document, HomeFilled, Money, Notebook, Tickets, TrendCharts, Wall
 import type { NavGroup } from '../nav'
 
 /**
- * 财务中心（V3-2 · W2，简化复式记账）。
+ * 财务中心：总账与凭证（科目、凭证、银行、日记账、报销、发票），
+ * 以及结算与毛利分析两项业务财务动作。
  *
- * ★ 与 60-finance.ts（结算/毛利）分组并存：60 是"业务财务动作"，
- *   65 是"总账与凭证"。命名路由加 fin- 前缀避免与既有 name 撞车。
- *   8 个页面 = 简报 §9 完成判据的"点进去有 8 个页面"。
+ * 菜单顺序按「业务记账 → 账簿 → 报表」排列；命名路由统一加 fin- 前缀
+ * 避免与既有 name 撞车（settlements / margin 沿用原 name）。
  */
 const group: NavGroup = {
   key: 'finance-center',
   title: '财务中心',
   icon: Wallet,
-  order: 65,
+  order: 60,
   items: [
     { path: '/fin/overview', title: '财务首页', icon: HomeFilled, permission: 'fin:read' },
     { path: '/fin/accounts', title: '会计科目', icon: Coin, permission: 'fin:read' },
@@ -21,6 +21,8 @@ const group: NavGroup = {
     { path: '/fin/cash-journal', title: '现金日记账', icon: Notebook, permission: 'fin:read' },
     { path: '/fin/expenses', title: '费用报销', icon: Wallet, permission: 'fin:read' },
     { path: '/fin/invoices', title: '发票台账', icon: Tickets, permission: 'fin:read' },
+    { path: '/settlements', title: '结算', icon: Coin, permission: 'set:read' },
+    { path: '/margin', title: '毛利分析', icon: TrendCharts, permission: 'cst:read' },
     { path: '/fin/reports', title: '财务报表', icon: TrendCharts, permission: 'fin:read' },
   ],
   routes: [
@@ -65,6 +67,18 @@ const group: NavGroup = {
       name: 'fin-invoices',
       component: () => import('@/views/fin/InvoiceView.vue'),
       meta: { title: '发票台账', permission: 'fin:read' },
+    },
+    {
+      path: 'settlements',
+      name: 'settlements',
+      component: () => import('@/views/set/SettlementView.vue'),
+      meta: { title: '结算', permission: 'set:read' },
+    },
+    {
+      path: 'margin',
+      name: 'margin',
+      component: () => import('@/views/cst/MarginView.vue'),
+      meta: { title: '毛利分析', permission: 'cst:read' },
     },
     {
       path: 'fin/reports',
