@@ -1,144 +1,141 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import {
-  Checked,
-  Money,
-  TrendCharts,
-  Van,
-  Warning,
-} from '@element-plus/icons-vue'
-import {
-  approvalApi,
-  fenToYuan,
-  invApi,
-  mdmApi,
-  purApi,
-  rptApi,
-  salApi,
-  type ApprovalInstanceView,
-  type InventoryBalance,
-  type ReportRow,
-} from '@/api/client'
-import {
-  arApi,
-  shipmentApi,
-  type CustomerReceivable,
-  type Shipment,
-} from '@/api/salesV23'
-import NlCommandBox from '@/components/NlCommandBox.vue'
-import { useSessionStore } from '@/stores/session'
+import { fenToYuan } from '@/api/client'
+import { skeletonApi, type DashboardSummary, type RecentDocument, type TrendPoint } from '@/api/skeleton'
+import DocumentDrawer from '@/components/DocumentDrawer.vue'
 
 /**
- * 工作台（驾驶舱）。
+ * 工作台（驾驶舱 · FR-V3-02）。
  *
- * ★ 分两层：
- *   1. 概览 —— 商品/库存/单据总数 + 库存一致性，回答"系统现在是什么状态"；
- *   2. 待办 —— 审批、发货、库存预警、逾期应收、近 7 日单据，回答"我现在该做什么"。
- *
- * ★ 取数纪律：
- *   - 不新增后端聚合端点，全部用现有列表端点，客户端只做**汇总与排序**；
- *   - 每个区块独立 loading / empty / error，任一失败不拖垮整页；
- *   - 按权限跳过请求，避免无权限账号首屏刷一串 403；
- *   - 列表端点有分页上限时明确标注"统计范围"，不把截断数据说成全量。
+ * ★ 改走单一聚合端点 /dashboard/summary：后端一次算好 8 个 KPI、4 个图表、待办、最近单据，
+ *   前端只负责渲染，不再散着调七八个列表端点、客户端拼。
+ * ★ 图表零依赖：项目未装 echarts，且不允许改 package.json，因此用手绘 SVG
+ *   （折线 / 饼图 / 横向柱状）实现，组件不引入任何第三方图表库。
+ * ★ 最近单据 / 待办里的单据，点一下用 DocumentDrawer 调 /documents/{type}/{id} 看详情。
  */
 
-type Settled<T> = { status: 'fulfilled'; value: T } | { status: 'rejected' }
-
-async function settle<T>(promise: Promise<T>): Promise<Settled<T>> {
-  try {
-    return { status: 'fulfilled', value: await promise }
-  } catch {
-    return { status: 'rejected' }
-  }
-}
-
-const session = useSessionStore()
 const router = useRouter()
-
-const canMdm = computed(() => session.hasPermission('mdm:read'))
-const canInv = computed(() => session.hasPermission('inv:read'))
-const canPur = computed(() => session.hasPermission('pur:read'))
-const canSal = computed(() => session.hasPermission('sal:read'))
-const canApsRead = computed(() => session.hasPermission('aps:read'))
-const canApprove = computed(() => session.hasPermission('aps:approve'))
-const canRpt = computed(() => session.hasPermission('rpt:read'))
-
-// ─────────────────────────── 概览 ───────────────────────────
 
 const loading = ref(false)
 const loadError = ref('')
-const consistencyError = ref(false)
-const productTotal = ref<number | null>(null)
-const inventoryRows = ref<number | null>(null)
-const inventoryBalances = ref<InventoryBalance[] | null>(null)
-const inventoryError = ref(false)
-const purchaseTotal = ref<number | null>(null)
-const salesTotal = ref<number | null>(null)
-const consistent = ref<boolean | null>(null)
+const summary = ref<DashboardSummary | null>(null)
 
-const greeting = computed(() => {
-  const h = new Date().getHours()
-  if (h < 6) return '凌晨好'
-  if (h < 12) return '上午好'
-  if (h < 14) return '中午好'
-  if (h < 18) return '下午好'
-  return '晚上好'
-})
+const drawerVisible = ref(false)
+const drawerType = ref('')
+const drawerId = ref<number | null>(null)
 
-const displayName = computed(() => session.displayName || session.username || '用户')
-
-async function loadKpis() {
-  loading.value = true
-  loadError.value = ''
-  consistencyError.value = false
-
-  // 无权限的指标不发请求；null 表示"没取到"，界面显示 - 并注明原因。
-  const results = await Promise.all([
-    canMdm.value ? settle(mdmApi.listProducts({ page: 1, size: 1 })) : null,
-    canInv.value ? settle(invApi.query({})) : null,
-    canPur.value ? settle(purApi.list({ page: 1, size: 1 })) : null,
-    canSal.value ? settle(salApi.list({ page: 1, size: 1 })) : null,
-    canInv.value ? settle(invApi.consistencyCheck()) : null,
-  ])
-
-  const products = results[0]
-  const inventory = results[1]
-  const purchases = results[2]
-  const sales = results[3]
-  const consistency = results[4]
-
-  productTotal.value = products?.status === 'fulfilled' ? products.value.total : null
-  inventoryBalances.value = inventory?.status === 'fulfilled' ? inventory.value : null
-  inventoryRows.value = inventory?.status === 'fulfilled' ? inventory.value.length : null
-  inventoryError.value = inventory?.status === 'rejected'
-  purchaseTotal.value = purchases?.status === 'fulfilled' ? purchases.value.total : null
-  salesTotal.value = sales?.status === 'fulfilled' ? sales.value.total : null
-  consistent.value = consistency?.status === 'fulfilled' ? consistency.value.consistent : null
-  consistencyError.value = consistency?.status === 'rejected'
-
-  const failed = results.some((r) => r?.status === 'rejected')
-  loadError.value = failed ? '部分统计加载失败，显示为 - 的数字不是真实值。请重试。' : ''
-  loading.value = false
+function openDocument(doc: RecentDocument) {
+  drawerType.value = doc.type
+  drawerId.value = doc.id
+  drawerVisible.value = true
 }
 
-// ─────────────────────────── 待我审批 ───────────────────────────
+// ─────────────────────────── SVG 折线图 ───────────────────────────
 
-interface ApprovalState {
-  loading: boolean
-  error: string
-  mine: ApprovalInstanceView[]
-  pendingTotal: number
-  truncated: boolean
+interface LineGeom {
+  path: string
+  dots: { x: number; y: number; label: string; value: number }[]
 }
 
-const approval = reactive<ApprovalState>({
-  loading: false,
-  error: '',
-  mine: [],
-  pendingTotal: 0,
-  truncated: false,
+function lineGeometry(data: TrendPoint[], w = 320, h = 140, pad = 26): LineGeom {
+  const max = Math.max(1, ...data.map((d) => d.value))
+  const n = data.length
+  const stepX = n > 1 ? (w - 2 * pad) / (n - 1) : 0
+  const dots = data.map((d, i) => ({
+    x: pad + i * stepX,
+    y: h - pad - (d.value / max) * (h - 2 * pad),
+    label: d.label,
+    value: d.value,
+  }))
+  const path = dots.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ')
+  return { path, dots }
+}
+
+const purchaseGeom = computed(() => lineGeometry(summary.value?.charts.purchaseTrend ?? []))
+const salesGeom = computed(() => lineGeometry(summary.value?.charts.salesTrend ?? []))
+
+// ─────────────────────────── SVG 饼图 ───────────────────────────
+
+const PIE_COLORS = ['#409eff', '#67c23a', '#e6a23c', '#f56c6c', '#909399', '#9254de', '#13c2c2']
+
+interface PieSlice {
+  path: string
+  label: string
+  value: number
+  color: string
+  percent: number
+}
+
+function pieSlices(data: { label: string; value: number }[]): PieSlice[] {
+  const total = data.reduce((s, d) => s + d.value, 0) || 1
+  const cx = 80
+  const cy = 80
+  const r = 70
+  let acc = 0
+  return data.map((d, i) => {
+    const start = (acc / total) * 2 * Math.PI - Math.PI / 2
+    acc += d.value
+    const end = (acc / total) * 2 * Math.PI - Math.PI / 2
+    const large = end - start > Math.PI ? 1 : 0
+    const x1 = cx + r * Math.cos(start)
+    const y1 = cy + r * Math.sin(start)
+    const x2 = cx + r * Math.cos(end)
+    const y2 = cy + r * Math.sin(end)
+    const path = `M${cx} ${cy} L${x1.toFixed(1)} ${y1.toFixed(1)} A${r} ${r} 0 ${large} 1 ${x2.toFixed(1)} ${y2.toFixed(1)} Z`
+    return {
+      path,
+      label: d.label,
+      value: d.value,
+      color: PIE_COLORS[i % PIE_COLORS.length],
+      percent: Math.round((d.value / total) * 100),
+    }
+  })
+}
+
+const statusPie = computed(() => pieSlices(summary.value?.charts.docStatusPie ?? []))
+
+// ─────────────────────────── SVG 横向柱状图 ───────────────────────────
+
+const warehouseBars = computed(() => {
+  const data = summary.value?.charts.inventoryByWarehouse ?? []
+  const max = Math.max(1, ...data.map((d) => d.value))
+  return data.map((d, i) => ({
+    id: d.id,
+    value: d.value,
+    width: Math.round((d.value / max) * 100),
+    color: PIE_COLORS[i % PIE_COLORS.length],
+  }))
 })
+
+// ─────────────────────────── 视图数据 ───────────────────────────
+
+const kpis = computed(() => summary.value?.kpis ?? null)
+
+const kpiCards = computed(() => {
+  const k = kpis.value
+  if (!k) return []
+  return [
+    { label: '商品款式', value: k.productTotal, hint: '个款式' },
+    { label: 'SKU', value: k.skuTotal, hint: '个商品规格' },
+    { label: '客户', value: k.customerTotal, hint: '家' },
+    { label: '供应商', value: k.supplierTotal, hint: '家' },
+    { label: '进货单', value: k.purchaseOrderTotal, hint: '张（全状态）' },
+    { label: '出货单', value: k.salesOrderTotal, hint: '张（全状态）' },
+    { label: '库存行', value: k.inventoryRowTotal, hint: '条（SKU×仓×批）' },
+    { label: '零可用库存', value: k.lowStockTotal, hint: '条 可用量≤0', danger: true },
+  ]
+})
+
+const todos = computed(() => summary.value?.todos ?? null)
+const recentDocuments = computed(() => summary.value?.recentDocuments ?? [])
+
+const DOC_TYPE_LABELS: Record<string, string> = {
+  purchase: '进货单',
+  sales: '出货单',
+  return: '退货单',
+  transfer: '调拨单',
+}
 
 const BIZ_TYPE_LABELS: Record<string, string> = {
   PURCHASE_ORDER: '进货单',
@@ -146,258 +143,41 @@ const BIZ_TYPE_LABELS: Record<string, string> = {
   RETURN_ORDER: '退货单',
 }
 
-function pendingStep(row: ApprovalInstanceView) {
-  return row.steps.find((s) => s.stepNo === row.currentStep && s.status === 'PENDING')
+function isoDates(): { from: string; to: string } {
+  const to = new Date()
+  const from = new Date()
+  from.setDate(from.getDate() - 6)
+  const fmt = (d: Date) => d.toISOString().slice(0, 10)
+  return { from: fmt(from), to: fmt(to) }
 }
 
-/** 待办按"当前节点的 approverPermission"匹配当前账号权限码，而不是按角色名猜。 */
-function canHandle(row: ApprovalInstanceView): boolean {
-  const step = pendingStep(row)
-  return Boolean(step && session.hasPermission(step.approverPermission))
-}
+const weekRange = isoDates()
 
-async function loadApprovals() {
-  if (!canApsRead.value) return
-  approval.loading = true
-  approval.error = ''
-  const [pending, transferred] = await Promise.all([
-    settle(approvalApi.list('PENDING', undefined, 1, 200)),
-    settle(approvalApi.list('TRANSFERRED', undefined, 1, 200)),
-  ])
-
-  let all: ApprovalInstanceView[] = []
-  let total = 0
-  let truncated = false
-  let failed = false
-
-  for (const result of [pending, transferred]) {
-    if (result.status === 'fulfilled') {
-      all = all.concat(result.value.items)
-      total += result.value.total
-      if (result.value.total > result.value.items.length) truncated = true
-    } else {
-      failed = true
-    }
-  }
-
-  approval.pendingTotal = total
-  approval.truncated = truncated
-  approval.mine = canApprove.value
-    ? all.filter(
-        (row) => (row.status === 'PENDING' || row.status === 'TRANSFERRED') && canHandle(row),
-      )
-    : []
-  if (failed) {
-    approval.error = all.length
-      ? '部分审批数据加载失败，下面只显示已取到的待办。'
-      : '审批数据加载失败，请确认后端可用后重试。'
-  }
-  approval.loading = false
-}
-
-// ─────────────────────────── 待发货 / 拣货 ───────────────────────────
-
-const ACTIONABLE_SHIPMENT_STATUSES = new Set(['DRAFT', 'PICKING', 'PICKED'])
-const SHIPMENT_STATUS_LABELS: Record<string, string> = {
-  DRAFT: '待拣货',
-  PICKING: '拣货中',
-  PICKED: '待确认发货',
-  COMPLETED: '已发货',
-  VOIDED: '已作废',
-}
-
-interface ShipmentState {
-  loading: boolean
-  error: string
-  rows: Shipment[]
-  counts: Record<string, number>
-  scanned: number
-  total: number
-  truncated: boolean
-}
-
-const shipments = reactive<ShipmentState>({
-  loading: false,
-  error: '',
-  rows: [],
-  counts: { DRAFT: 0, PICKING: 0, PICKED: 0 },
-  scanned: 0,
-  total: 0,
-  truncated: false,
-})
-
-const shipmentPendingCount = computed(
-  () => shipments.counts.DRAFT + shipments.counts.PICKING + shipments.counts.PICKED,
-)
-
-async function loadShipments() {
-  if (!canSal.value) return
-  shipments.loading = true
-  shipments.error = ''
+async function loadSummary() {
+  loading.value = true
+  loadError.value = ''
   try {
-    // 后端分页上限 200；用一页覆盖常见待办量，超出时在界面上标注统计范围。
-    const data = await shipmentApi.list({ page: 1, size: 200 })
-    const actionable = data.items.filter((s) => ACTIONABLE_SHIPMENT_STATUSES.has(s.status))
-    const counts: Record<string, number> = { DRAFT: 0, PICKING: 0, PICKED: 0 }
-    for (const row of actionable) {
-      if (row.status in counts) counts[row.status] += 1
-    }
-    shipments.rows = actionable
-    shipments.counts = counts
-    shipments.scanned = data.items.length
-    shipments.total = data.total
-    shipments.truncated = data.total > data.items.length
-  } catch {
-    shipments.rows = []
-    shipments.counts = { DRAFT: 0, PICKING: 0, PICKED: 0 }
-    shipments.error = '发货单加载失败，请稍后重试。'
+    summary.value = await skeletonApi.dashboardSummary()
+  } catch (cause: unknown) {
+    const e = cause as { response?: { data?: { message?: string } }; message?: string }
+    loadError.value = e?.response?.data?.message || e?.message || '工作台数据加载失败'
+    summary.value = null
   } finally {
-    shipments.loading = false
+    loading.value = false
   }
 }
 
-// ─────────────────────────── 库存预警 / 零可用 ───────────────────────────
-
-/**
- * 余额口径：可用量 ≤ 0 的 (SKU, 仓库, 批次)。
- *
- * 不调用 /inventory/alerts：当前 8080 后端的 SAFETY 预警与补货建议均返回 500，
- * 而预警阈值（skus.min_level）不在余额响应里。这里复用概览已取的余额数据，
- * 只做筛选与排序，少发一个请求，也不把接口失败隐藏成"没有预警"。
- */
-const zeroAvailableRows = computed(() => {
-  const rows = inventoryBalances.value
-  if (!rows) return []
-  return rows
-    .filter((row) => row.availableQty <= 0)
-    .sort((a, b) => a.availableQty - b.availableQty || a.skuId - b.skuId)
-})
-
-const zeroAvailableTotal = computed(() => zeroAvailableRows.value.length)
-
-// ─────────────────────────── 应收逾期 ───────────────────────────
-
-interface ArState {
-  loading: boolean
-  error: string
-  items: CustomerReceivable[]
-  total: number
-}
-
-const receivables = reactive<ArState>({ loading: false, error: '', items: [], total: 0 })
-
-async function loadReceivables() {
-  if (!canSal.value) return
-  receivables.loading = true
-  receivables.error = ''
-  try {
-    const data = await arApi.receivables({ overdue: true, page: 1, size: 5 })
-    receivables.items = data.items
-    receivables.total = data.total
-  } catch {
-    receivables.items = []
-    receivables.total = 0
-    receivables.error = '逾期应收加载失败，请稍后重试。'
-  } finally {
-    receivables.loading = false
-  }
-}
-
-// ─────────────────────────── 今日 / 近 7 日单据 ───────────────────────────
-
-interface DocStat {
-  todayOrders: number
-  weekOrders: number
-  weekAmount: number
-}
-
-interface ReportState {
-  loading: boolean
-  error: string
-  purchase: DocStat | null
-  sales: DocStat | null
-}
-
-const reportState = reactive<ReportState>({
-  loading: false,
-  error: '',
-  purchase: null,
-  sales: null,
-})
-
-function isoDate(date: Date): string {
-  const y = date.getFullYear()
-  const m = String(date.getMonth() + 1).padStart(2, '0')
-  const d = String(date.getDate()).padStart(2, '0')
-  return `${y}-${m}-${d}`
-}
-
-const today = isoDate(new Date())
-const sevenDaysAgo = new Date()
-sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6)
-const weekStart = isoDate(sevenDaysAgo)
-
-function summarizeDays(rows: ReportRow[], day: string): DocStat {
-  return {
-    todayOrders: rows
-      .filter((row) => row.label === day)
-      .reduce((sum, row) => sum + row.orderCount, 0),
-    weekOrders: rows.reduce((sum, row) => sum + row.orderCount, 0),
-    weekAmount: rows.reduce((sum, row) => sum + row.amount, 0),
-  }
-}
-
-async function loadReports() {
-  if (!canRpt.value) return
-  reportState.loading = true
-  reportState.error = ''
-  const params = { from: weekStart, to: today, groupBy: 'day' as const }
-  const [purchase, sales] = await Promise.all([
-    settle(rptApi.purchase(params)),
-    settle(rptApi.sales(params)),
-  ])
-  reportState.purchase =
-    purchase.status === 'fulfilled' ? summarizeDays(purchase.value.items, today) : null
-  reportState.sales = sales.status === 'fulfilled' ? summarizeDays(sales.value.items, today) : null
-  reportState.error =
-    purchase.status === 'rejected' || sales.status === 'rejected'
-      ? '近 7 日单据统计加载失败，请稍后重试。'
-      : ''
-  reportState.loading = false
-}
-
-// ─────────────────────────── 统一加载 ───────────────────────────
-
-async function loadAll() {
-  await Promise.allSettled([
-    loadKpis(),
-    loadApprovals(),
-    loadShipments(),
-    loadReceivables(),
-    loadReports(),
-  ])
-}
-
-const anyLoading = computed(
-  () =>
-    loading.value ||
-    approval.loading ||
-    shipments.loading ||
-    receivables.loading ||
-    reportState.loading,
-)
-
-onMounted(loadAll)
+onMounted(loadSummary)
 </script>
 
 <template>
   <div class="page">
     <div class="page-header">
       <div>
-        <h2 class="page-title">{{ greeting }}，{{ displayName }}</h2>
-        <p class="page-hint cockpit-page-hint">待办优先；没有数据的区块会明确说明原因。</p>
+        <h2 class="page-title">工作台</h2>
+        <p class="page-hint">系统当前运行状态与你的待办，数据来自单一聚合端点。</p>
       </div>
-      <el-button :loading="anyLoading" @click="loadAll">刷新</el-button>
+      <el-button :loading="loading" @click="loadSummary">刷新</el-button>
     </div>
 
     <el-alert
@@ -406,496 +186,369 @@ onMounted(loadAll)
       show-icon
       :closable="false"
       class="mb-16"
-      :title="loadError"
+      :title="`加载失败：${loadError}`"
     >
-      <el-button size="small" @click="loadKpis">重试</el-button>
+      <el-button size="small" @click="loadSummary">重试</el-button>
     </el-alert>
 
-    <!-- 概览：真实反映后端状态，不造欢迎页假数据 -->
-    <div v-loading="loading" class="mb-16">
-      <el-row :gutter="16">
-        <el-col :xs="24" :sm="12" :md="6">
-          <el-card shadow="hover">
-            <div class="stat-label">商品</div>
-            <div class="stat-value">{{ productTotal ?? '-' }}</div>
-            <div class="stat-hint">
-              {{ canMdm ? '个款式（不含 SKU 明细）' : '无 mdm:read 权限' }}
-            </div>
-          </el-card>
-        </el-col>
-        <el-col :xs="24" :sm="12" :md="6">
-          <el-card shadow="hover">
-            <div class="stat-label">库存行</div>
-            <div class="stat-value">{{ inventoryRows ?? '-' }}</div>
-            <div class="stat-hint">
-              {{ canInv ? '条 (SKU × 仓库 × 批次)' : '无 inv:read 权限' }}
-            </div>
-          </el-card>
-        </el-col>
-        <el-col :xs="24" :sm="12" :md="6">
-          <el-card shadow="hover">
-            <div class="stat-label">进货单</div>
-            <div class="stat-value">{{ purchaseTotal ?? '-' }}</div>
-            <div class="stat-hint">{{ canPur ? '张（全状态）' : '无 pur:read 权限' }}</div>
-          </el-card>
-        </el-col>
-        <el-col :xs="24" :sm="12" :md="6">
-          <el-card shadow="hover">
-            <div class="stat-label">出货单</div>
-            <div class="stat-value">{{ salesTotal ?? '-' }}</div>
-            <div class="stat-hint">{{ canSal ? '张（全状态）' : '无 sal:read 权限' }}</div>
-          </el-card>
-        </el-col>
-      </el-row>
+    <!-- KPI 卡片：8 项 -->
+    <div v-loading="loading" class="kpi-grid mb-16">
+      <el-card
+        v-for="c in kpiCards"
+        :key="c.label"
+        shadow="hover"
+        :class="['kpi-card', { danger: c.danger }]"
+      >
+        <div class="kpi-label">{{ c.label }}</div>
+        <div class="kpi-value">{{ c.value }}</div>
+        <div class="kpi-hint">{{ c.hint }}</div>
+      </el-card>
     </div>
 
-    <!-- 待办驾驶舱 -->
-    <el-row :gutter="16">
-      <el-col v-if="canApsRead" :xs="24" :lg="12" class="mb-16">
+    <!-- 图表：4 张手绘 SVG -->
+    <div class="chart-grid mb-16">
+      <el-card shadow="never" class="chart-card">
+        <template #header><span class="chart-title">近 7 日进货趋势</span></template>
+        <svg v-if="summary" viewBox="0 0 320 140" class="chart-svg">
+          <line x1="26" y1="114" x2="294" y2="114" stroke="#e4e7ed" />
+          <path :d="purchaseGeom.path" fill="none" stroke="#409eff" stroke-width="2" />
+          <circle
+            v-for="(p, i) in purchaseGeom.dots"
+            :key="i"
+            :cx="p.x"
+            :cy="p.y"
+            r="3"
+            fill="#409eff"
+          >
+            <title>{{ p.label }}：{{ p.value }} 张</title>
+          </circle>
+        </svg>
+        <div v-else class="chart-empty">暂无数据</div>
+      </el-card>
+
+      <el-card shadow="never" class="chart-card">
+        <template #header><span class="chart-title">近 7 日出货趋势</span></template>
+        <svg v-if="summary" viewBox="0 0 320 140" class="chart-svg">
+          <line x1="26" y1="114" x2="294" y2="114" stroke="#e4e7ed" />
+          <path :d="salesGeom.path" fill="none" stroke="#67c23a" stroke-width="2" />
+          <circle
+            v-for="(p, i) in salesGeom.dots"
+            :key="i"
+            :cx="p.x"
+            :cy="p.y"
+            r="3"
+            fill="#67c23a"
+          >
+            <title>{{ p.label }}：{{ p.value }} 张</title>
+          </circle>
+        </svg>
+        <div v-else class="chart-empty">暂无数据</div>
+      </el-card>
+
+      <el-card shadow="never" class="chart-card">
+        <template #header><span class="chart-title">出货单状态分布</span></template>
+        <div v-if="summary && statusPie.length" class="pie-wrap">
+          <svg viewBox="0 0 160 160" class="pie-svg">
+            <path v-for="(s, i) in statusPie" :key="i" :d="s.path" :fill="s.color" />
+          </svg>
+          <ul class="pie-legend">
+            <li v-for="(s, i) in statusPie" :key="i">
+              <span class="legend-dot" :style="{ background: s.color }" />
+              <span class="legend-label">{{ s.label }}</span>
+              <span class="legend-val">{{ s.value }}（{{ s.percent }}%）</span>
+            </li>
+          </ul>
+        </div>
+        <div v-else class="chart-empty">暂无数据</div>
+      </el-card>
+
+      <el-card shadow="never" class="chart-card">
+        <template #header><span class="chart-title">各仓库 SKU 覆盖</span></template>
+        <div v-if="summary && warehouseBars.length" class="bar-wrap">
+          <div v-for="b in warehouseBars" :key="b.id" class="bar-row">
+            <span class="bar-label">仓 #{{ b.id }}</span>
+            <div class="bar-track">
+              <div class="bar-fill" :style="{ width: b.width + '%', background: b.color }" />
+            </div>
+            <span class="bar-value">{{ b.value }}</span>
+          </div>
+        </div>
+        <div v-else class="chart-empty">暂无数据</div>
+      </el-card>
+    </div>
+
+    <!-- 待办概览 -->
+    <el-row :gutter="16" class="mb-16">
+      <el-col :xs="24" :lg="12" class="mb-16">
         <el-card shadow="never" class="cockpit-card">
           <template #header>
             <div class="card-head">
-              <span class="card-head-title"><el-icon><Checked /></el-icon>待我审批</span>
-              <span class="card-head-actions">
-                <el-tag
-                  v-if="!approval.loading && !approval.error"
-                  size="small"
-                  :type="approval.mine.length ? 'warning' : 'success'"
-                >
-                  {{ canApprove ? `${approval.mine.length} 条可处理` : `${approval.pendingTotal} 条待审` }}
-                </el-tag>
-                <el-button link type="primary" @click="router.push('/approvals')">去审批台</el-button>
-              </span>
+              <span class="card-head-title">待办概览</span>
+              <el-button link type="primary" @click="router.push('/todos')">去待办中心</el-button>
             </div>
           </template>
-
-          <el-skeleton v-if="approval.loading" :rows="2" animated />
-          <template v-else>
-            <el-alert
-              v-if="approval.error"
-              type="warning"
-              show-icon
-              :closable="false"
-              :title="approval.error"
-              class="mb-16"
-            >
-              <el-button size="small" @click="loadApprovals">重试</el-button>
-            </el-alert>
-            <el-alert
-              v-if="approval.truncated"
-              type="info"
-              show-icon
-              :closable="false"
-              title="待审批超过 200 条，本卡片只统计最近 200 条；请进审批台查看全量。"
-              class="mb-16"
-            />
-            <div v-if="approval.mine.length" class="todo-list">
-              <div
-                v-for="row in approval.mine.slice(0, 5)"
-                :key="row.id"
-                class="todo-row"
-                @click="router.push('/approvals')"
-              >
-                <div class="todo-main">
-                  <div class="todo-title">
-                    {{ row.bizRefNo }}
-                    <el-tag size="small" type="info">
-                      {{ BIZ_TYPE_LABELS[row.bizType] ?? row.bizType }}
-                    </el-tag>
-                  </div>
-                  <div class="todo-sub">
-                    {{ pendingStep(row)?.name ?? '当前节点' }} · 金额 ¥{{ fenToYuan(row.amount) }}
-                  </div>
-                </div>
-                <el-tag size="small" type="warning">
-                  {{ row.status === 'TRANSFERRED' ? '已转办' : '待审批' }}
-                </el-tag>
-              </div>
-              <div v-if="approval.mine.length > 5" class="todo-more">
-                仅显示前 5 条，共 {{ approval.mine.length }} 条可处理
-              </div>
-              <div class="cockpit-hint">
-                按当前节点的 approverPermission 匹配；你是否已同意过该节点，以审批台详情为准。
-              </div>
+          <div v-if="todos" class="todo-stat-row">
+            <div class="todo-stat">
+              <div class="todo-stat-value">{{ todos.approvalPending }}</div>
+              <div class="todo-stat-label">待审批</div>
             </div>
-            <div v-else-if="!approval.error" class="empty-block cockpit-empty">
-              {{
-                !canApprove
-                  ? '当前账号无 aps:approve 权限，只能进入审批台查看列表'
-                  : approval.pendingTotal
-                    ? `共 ${approval.pendingTotal} 条待审批，但当前节点都不需要你的权限`
-                    : '暂无待审批'
-              }}
+            <div class="todo-stat">
+              <div class="todo-stat-value">{{ todos.purchaseReceipt }}</div>
+              <div class="todo-stat-label">待收货</div>
             </div>
-          </template>
+            <div class="todo-stat">
+              <div class="todo-stat-value">{{ todos.salesShip }}</div>
+              <div class="todo-stat-label">待发货</div>
+            </div>
+            <div class="todo-stat">
+              <div class="todo-stat-value danger">{{ todos.lowStock }}</div>
+              <div class="todo-stat-label">库存预警</div>
+            </div>
+          </div>
+          <div v-else class="chart-empty">加载中…</div>
         </el-card>
       </el-col>
 
-      <el-col v-if="canSal" :xs="24" :lg="12" class="mb-16">
+      <el-col :xs="24" :lg="12" class="mb-16">
         <el-card shadow="never" class="cockpit-card">
-          <template #header>
-            <div class="card-head">
-              <span class="card-head-title"><el-icon><Van /></el-icon>待发货 / 拣货</span>
-              <span class="card-head-actions">
-                <el-tag
-                  v-if="!shipments.loading && !shipments.error"
-                  size="small"
-                  :type="shipmentPendingCount ? 'warning' : 'success'"
-                >
-                  {{ shipmentPendingCount }} 条待处理
-                </el-tag>
-                <el-button link type="primary" @click="router.push('/shipments')">去发货</el-button>
-              </span>
-            </div>
-          </template>
-
-          <el-skeleton v-if="shipments.loading" :rows="2" animated />
-          <template v-else>
-            <el-alert
-              v-if="shipments.error"
-              type="warning"
-              show-icon
-              :closable="false"
-              :title="shipments.error"
-              class="mb-16"
+          <template #header><span class="card-head-title">最近的待审批</span></template>
+          <div v-if="todos && todos.items.length" class="todo-list">
+            <div
+              v-for="row in todos.items.slice(0, 6)"
+              :key="row.id"
+              class="todo-row"
+              @click="router.push('/approvals')"
             >
-              <el-button size="small" @click="loadShipments">重试</el-button>
-            </el-alert>
-            <el-alert
-              v-if="shipments.truncated"
-              type="info"
-              show-icon
-              :closable="false"
-              :title="`统计基于最近 ${shipments.scanned} 张发货单（共 ${shipments.total} 张）。`"
-              class="mb-16"
-            />
-            <template v-if="shipments.rows.length">
-              <div class="status-strip">
-                <span>待拣货 <strong>{{ shipments.counts.DRAFT }}</strong></span>
-                <span>拣货中 <strong>{{ shipments.counts.PICKING }}</strong></span>
-                <span>待确认发货 <strong>{{ shipments.counts.PICKED }}</strong></span>
-              </div>
-              <div class="todo-list">
-                <div
-                  v-for="row in shipments.rows.slice(0, 5)"
-                  :key="row.id"
-                  class="todo-row"
-                  @click="router.push('/shipments')"
-                >
-                  <div class="todo-main">
-                    <div class="todo-title">{{ row.shipmentNo }}</div>
-                    <div class="todo-sub">
-                      出货单 #{{ row.salesOrderId }} · 仓库 #{{ row.warehouseId }}
-                    </div>
-                  </div>
-                  <el-tag size="small" type="warning">
-                    {{ SHIPMENT_STATUS_LABELS[row.status] ?? row.status }}
+              <div class="todo-main">
+                <div class="todo-title">
+                  {{ row.bizRefNo }}
+                  <el-tag size="small" type="info">
+                    {{ BIZ_TYPE_LABELS[row.bizType] ?? row.bizType }}
                   </el-tag>
                 </div>
+                <div class="todo-sub">金额 ¥{{ fenToYuan(row.amount) }}</div>
               </div>
-              <div v-if="shipments.rows.length > 5" class="todo-more">
-                仅显示前 5 条，共 {{ shipments.rows.length }} 条待处理
-              </div>
-            </template>
-            <div v-else-if="!shipments.error" class="empty-block cockpit-empty">
-              没有待拣货 / 待发货的发货单
+              <el-tag size="small" type="warning">待审批</el-tag>
             </div>
-          </template>
-        </el-card>
-      </el-col>
-
-      <el-col v-if="canInv" :xs="24" :lg="12" class="mb-16">
-        <el-card shadow="never" class="cockpit-card">
-          <template #header>
-            <div class="card-head">
-              <span class="card-head-title"><el-icon><Warning /></el-icon>库存预警 / 零可用</span>
-              <span class="card-head-actions">
-                <el-tag
-                  v-if="!loading && !inventoryError"
-                  size="small"
-                  :type="zeroAvailableTotal ? 'danger' : 'success'"
-                >
-                  {{ zeroAvailableTotal }} 条零可用
-                </el-tag>
-                <el-button link type="primary" @click="router.push('/inventory')">去库存</el-button>
-              </span>
-            </div>
-          </template>
-
-          <el-skeleton v-if="loading" :rows="2" animated />
-          <template v-else>
-            <el-alert
-              v-if="inventoryError"
-              type="warning"
-              show-icon
-              :closable="false"
-              title="库存余额加载失败，无法判断零可用库存。"
-              class="mb-16"
-            >
-              <el-button size="small" @click="loadKpis">重试</el-button>
-            </el-alert>
-            <div v-if="zeroAvailableRows.length" class="todo-list">
-              <div
-                v-for="row in zeroAvailableRows.slice(0, 5)"
-                :key="`${row.skuId}-${row.warehouseId}-${row.batchNo}`"
-                class="todo-row"
-                @click="router.push('/inventory')"
-              >
-                <div class="todo-main">
-                  <div class="todo-title">SKU #{{ row.skuId }}</div>
-                  <div class="todo-sub">
-                    仓库 #{{ row.warehouseId }} · 批次 {{ row.batchNo || '—' }} · 实存
-                    {{ row.onHandQty }} / 预占 {{ row.reservedQty }} / 冻结 {{ row.frozenQty }}
-                  </div>
-                </div>
-                <el-tag size="small" type="danger">可用 {{ row.availableQty }}</el-tag>
-              </div>
-              <div v-if="zeroAvailableTotal > 5" class="todo-more">
-                仅显示前 5 条，共 {{ zeroAvailableTotal }} 条
-              </div>
-            </div>
-            <div v-else-if="!inventoryError" class="empty-block cockpit-empty">
-              没有可用量 ≤ 0 的库存行
-            </div>
-            <div v-if="!loading && !inventoryError" class="cockpit-hint">
-              余额口径：可用量 ≤ 0 的 (SKU, 仓库, 批次)；安全库存阈值预警接口未纳入本卡片。
-            </div>
-          </template>
-        </el-card>
-      </el-col>
-
-      <el-col v-if="canSal" :xs="24" :lg="12" class="mb-16">
-        <el-card shadow="never" class="cockpit-card">
-          <template #header>
-            <div class="card-head">
-              <span class="card-head-title"><el-icon><Money /></el-icon>应收逾期</span>
-              <span class="card-head-actions">
-                <el-tag
-                  v-if="!receivables.loading && !receivables.error"
-                  size="small"
-                  :type="receivables.total ? 'danger' : 'success'"
-                >
-                  {{ receivables.total }} 笔逾期
-                </el-tag>
-                <el-button link type="primary" @click="router.push('/receivables')">
-                  去收款
-                </el-button>
-              </span>
-            </div>
-          </template>
-
-          <el-skeleton v-if="receivables.loading" :rows="2" animated />
-          <template v-else>
-            <el-alert
-              v-if="receivables.error"
-              type="warning"
-              show-icon
-              :closable="false"
-              :title="receivables.error"
-              class="mb-16"
-            >
-              <el-button size="small" @click="loadReceivables">重试</el-button>
-            </el-alert>
-            <div v-if="receivables.items.length" class="todo-list">
-              <div
-                v-for="row in receivables.items"
-                :key="row.id"
-                class="todo-row"
-                @click="router.push('/receivables')"
-              >
-                <div class="todo-main">
-                  <div class="todo-title">客户 #{{ row.customerId }}</div>
-                  <div class="todo-sub">
-                    到期 {{ row.dueDate ?? '—' }} · 余额 ¥{{ fenToYuan(row.balance) }}
-                  </div>
-                </div>
-                <el-tag size="small" type="danger">逾期</el-tag>
-              </div>
-              <div v-if="receivables.total > receivables.items.length" class="todo-more">
-                仅显示最近 5 笔，共 {{ receivables.total }} 笔
-              </div>
-            </div>
-            <div v-else-if="!receivables.error" class="empty-block cockpit-empty">
-              没有逾期应收
-            </div>
-          </template>
-        </el-card>
-      </el-col>
-
-      <el-col v-if="canRpt" :xs="24" class="mb-16">
-        <el-card shadow="never" class="cockpit-card">
-          <template #header>
-            <div class="card-head">
-              <span class="card-head-title"><el-icon><TrendCharts /></el-icon>近 7 日单据</span>
-              <span class="card-head-actions">
-                <span class="card-head-hint">{{ weekStart }} ~ {{ today }}</span>
-                <el-button link type="primary" @click="router.push('/reports')">去报表</el-button>
-              </span>
-            </div>
-          </template>
-
-          <el-skeleton v-if="reportState.loading" :rows="2" animated />
-          <template v-else>
-            <el-alert
-              v-if="reportState.error"
-              type="warning"
-              show-icon
-              :closable="false"
-              :title="reportState.error"
-              class="mb-16"
-            >
-              <el-button size="small" @click="loadReports">重试</el-button>
-            </el-alert>
-            <div v-if="reportState.purchase && reportState.sales" class="doc-stat-row">
-              <div class="doc-stat">
-                <div class="doc-stat-label">进货（已入库 / 已部分入库）</div>
-                <div class="doc-stat-value">{{ reportState.purchase.todayOrders }}</div>
-                <div class="doc-stat-hint">
-                  今日单据 · 近 7 日 {{ reportState.purchase.weekOrders }} 张 · ¥{{
-                    fenToYuan(reportState.purchase.weekAmount)
-                  }}
-                </div>
-              </div>
-              <div class="doc-stat">
-                <div class="doc-stat-label">出货（已出库 / 已部分出库）</div>
-                <div class="doc-stat-value">{{ reportState.sales.todayOrders }}</div>
-                <div class="doc-stat-hint">
-                  今日单据 · 近 7 日 {{ reportState.sales.weekOrders }} 张 · ¥{{
-                    fenToYuan(reportState.sales.weekAmount)
-                  }}
-                </div>
-              </div>
-            </div>
-            <div v-else-if="!reportState.error" class="empty-block cockpit-empty">
-              近 7 日没有已入库 / 已出库单据
-            </div>
-            <div class="cockpit-hint">
-              口径与报表一致：只统计有实际入库量 / 出货量（PARTIAL、COMPLETED）的单据；今日数字
-              0 表示今天还没有入库或出库。
-            </div>
-          </template>
+          </div>
+          <div v-else-if="todos" class="chart-empty">暂无待审批</div>
+          <div v-else class="chart-empty">加载中…</div>
         </el-card>
       </el-col>
     </el-row>
 
-    <!-- 自然语言操作（FR-SYS-04）：解析与调度都在后端，这里只做输入与展示 -->
-    <NlCommandBox />
-
-    <!-- 库存一致性 -->
+    <!-- 最近单据 -->
     <el-card shadow="never" class="mb-16">
-      <template #header>
-        <span>库存一致性（不变量 INV-2：实存 == 流水净和）</span>
-      </template>
-      <el-alert
-        v-if="!canInv"
-        type="info"
-        show-icon
-        :closable="false"
-        title="当前账号无 inv:read 权限，无法读取库存一致性"
-      />
-      <template v-else>
-        <el-alert
-          v-if="consistencyError"
-          type="warning"
-          show-icon
-          :closable="false"
-          title="库存一致性检查失败"
-          description="无法读取一致性结果，不代表存在库存漂移。请稍后重试。"
-        >
-          <el-button size="small" @click="loadKpis">重试</el-button>
-        </el-alert>
-        <el-result
-          v-else-if="consistent !== null"
-          :icon="consistent ? 'success' : 'error'"
-          :title="consistent ? '库存与流水一致' : '检测到库存漂移'"
-          :sub-title="
-            consistent
-              ? '所有 (SKU, 仓库, 批次) 的实存量均等于流水净和'
-              : '存在实存与流水不一致的记录，请立即排查是否有代码绕过流水修改库存'
-          "
-        />
-        <div v-else class="empty-block">加载中…</div>
-      </template>
+      <template #header><span>最近单据（{{ weekRange.from }} ~ {{ weekRange.to }} 附近）</span></template>
+      <el-table v-if="recentDocuments.length" :data="recentDocuments" border size="small">
+        <el-table-column label="类型" width="100">
+          <template #default="{ row }">{{ DOC_TYPE_LABELS[row.type] ?? row.type }}</template>
+        </el-table-column>
+        <el-table-column label="单号" prop="no" min-width="140" />
+        <el-table-column label="状态" width="110">
+          <template #default="{ row }"><el-tag size="small">{{ row.status }}</el-tag></template>
+        </el-table-column>
+        <el-table-column label="业务日期" prop="bizDate" width="120" />
+        <el-table-column label="数量" prop="totalQty" width="80" />
+        <el-table-column label="金额(元)" width="110">
+          <template #default="{ row }">¥{{ fenToYuan(row.totalAmount) }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="100" fixed="right">
+          <template #default="{ row }">
+            <el-button link type="primary" @click="openDocument(row)">查看详情</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <div v-else class="chart-empty">暂无最近单据</div>
     </el-card>
 
-    <!-- 本次会话权限 -->
-    <el-card shadow="never">
-      <template #header>
-        <span>当前账号权限</span>
-      </template>
-      <div v-if="session.roles.length" class="mb-16">
-        <span class="text-muted mr-8">角色：</span>
-        <el-tag v-for="r in session.roles" :key="r" class="mr-8" type="primary">{{ r }}</el-tag>
-      </div>
-      <div v-if="session.permissions.length">
-        <span class="text-muted mr-8">权限码：</span>
-        <el-tag
-          v-for="p in session.permissions"
-          :key="p"
-          class="mr-8 mb-16"
-          type="info"
-          size="small"
-        >
-          {{ p }}
-        </el-tag>
-      </div>
-      <div v-else class="empty-block">无可用权限，请联系管理员分配角色。</div>
-    </el-card>
+    <DocumentDrawer
+      v-model:visible="drawerVisible"
+      :type="drawerType"
+      :id="drawerId"
+    />
   </div>
 </template>
 
 <style scoped>
-.cockpit-page-hint {
-  margin: 6px 0 0;
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
 }
 
-.stat-label {
+.kpi-card {
+  border-radius: 4px;
+}
+
+.kpi-card.danger .kpi-value {
+  color: #f56c6c;
+}
+
+.kpi-label {
   font-size: 13px;
   color: #909399;
 }
 
-.stat-value {
+.kpi-value {
   margin: 8px 0 4px;
-  font-size: 28px;
+  font-size: 26px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: #303133;
 }
 
-.stat-hint {
+.kpi-hint {
   font-size: 12px;
   color: #c0c4cc;
 }
 
+.chart-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+.chart-card {
+  border-radius: 4px;
+}
+
+.chart-title {
+  font-weight: 600;
+}
+
+.chart-svg {
+  width: 100%;
+  height: auto;
+}
+
+.chart-empty {
+  padding: 28px 0;
+  text-align: center;
+  color: #909399;
+  font-size: 13px;
+}
+
+.pie-wrap {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.pie-svg {
+  width: 140px;
+  height: 140px;
+  flex: 0 0 140px;
+}
+
+.pie-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 12px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.pie-legend li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+}
+
+.legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex: 0 0 10px;
+}
+
+.legend-label {
+  flex: 1 1 auto;
+  color: #606266;
+}
+
+.legend-val {
+  color: #909399;
+}
+
+.bar-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.bar-label {
+  flex: 0 0 56px;
+  color: #606266;
+}
+
+.bar-track {
+  flex: 1 1 auto;
+  height: 14px;
+  background: #f0f2f5;
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.bar-fill {
+  height: 100%;
+}
+
+.bar-value {
+  flex: 0 0 48px;
+  text-align: right;
+  color: #303133;
+  font-variant-numeric: tabular-nums;
+}
+
 .card-head {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
 }
 
 .card-head-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
   font-weight: 600;
 }
 
-.card-head-actions {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
+.todo-stat-row {
+  display: flex;
+  gap: 12px;
 }
 
-.card-head-hint {
+.todo-stat {
+  flex: 1 1 0;
+  padding: 12px;
+  text-align: center;
+  background: #f7f9fc;
+  border-radius: 6px;
+}
+
+.todo-stat-value {
+  font-size: 24px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #303133;
+}
+
+.todo-stat-value.danger {
+  color: #f56c6c;
+}
+
+.todo-stat-label {
+  margin-top: 4px;
   font-size: 12px;
   color: #909399;
-}
-
-.cockpit-empty {
-  padding: 20px 0;
 }
 
 .todo-list {
@@ -927,7 +580,6 @@ onMounted(loadAll)
 
 .todo-title {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   font-size: 14px;
@@ -940,63 +592,13 @@ onMounted(loadAll)
   color: #909399;
 }
 
-.todo-more {
-  padding-top: 8px;
-  font-size: 12px;
-  color: #909399;
-  text-align: right;
-}
+@media (max-width: 768px) {
+  .kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
 
-.status-strip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  padding: 2px 4px 10px;
-  margin-bottom: 2px;
-  font-size: 13px;
-  color: #606266;
-  border-bottom: 1px solid #f0f2f5;
-}
-
-.status-strip strong {
-  color: #303133;
-  font-variant-numeric: tabular-nums;
-}
-
-.doc-stat-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-}
-
-.doc-stat {
-  flex: 1 1 240px;
-  padding: 12px 16px;
-  background: #f7f9fc;
-  border-radius: 6px;
-}
-
-.doc-stat-label {
-  font-size: 13px;
-  color: #909399;
-}
-
-.doc-stat-value {
-  margin: 6px 0;
-  font-size: 28px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  color: #303133;
-}
-
-.doc-stat-hint {
-  font-size: 12px;
-  color: #909399;
-}
-
-.cockpit-hint {
-  margin-top: 10px;
-  font-size: 12px;
-  color: #909399;
+  .chart-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

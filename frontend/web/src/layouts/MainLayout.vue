@@ -2,9 +2,10 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowDown, OfficeBuilding, SwitchButton } from '@element-plus/icons-vue'
+import { ArrowDown, OfficeBuilding, Search, SwitchButton } from '@element-plus/icons-vue'
 import { navGroups } from '@/router/registry'
 import { useSessionStore } from '@/stores/session'
+import { skeletonApi, type SearchHit, type SearchResult } from '@/api/skeleton'
 
 /**
  * 主布局：左侧菜单 + 顶栏 + 内容区。
@@ -139,6 +140,104 @@ async function handleLogout() {
   session.logout()
   router.push({ name: 'login' })
 }
+
+// ─────────────────────────── 全局搜索（FR-V3-05） ───────────────────────────
+
+/**
+ * 顶栏全局搜索：跨 商品 / 客户 / 供应商 / 单据 模糊查。
+ *
+ * ★ 不依赖任何业务模块权限：搜索本身用 dashboard:read 聚合端点，
+ *   命中结果点击跳转到对应主数据 / 单据列表页（跳转目标页各自再判权限）。
+ * ★ 防抖 300ms：避免每敲一个字就打一次后端；清空关键词立即收起结果面板。
+ */
+const searchKeyword = ref('')
+const searchOpen = ref(false)
+const searchLoading = ref(false)
+const searchResult = ref<SearchResult | null>(null)
+const searchError = ref('')
+let searchTimer: ReturnType<typeof setTimeout> | undefined
+
+function runSearch() {
+  const kw = searchKeyword.value.trim()
+  if (!kw) {
+    searchResult.value = null
+    searchOpen.value = false
+    return
+  }
+  searchLoading.value = true
+  searchError.value = ''
+  skeletonApi
+    .search(kw)
+    .then((r) => {
+      searchResult.value = r
+      searchOpen.value = true
+    })
+    .catch((cause: unknown) => {
+      const e = cause as { response?: { data?: { message?: string } }; message?: string }
+      searchError.value = e?.response?.data?.message || e?.message || '搜索失败'
+      searchResult.value = null
+    })
+    .finally(() => {
+      searchLoading.value = false
+    })
+}
+
+function onSearchInput() {
+  clearTimeout(searchTimer)
+  searchTimer = setTimeout(runSearch, 300)
+}
+
+function onSearchFocus() {
+  if (searchResult.value && searchKeyword.value.trim()) searchOpen.value = true
+}
+
+const searchGroups = computed(() => {
+  const r = searchResult.value
+  if (!r) return []
+  return [
+    { key: 'products', label: '商品', hits: r.products },
+    { key: 'customers', label: '客户', hits: r.customers },
+    { key: 'suppliers', label: '供应商', hits: r.suppliers },
+    { key: 'orders', label: '单据', hits: r.orders },
+  ].filter((g) => g.hits.length > 0)
+})
+
+const searchEmpty = computed(
+  () =>
+    searchResult.value &&
+    !searchLoading.value &&
+    !searchError.value &&
+    searchGroups.value.length === 0,
+)
+
+function orderRoute(type: string | undefined): string {
+  switch (type) {
+    case 'purchase':
+      return '/purchase-orders'
+    case 'sales':
+      return '/sales-orders'
+    case 'return':
+      return '/return-orders'
+    case 'transfer':
+      return '/inventory-transfers'
+    default:
+      return '/dashboard'
+  }
+}
+
+function goSearchHit(hit: SearchHit, kind: 'products' | 'customers' | 'suppliers' | 'orders') {
+  searchOpen.value = false
+  const path =
+    kind === 'products'
+      ? '/products'
+      : kind === 'customers'
+        ? '/customers'
+        : kind === 'suppliers'
+          ? '/suppliers'
+          : orderRoute(hit.type)
+  void router.push(path)
+  searchKeyword.value = ''
+}
 </script>
 
 <template>
@@ -191,6 +290,54 @@ async function handleLogout() {
           </el-breadcrumb>
         </div>
         <div class="header-right">
+          <!-- FR-V3-05：顶栏全局搜索，跨 商品/客户/供应商/单据 模糊查 -->
+          <div class="global-search">
+            <el-input
+              v-model="searchKeyword"
+              :prefix-icon="Search"
+              placeholder="搜索 商品 / 客户 / 供应商 / 单号"
+              clearable
+              class="search-input"
+              @input="onSearchInput"
+              @focus="onSearchFocus"
+              @keyup.enter="runSearch"
+            />
+            <div v-if="searchOpen" class="search-overlay" @click="searchOpen = false" />
+            <div v-if="searchOpen && searchKeyword.trim()" class="search-panel">
+              <div v-if="searchLoading" class="search-loading">搜索中…</div>
+              <el-alert
+                v-else-if="searchError"
+                type="warning"
+                show-icon
+                :closable="false"
+                :title="`搜索失败：${searchError}`"
+              />
+              <div v-else-if="searchEmpty" class="search-empty">
+                没有匹配「{{ searchKeyword }}」的结果
+              </div>
+              <template v-else>
+                <div v-for="g in searchGroups" :key="g.key" class="search-group">
+                  <div class="search-group-title">{{ g.label }}</div>
+                  <div
+                    v-for="hit in g.hits.slice(0, 8)"
+                    :key="`${g.key}-${hit.id}`"
+                    class="search-hit"
+                    @click="goSearchHit(hit, g.key as 'products' | 'customers' | 'suppliers' | 'orders')"
+                  >
+                    <template v-if="g.key === 'orders'">
+                      <span class="search-hit-no">{{ hit.no }}</span>
+                      <span class="search-hit-sub">{{ hit.status }}</span>
+                    </template>
+                    <template v-else>
+                      <span class="search-hit-no">{{ hit.name }}</span>
+                      <span class="search-hit-sub">{{ hit.code }}</span>
+                    </template>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+
           <!-- B1：当前租户。只有真的是多租户成员才渲染切换器（单租户只显示名称）。 -->
           <el-dropdown
             v-if="session.isMultiTenant"
@@ -342,6 +489,78 @@ async function handleLogout() {
 
 .tenant-chip.static {
   cursor: default;
+}
+
+.global-search {
+  position: relative;
+}
+
+.search-input {
+  width: 240px;
+}
+
+.search-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1999;
+}
+
+.search-panel {
+  position: absolute;
+  top: 38px;
+  right: 0;
+  z-index: 2000;
+  width: 320px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 8px;
+  background: #fff;
+  border: 1px solid #e4e7ed;
+  border-radius: 4px;
+  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.12);
+}
+
+.search-loading,
+.search-empty {
+  padding: 16px 8px;
+  text-align: center;
+  color: #909399;
+  font-size: 13px;
+}
+
+.search-group {
+  margin-bottom: 6px;
+}
+
+.search-group-title {
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #909399;
+}
+
+.search-hit {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.search-hit:hover {
+  background: #f5f7fa;
+}
+
+.search-hit-no {
+  font-size: 13px;
+  color: #303133;
+}
+
+.search-hit-sub {
+  font-size: 12px;
+  color: #909399;
 }
 
 .tenant-name {

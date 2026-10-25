@@ -33,7 +33,10 @@ import java.util.Set;
  */
 public final class TenantTables {
 
-    /** 全部带 {@code tenant_id} 的业务表（59 张 = V16 的 55 张 + V17 的成员关系表 1 张 + V18 的主数据扩展 3 张）。 */
+    /**
+     * 全部带 {@code tenant_id} 的业务表（64 张 = V16 的 55 张 + V17 的成员关系表 1 张
+     * + V18 的主数据扩展 3 张 + V19 的骨架系统表 5 张）。
+     */
     public static final Set<String> ALL = Set.copyOf(List.of(
             // 主数据
             "warehouses", "products", "skus", "suppliers", "customers",
@@ -70,7 +73,10 @@ public final class TenantTables {
             // 审批
             "approval_flows", "approval_instances", "approval_steps",
             // 审计（V13 已有列；V16 只追加索引，不改列）
-            "audit_logs"));
+            "audit_logs",
+            // V19 · 骨架组：组织架构 / 系统参数 / 单号规则 / 登录日志
+            "sys_department", "sys_position", "sys_config",
+            "sys_number_rule", "sys_login_log"));
 
     /**
      * 在查询里**可能出现但不需要改写**的表。

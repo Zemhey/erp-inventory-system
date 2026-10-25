@@ -193,7 +193,27 @@ public enum ErrorCode {
     /** 启用库位容量合计将超过仓库容量。 */
     MDM_LOCATION_CAPACITY_EXCEEDED(409),
     /** 商品规格属性请求非法（键重复、键/值超长、条数超限）。 */
-    MDM_PRODUCT_ATTRIBUTE_INVALID(400);
+    MDM_PRODUCT_ATTRIBUTE_INVALID(400),
+
+    // ── 骨架组（V3-1 · FR-V3-23/24/25/29，纯追加）──
+    /** 组织架构：部门不存在（含不属于当前租户 —— 统一 404 防枚举）。 */
+    SYS_DEPARTMENT_NOT_FOUND(404),
+    /** 部门编码在当前租户内重复。 */
+    SYS_DEPARTMENT_CODE_DUPLICATED(409),
+    /** 岗位不存在（含不属于当前租户）。 */
+    SYS_POSITION_NOT_FOUND(404),
+    /** 岗位编码在当前租户内重复。 */
+    SYS_POSITION_CODE_DUPLICATED(409),
+    /** 系统参数：配置键不存在（含不属于当前租户）。 */
+    SYS_CONFIG_NOT_FOUND(404),
+    /** 配置键在当前租户/分组内重复。 */
+    SYS_CONFIG_KEY_DUPLICATED(409),
+    /** 单号规则：单据类型不存在对应规则。 */
+    SYS_NUMBER_RULE_NOT_FOUND(404),
+    /** 单号规则：预览时日期/格式解析失败。 */
+    SYS_NUMBER_RULE_INVALID(400),
+    /** 登录日志：记录不存在（含不属于当前租户）。 */
+    SYS_LOGIN_LOG_NOT_FOUND(404);
 
     private final int httpStatus;
 

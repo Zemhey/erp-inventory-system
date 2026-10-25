@@ -11,6 +11,7 @@ import com.erp.shared.tenant.TenantContext;
 import com.erp.shared.tenant.TenantDirectory;
 import com.erp.shared.tenant.TenantRef;
 import com.erp.shared.time.ClockProvider;
+import com.erp.sys.application.LoginLogRecorder;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -62,6 +63,7 @@ public class AuthenticationService {
     private final PasswordPolicy passwordPolicy;
     private final int maxFailedAttempts;
     private final int lockMinutes;
+    private final LoginLogRecorder loginLog;
 
     public AuthenticationService(AppUserRepository users,
                                  TenantDirectory tenants,
@@ -69,6 +71,7 @@ public class AuthenticationService {
                                  PasswordEncoder passwordEncoder,
                                  JwtTokenService tokens,
                                  ClockProvider clock,
+                                 LoginLogRecorder loginLog,
                                  @Value("${erp.iam.max-failed-attempts:5}") int maxFailedAttempts,
                                  @Value("${erp.iam.lock-minutes:15}") int lockMinutes,
                                  @Value("${erp.iam.password.min-length:8}") int minLength,
@@ -80,6 +83,7 @@ public class AuthenticationService {
         this.passwordEncoder = passwordEncoder;
         this.tokens = tokens;
         this.clock = clock;
+        this.loginLog = loginLog;
         this.maxFailedAttempts = maxFailedAttempts;
         this.lockMinutes = lockMinutes;
         this.passwordPolicy = new PasswordPolicy(minLength, minCharClasses, maxAgeDays);
@@ -171,9 +175,11 @@ public class AuthenticationService {
      */
     private AppUser verifyAndRecord(AppUser user, String rawPassword, String name) {
         if (!user.enabled()) {
+            loginLog.record(user.id(), name, false, "账号已停用");
             throw new BusinessException(ErrorCode.IAM_ACCOUNT_DISABLED, "账号已停用：" + name);
         }
         if (user.isLockedAt(nowInstant())) {
+            loginLog.record(user.id(), name, false, "账号已锁定");
             throw new BusinessException(ErrorCode.IAM_ACCOUNT_LOCKED,
                     "账号已锁定，请稍后重试：%s（解锁时间 %s）"
                             .formatted(name, user.lockedUntil()));
@@ -183,6 +189,7 @@ public class AuthenticationService {
             var now = clock.now();
             AppUser after = users.recordLoginFailure(user.id(), maxFailedAttempts,
                     now.plusMinutes(lockMinutes), now);
+            loginLog.record(user.id(), name, false, "密码错误");
             if (after.isLockedAt(nowInstant())) {
                 throw new BusinessException(ErrorCode.IAM_ACCOUNT_LOCKED,
                         "密码连续错误 %d 次，账号已锁定 %d 分钟：%s"
@@ -194,6 +201,7 @@ public class AuthenticationService {
         }
 
         users.recordLoginSuccess(user.id(), clock.now());
+        loginLog.record(user.id(), name, true, null);
         return users.findByIdGlobal(user.id()).orElse(user);
     }
 
