@@ -42,7 +42,7 @@ public class FinVoucherRepository {
             rs.getBigDecimal("total_credit"),
             rs.getObject("created_by") == null ? null : rs.getLong("created_by"),
             rs.getObject("audited_by") == null ? null : rs.getLong("audited_by"),
-            rs.getObject("posted_at", LocalDateTime.class),
+            toLocal(rs.getObject("posted_at", java.time.OffsetDateTime.class)),
             rs.getString("remark"),
             List.of());
 
@@ -58,6 +58,11 @@ public class FinVoucherRepository {
     private static final String HEAD_COLUMNS = """
             id, voucher_no, voucher_date, period, source_type, source_id, source_no,
             status, total_debit, total_credit, created_by, audited_by, posted_at, remark""";
+
+    /** timestamptz → 应用层 LocalDateTime（pgjdbc 不支持直接按 LocalDateTime 取带时区列）。 */
+    private static LocalDateTime toLocal(java.time.OffsetDateTime value) {
+        return value == null ? null : value.toLocalDateTime();
+    }
 
     private final JdbcTemplate jdbc;
 

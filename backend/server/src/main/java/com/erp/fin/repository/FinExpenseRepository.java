@@ -33,7 +33,7 @@ public class FinExpenseRepository {
             ExpenseStatus.valueOf(rs.getString("status")),
             rs.getObject("apply_date", LocalDate.class),
             rs.getString("reject_reason"),
-            rs.getObject("paid_at", LocalDateTime.class),
+            toLocal(rs.getObject("paid_at", java.time.OffsetDateTime.class)),
             rs.getString("remark"), List.of());
 
     private static final RowMapper<ExpenseLine> LINE_MAPPER = (rs, i) -> new ExpenseLine(
@@ -43,6 +43,11 @@ public class FinExpenseRepository {
     private static final String HEAD_COLUMNS = """
             id, expense_no, applicant_id, applicant_name, department_id, department_name,
             expense_type, amount, status, apply_date, reject_reason, paid_at, remark""";
+
+    /** timestamptz → 应用层 LocalDateTime（pgjdbc 不支持直接按 LocalDateTime 取带时区列）。 */
+    private static LocalDateTime toLocal(java.time.OffsetDateTime value) {
+        return value == null ? null : value.toLocalDateTime();
+    }
 
     private final JdbcTemplate jdbc;
 
