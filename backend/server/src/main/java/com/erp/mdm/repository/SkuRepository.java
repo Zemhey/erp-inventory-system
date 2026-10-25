@@ -67,27 +67,16 @@ public class SkuRepository {
                        long retailPriceAmount, boolean enabled,
                        String seasonCode, String bandCode, java.time.LocalDate launchDate,
                        String requestId) {
-        KeyHolder keys = new GeneratedKeyHolder();
         try {
-            jdbc.update(con -> {
-                var ps = con.prepareStatement("""
+            return com.erp.shared.tenant.TenantJdbc.insertReturningId(jdbc,
+                    """
                         INSERT INTO skus (product_id, color, size, barcode, retail_price_amount,
                                           enabled, season_code, band_code, launch_date,
                                           create_request_id)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, new String[]{"id"});
-                ps.setLong(1, productId);
-                ps.setString(2, color);
-                ps.setString(3, size);
-                ps.setString(4, barcode);
-                ps.setLong(5, retailPriceAmount);
-                ps.setBoolean(6, enabled);
-                ps.setString(7, seasonCode);
-                ps.setString(8, bandCode);
-                ps.setObject(9, launchDate);
-                ps.setString(10, requestId);
-                return ps;
-            }, keys);
+                        RETURNING id
+                        """,
+                    new Object[]{productId, color, size, barcode, retailPriceAmount, enabled, seasonCode, bandCode, launchDate, requestId});
         } catch (DataIntegrityViolationException ex) {
             BusinessException duplicatedVariant = DbErrors.translate(ex, "uq_sku_variant",
                     ErrorCode.MDM_SKU_DUPLICATED,
@@ -108,11 +97,6 @@ public class SkuRepository {
             }
             throw ex;
         }
-        Number id = keys.getKey();
-        if (id == null) {
-            throw new IllegalStateException("插入 SKU 后未取得主键：productId=" + productId);
-        }
-        return id.longValue();
     }
 
     public Optional<Sku> findById(long id) {

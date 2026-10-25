@@ -53,23 +53,15 @@ public class CustomerRepository {
      */
     public long insert(String code, String name, String phone, int discountRate,
                        String level, boolean enabled, String requestId) {
-        KeyHolder keys = new GeneratedKeyHolder();
         try {
-            jdbc.update(con -> {
-                var ps = con.prepareStatement("""
+            return com.erp.shared.tenant.TenantJdbc.insertReturningId(jdbc,
+                    """
                         INSERT INTO customers (code, name, phone, discount_rate, level, enabled,
                                                create_request_id)
                         VALUES (?, ?, ?, ?, ?, ?, ?)
-                        """, new String[]{"id"});
-                ps.setString(1, code);
-                ps.setString(2, name);
-                ps.setString(3, phone);
-                ps.setInt(4, discountRate);
-                ps.setString(5, level);
-                ps.setBoolean(6, enabled);
-                ps.setString(7, requestId);
-                return ps;
-            }, keys);
+                        RETURNING id
+                        """,
+                    new Object[]{code, name, phone, discountRate, level, enabled, requestId});
         } catch (DataIntegrityViolationException ex) {
             BusinessException duplicatedCode = DbErrors.translate(ex, "uq_customer_code",
                     ErrorCode.MDM_CODE_DUPLICATED, "客户编码已存在：code=%s".formatted(code));
@@ -84,11 +76,6 @@ public class CustomerRepository {
             }
             throw ex;
         }
-        Number id = keys.getKey();
-        if (id == null) {
-            throw new IllegalStateException("插入客户后未取得主键：code=" + code);
-        }
-        return id.longValue();
     }
 
     public Optional<Customer> findById(long id) {

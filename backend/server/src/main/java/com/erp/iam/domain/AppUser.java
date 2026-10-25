@@ -32,7 +32,7 @@ import java.util.Set;
  * 用 {@code Instant} 表示"绝对时刻"是唯一语义正确的选择；
  * 与业务时钟（{@code LocalDateTime}）的比较通过显式时区换算完成。
  */
-public record AppUser(long id, String username, String passwordHash, String displayName,
+public record AppUser(long id, long tenantId, String username, String passwordHash, String displayName,
                       boolean enabled, int failedAttempts, Instant lockedUntil,
                       Instant passwordExpiresAt, boolean mustChangePassword,
                       List<String> roles, Set<String> permissions) {

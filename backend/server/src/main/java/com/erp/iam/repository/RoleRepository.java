@@ -65,20 +65,12 @@ public class RoleRepository {
     /** 建角色。编码撞 {@code uq_app_role_code} 由调用方翻译成 409。 */
     public long insert(String code, String name, String description) {
         var keys = new org.springframework.jdbc.support.GeneratedKeyHolder();
-        jdbc.update(con -> {
-            var ps = con.prepareStatement("""
+        return com.erp.shared.tenant.TenantJdbc.insertReturningId(jdbc,
+                """
                     INSERT INTO app_roles (code, name, description) VALUES (?, ?, ?)
-                    """, new String[]{"id"});
-            ps.setString(1, code);
-            ps.setString(2, name);
-            ps.setString(3, description);
-            return ps;
-        }, keys);
-        Number id = keys.getKey();
-        if (id == null) {
-            throw new IllegalStateException("插入角色后未取得主键：code=" + code);
-        }
-        return id.longValue();
+                    RETURNING id
+                    """,
+                new Object[]{code, name, description});
     }
 
     /** 改名/改说明（编码不可改：权限码与审计都引用它）。 */

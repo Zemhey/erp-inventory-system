@@ -2,6 +2,7 @@ package com.erp.iam.security;
 
 import com.erp.iam.domain.AppUser;
 import com.erp.iam.application.AuthenticationService;
+import com.erp.shared.tenant.TenantContext;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -44,10 +45,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain chain) throws ServletException, IOException {
         String header = request.getHeader("Authorization");
+        Optional<AppUser> authenticated = Optional.empty();
         if (header != null && header.startsWith(BEARER_PREFIX)) {
             String token = header.substring(BEARER_PREFIX.length()).trim();
-            Optional<AppUser> user = authentication.resolve(token);
-            user.filter(AppUser::enabled).ifPresent(u -> {
+            authenticated = authentication.resolve(token).filter(AppUser::enabled);
+            authenticated.ifPresent(u -> {
                 List<SimpleGrantedAuthority> authorities = new java.util.ArrayList<>();
                 u.roles().forEach(r -> authorities.add(new SimpleGrantedAuthority("ROLE_" + r)));
                 u.permissions().forEach(p -> authorities.add(new SimpleGrantedAuthority("PERM_" + p)));
@@ -56,6 +58,41 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 SecurityContextHolder.getContext().setAuthentication(auth);
             });
         }
-        chain.doFilter(request, response);
+        // ★ V2-7 FR-TNT-04：把租户绑定到本次请求的线程上，并保证**必定**解除。
+        //
+        //   为什么绑定在过滤器里而不是服务各自取：仓储只拿 JdbcTemplate、不接收请求
+        //   对象，因此租户只能来自线程上下文；而线程上下文的生命周期必须与请求严格
+        //   同寿命 —— 早一步解除会让控制器拿不到租户，漏解除会让线程池里的下一个
+        //   请求继承上一个请求的租户（最难复现、后果最严重的一类缺陷）。
+        //
+        //   为什么"没有租户"时**不**绑定默认租户：无 token 的请求在 SecurityConfig 的
+        //   anyRequest().authenticated() 处就被 401 挡掉，走不到业务代码；若将来有人
+        //   加了 permitAll 的业务路径，"未绑定"会让它抛 SYS_TENANT_CONTEXT_MISSING
+        //   （500），而不是静默读写默认租户。大声失败好过静默降级。
+        if (authenticated.isEmpty()) {
+            chain.doFilter(request, response);
+            return;
+        }
+        long tenantId = authenticated.get().tenantId();
+        // 用数组持有"受检异常"，而不是把 chain.doFilter 的异常包成 RuntimeException：
+        // 包了之后 GlobalExceptionHandler 看到的是包装层，错误码与报文都会变形，
+        // 而且 ServletException 的语义（容器级错误）也会丢。
+        Throwable[] failure = new Throwable[1];
+        TenantContext.runIn(tenantId, () -> {
+            try {
+                chain.doFilter(request, response);
+            } catch (IOException | ServletException | RuntimeException ex) {
+                failure[0] = ex;
+            }
+        });
+        if (failure[0] instanceof IOException io) {
+            throw io;
+        }
+        if (failure[0] instanceof ServletException se) {
+            throw se;
+        }
+        if (failure[0] instanceof RuntimeException re) {
+            throw re;
+        }
     }
 }

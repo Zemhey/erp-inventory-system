@@ -61,7 +61,13 @@ class ReportQueryPlanIT extends PostgresTestBase {
     @BeforeAll
     void seedBulkSample() {
         new TestDataFactory(jdbc).truncateAll();
+        // ★ @BeforeAll 跑在 @BeforeEach 的默认租户绑定之前；这里的 INSERT…SELECT
+        //   触及业务表，必须显式绑定租户（否则 TenantSql 抛 SYS_TENANT_CONTEXT_MISSING）。
+        com.erp.shared.tenant.TenantContext.runIn(
+                com.erp.shared.tenant.TenantId.DEFAULT, () -> seedBulkRows());
+    }
 
+    private void seedBulkRows() {
         jdbc.execute("""
                 INSERT INTO warehouses (code, name)
                 SELECT 'WH-PLAN-' || g, '计划仓' || g FROM generate_series(1, 4) g

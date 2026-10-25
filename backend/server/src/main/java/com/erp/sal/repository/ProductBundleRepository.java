@@ -35,19 +35,14 @@ public class ProductBundleRepository {
     }
 
     public long insertBundle(String code, String name, long priceAmount, boolean enabled) {
-        KeyHolder keys = new GeneratedKeyHolder();
         try {
-            jdbc.update(con -> {
-                var ps = con.prepareStatement("""
+            return com.erp.shared.tenant.TenantJdbc.insertReturningId(jdbc,
+                    """
                         INSERT INTO product_bundles (code, name, price_amount, enabled)
                         VALUES (?, ?, ?, ?)
-                        """, new String[]{"id"});
-                ps.setString(1, code);
-                ps.setString(2, name);
-                ps.setLong(3, priceAmount);
-                ps.setBoolean(4, enabled);
-                return ps;
-            }, keys);
+                        RETURNING id
+                        """,
+                    new Object[]{code, name, priceAmount, enabled});
         } catch (DataIntegrityViolationException ex) {
             BusinessException translated = DbErrors.translate(ex, "uq_bundle_code",
                     ErrorCode.MDM_BUNDLE_DUPLICATED, "套装编码已存在：code=%s".formatted(code));
@@ -56,11 +51,6 @@ public class ProductBundleRepository {
             }
             throw ex;
         }
-        Number id = keys.getKey();
-        if (id == null) {
-            throw new IllegalStateException("插入套装后未取得主键：code=" + code);
-        }
-        return id.longValue();
     }
 
     public void insertItem(long bundleId, long componentSkuId, int ratioQty) {

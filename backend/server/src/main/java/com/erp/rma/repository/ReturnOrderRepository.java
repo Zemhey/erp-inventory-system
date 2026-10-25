@@ -71,36 +71,15 @@ public class ReturnOrderRepository {
     public long insertHeader(String orderNo, long originSalesOrderId, long customerId,
                              long warehouseId, LocalDate bizDate, long totalAmount, int totalQty,
                              String period, String remark, String requestId, Long createdBy) {
-        KeyHolder keys = new GeneratedKeyHolder();
-        jdbc.update(con -> {
-            var ps = con.prepareStatement("""
+        return com.erp.shared.tenant.TenantJdbc.insertReturningId(jdbc,
+                """
                     INSERT INTO return_orders
                         (order_no, status, origin_sales_order_id, customer_id, warehouse_id,
                          biz_date, total_amount, total_qty, period, remark, request_id, created_by)
                     VALUES (?, 'DRAFT', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, new String[]{"id"});
-            ps.setString(1, orderNo);
-            ps.setLong(2, originSalesOrderId);
-            ps.setLong(3, customerId);
-            ps.setLong(4, warehouseId);
-            ps.setObject(5, bizDate);
-            ps.setLong(6, totalAmount);
-            ps.setInt(7, totalQty);
-            ps.setString(8, period);
-            ps.setString(9, remark);
-            ps.setString(10, requestId);
-            if (createdBy == null) {
-                ps.setNull(11, java.sql.Types.BIGINT);
-            } else {
-                ps.setLong(11, createdBy);
-            }
-            return ps;
-        }, keys);
-        Number id = keys.getKey();
-        if (id == null) {
-            throw new IllegalStateException("插入退货单后未取得主键：orderNo=" + orderNo);
-        }
-        return id.longValue();
+                    RETURNING id
+                    """,
+                new Object[]{orderNo, originSalesOrderId, customerId, warehouseId, bizDate, totalAmount, totalQty, period, remark, requestId, createdBy});
     }
 
     public void insertLine(long orderId, int lineNo, long originLineId, long skuId, int qty,

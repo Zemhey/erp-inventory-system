@@ -2,10 +2,7 @@ package com.erp.cst.repository;
 
 import com.erp.cst.domain.CostDirection;
 import com.erp.cst.domain.CostLayer;
-import java.sql.PreparedStatement;
-import java.sql.SQLException;
 import java.util.List;
-import org.springframework.jdbc.core.BatchPreparedStatementSetter;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -61,30 +58,16 @@ public class CostLayerRepository {
         if (layers.isEmpty()) {
             return;
         }
-        jdbc.batchUpdate(INSERT, new BatchPreparedStatementSetter() {
-            @Override
-            public void setValues(PreparedStatement ps, int i) throws SQLException {
-                CostLayer l = layers.get(i);
-                ps.setLong(1, l.ledgerId());
-                ps.setLong(2, l.skuId());
-                ps.setLong(3, l.warehouseId());
-                ps.setString(4, l.batchNo());
-                ps.setString(5, l.bizType());
-                ps.setString(6, l.bizRefNo());
-                ps.setString(7, l.direction().name());
-                ps.setInt(8, l.qty());
-                ps.setLong(9, l.unitCostAmount());
-                ps.setLong(10, l.totalCostAmount());
-                ps.setLong(11, l.poolQtyAfter());
-                ps.setLong(12, l.poolCostAfter());
-                ps.setObject(13, l.occurredAt());
-            }
-
-            @Override
-            public int getBatchSize() {
-                return layers.size();
-            }
-        });
+        // ★ V2-7：从 BatchPreparedStatementSetter 换成 List<Object[]>。
+        //   后者带 SQL 文本（能经过租户改写）；前者是"逐行回调"，拿不到文本。
+        //   参数顺序与原来的 ps.setXxx(1..13) 完全一致（tenant_id 由改写层
+        //   以字面量插在 VALUES 尾部，不占参数位）。
+        jdbc.batchUpdate(INSERT, layers.stream()
+                .map(l -> new Object[]{l.ledgerId(), l.skuId(), l.warehouseId(), l.batchNo(),
+                        l.bizType(), l.bizRefNo(), l.direction().name(), l.qty(),
+                        l.unitCostAmount(), l.totalCostAmount(), l.poolQtyAfter(),
+                        l.poolCostAfter(), l.occurredAt()})
+                .toList());
     }
 
     public List<CostLayer> findByPool(long skuId, long warehouseId) {

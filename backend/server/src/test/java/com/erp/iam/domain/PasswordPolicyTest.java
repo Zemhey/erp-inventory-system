@@ -202,7 +202,7 @@ class PasswordPolicyTest {
 
     /** 造一个用于过期判定的最小账号（其余字段与本用例无关）。 */
     private static AppUser user(Instant expiresAt, boolean mustChange) {
-        return new AppUser(1L, "tester", "$2a$10$hash", "测试员", true, 0, null,
+        return new AppUser(1L, 1L, "tester", "$2a$10$hash", "测试员", true, 0, null,
                 expiresAt, mustChange, List.of("VIEWER"), Set.of("mdm:read"));
     }
 }

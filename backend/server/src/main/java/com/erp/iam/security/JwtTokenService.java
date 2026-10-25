@@ -64,6 +64,7 @@ public class JwtTokenService {
         return Jwts.builder()
                 .subject(user.username())
                 .claim("uid", user.id())
+                .claim("tid", user.tenantId())
                 .claim("roles", user.roles())
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plus(ttl)))
@@ -72,11 +73,33 @@ public class JwtTokenService {
     }
 
     /**
+     * token 里的身份声明（FR-TNT-04）。
+     *
+     * @param username 主体（用户名）
+     * @param tenantId {@code tid} 声明；老版本 token 没有该声明时为 {@code null}
+     */
+    public record TokenPrincipal(String username, Long tenantId) {
+    }
+
+    /**
      * 校验并解析 token。
      *
      * @return token 中的用户名；签名错误 / 过期 / 格式损坏一律返回空
      */
     public Optional<String> verify(String token) {
+        return verifyClaims(token).map(TokenPrincipal::username);
+    }
+
+    /**
+     * 校验并解析 token 的身份声明。
+     *
+     * <p><b>为什么要把 {@code tid} 一起返回</b>：过滤器不能只凭 token 的 subject
+     * 就去数据库里找人 —— 那样"token 属于哪个租户"完全由数据库当前行决定，
+     * 一个租户被迁移/改号后旧 token 会静默指向新租户。这里把签发时的租户声明
+     * 一并交给 {@code AuthenticationService.resolve}，由它与数据库里的归属
+     * <b>交叉核对</b>：缺 {@code tid} → 无效；与账号归属不一致 → 无效（401）。
+     */
+    public Optional<TokenPrincipal> verifyClaims(String token) {
         if (token == null || token.isBlank()) {
             return Optional.empty();
         }
@@ -94,7 +117,12 @@ public class JwtTokenService {
                     .parseSignedClaims(token)
                     .getPayload();
             String subject = claims.getSubject();
-            return subject == null || subject.isBlank() ? Optional.empty() : Optional.of(subject);
+            if (subject == null || subject.isBlank()) {
+                return Optional.empty();
+            }
+            Object rawTid = claims.get("tid");
+            Long tenantId = rawTid instanceof Number n ? n.longValue() : null;
+            return Optional.of(new TokenPrincipal(subject, tenantId));
         } catch (JwtException | IllegalArgumentException ex) {
             // 签名不符、结构损坏 —— 对外一律"无效"，不暴露细节
             return Optional.empty();

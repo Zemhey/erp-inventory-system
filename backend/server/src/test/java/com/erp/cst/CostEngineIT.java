@@ -216,10 +216,12 @@ class CostEngineIT extends PostgresTestBase {
         CountDownLatch inserted = new CountDownLatch(2);
         ExecutorService pool = Executors.newFixedThreadPool(2);
         try {
-            Future<?> first = pool.submit(() -> insertAndRebuild(
-                    1000L, T0.plusSeconds(1), "CONC-1", inserted));
-            Future<?> second = pool.submit(() -> insertAndRebuild(
-                    2000L, T0.plusSeconds(2), "CONC-2", inserted));
+            Future<?> first = pool.submit(() -> com.erp.shared.tenant.TenantContext.runIn(
+                    com.erp.shared.tenant.TenantId.DEFAULT,
+                    () -> insertAndRebuild(1000L, T0.plusSeconds(1), "CONC-1", inserted)));
+            Future<?> second = pool.submit(() -> com.erp.shared.tenant.TenantContext.runIn(
+                    com.erp.shared.tenant.TenantId.DEFAULT,
+                    () -> insertAndRebuild(2000L, T0.plusSeconds(2), "CONC-2", inserted)));
             first.get(60, TimeUnit.SECONDS);
             second.get(60, TimeUnit.SECONDS);
         } finally {

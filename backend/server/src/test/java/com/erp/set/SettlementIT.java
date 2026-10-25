@@ -588,7 +588,9 @@ class SettlementIT extends PostgresTestBase {
                 String requestId = "req-set-013-concurrent-" + i;
                 futures.add(pool.submit(() -> {
                     start.await();
-                    return settlements.settleDaily(d, null, requestId);
+                    return com.erp.shared.tenant.TenantContext.callIn(
+                            com.erp.shared.tenant.TenantId.DEFAULT,
+                            () -> settlements.settleDaily(d, null, requestId));
                 }));
             }
             start.countDown();

@@ -114,29 +114,15 @@ public class ApprovalStepRepository {
     public long insertInstanceStep(long flowId, long instanceId, ApprovalStep def,
                                    ApprovalStep.StepStatus status) {
         var keys = new org.springframework.jdbc.support.GeneratedKeyHolder();
-        jdbc.update(con -> {
-            var ps = con.prepareStatement("""
+        return com.erp.shared.tenant.TenantJdbc.insertReturningId(jdbc,
+                """
                     INSERT INTO approval_steps
                         (flow_id, instance_id, step_no, name, approver_permission, approve_mode,
                          required_approvals, threshold_amount, status)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, new String[]{"id"});
-            ps.setLong(1, flowId);
-            ps.setLong(2, instanceId);
-            ps.setInt(3, def.stepNo());
-            ps.setString(4, def.name());
-            ps.setString(5, def.approverPermission());
-            ps.setString(6, def.approveMode().name());
-            ps.setInt(7, def.requiredApprovals());
-            ps.setLong(8, def.thresholdAmount());
-            ps.setString(9, status.name());
-            return ps;
-        }, keys);
-        Number id = keys.getKey();
-        if (id == null) {
-            throw new IllegalStateException("插入审批节点后未取得主键：instanceId=" + instanceId);
-        }
-        return id.longValue();
+                    RETURNING id
+                    """,
+                new Object[]{flowId, instanceId, def.stepNo(), def.name(), def.approverPermission(), def.approveMode().name(), def.requiredApprovals(), def.thresholdAmount(), status.name()});
     }
 
     /**

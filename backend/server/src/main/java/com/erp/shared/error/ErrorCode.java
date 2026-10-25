@@ -166,7 +166,10 @@ public enum ErrorCode {
     /** 审计查询条件非法（时间区间倒置、单据号为空等）。 */
     SYS_AUDIT_QUERY_INVALID(400),
     /** 字典类型不存在。 */
-    SYS_DICT_TYPE_NOT_FOUND(404);
+    SYS_DICT_TYPE_NOT_FOUND(404),
+
+    // ── 多租户（V2-7 · FR-TNT-04）──
+    SYS_TENANT_CONTEXT_MISSING(500);
 
     private final int httpStatus;
 

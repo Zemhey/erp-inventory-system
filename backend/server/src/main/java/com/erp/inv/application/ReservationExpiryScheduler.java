@@ -35,11 +35,14 @@ public class ReservationExpiryScheduler {
 
     private final InventoryApplicationService inventory;
     private final InventoryOperationsApplicationService operations;
+    private final com.erp.shared.tenant.TenantDirectory tenants;
 
     public ReservationExpiryScheduler(InventoryApplicationService inventory,
-                                      InventoryOperationsApplicationService operations) {
+                                      InventoryOperationsApplicationService operations,
+                                      com.erp.shared.tenant.TenantDirectory tenants) {
         this.inventory = inventory;
         this.operations = operations;
+        this.tenants = tenants;
     }
 
     /**
@@ -51,18 +54,35 @@ public class ReservationExpiryScheduler {
      *
      * <p>用 {@code fixedDelay} 而非 {@code fixedRate}：上一轮没跑完就推迟下一轮，
      * 避免慢查询场景下任务自我堆叠。
+     *
+     * <p><b>★ V2-7 FR-TNT-04：定时任务的租户归属</b>
+     * 后台任务是"没有 HTTP 请求"的执行路径，因此<b>没有</b>天然的租户。
+     * 两条可能的做法：
+     * <ul>
+     *   <li>跑一遍、不加租户条件 —— 结果是<b>跨租户</b>批量释放，一旦某租户的
+     *       超时阈值配置不同就会错放别人的货；</li>
+     *   <li><b>逐租户绑定再跑</b>（本实现）—— 每个租户各跑一遍，失败局部化。</li>
+     * </ul>
+     * 为什么选后者：它的代价只是"多跑 N 次"，而前者的代价是"一次出错影响全域"，
+     * 且这种缺陷只在多租户同时有数据时暴露 —— 单租户的既有用例<b>全绿</b>。
      */
     @Scheduled(fixedDelayString = "${erp.inventory.reservation-expire-interval-ms}")
     public void expireOverdueReservations() {
-        int expired = inventory.expireOverdueReservations();
-        if (expired > 0) {
-            log.info("预占超时自动释放（BR-INV-05）：本次释放 {} 条", expired);
-        }
-        // 冻结超时与预占共用同一个调度装配：两者都是"到期必须回收可用量"的守卫，
-        // 分成两个调度器只会让测试里多一个需要关闭的开关。
-        int unfrozen = operations.expireOverdueFreezes();
-        if (unfrozen > 0) {
-            log.info("冻结超时自动解冻（FR-INV-10）：本次解冻 {} 条", unfrozen);
+        for (long tenantId : tenants.enabledTenantIds()) {
+            com.erp.shared.tenant.TenantContext.runIn(tenantId, () -> {
+                int expired = inventory.expireOverdueReservations();
+                if (expired > 0) {
+                    log.info("预占超时自动释放（BR-INV-05）：租户 {} 本次释放 {} 条",
+                            tenantId, expired);
+                }
+                // 冻结超时与预占共用同一个调度装配：两者都是"到期必须回收可用量"的守卫，
+                // 分成两个调度器只会让测试里多一个需要关闭的开关。
+                int unfrozen = operations.expireOverdueFreezes();
+                if (unfrozen > 0) {
+                    log.info("冻结超时自动解冻（FR-INV-10）：租户 {} 本次解冻 {} 条",
+                            tenantId, unfrozen);
+                }
+            });
         }
     }
 }

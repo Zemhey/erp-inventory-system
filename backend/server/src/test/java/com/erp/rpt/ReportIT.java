@@ -805,18 +805,25 @@ class ReportIT extends PostgresTestBase {
 
         @Bean
         @Primary
-        JdbcTemplate countingJdbcTemplate(DataSource dataSource, StatementCounter counter) {
-            return new CountingJdbcTemplate(dataSource, counter);
+        JdbcTemplate countingJdbcTemplate(DataSource dataSource, StatementCounter counter,
+                                          com.erp.shared.tenant.TenantJdbcConfig.TenantEnforcement enforcement) {
+            return new CountingJdbcTemplate(dataSource, counter, enforcement.enabled());
         }
     }
 
-    /** 只统计查询条数；仓储用的就是 {@code query(sql, rowMapper, args)} 这一个入口。 */
-    static final class CountingJdbcTemplate extends JdbcTemplate {
+    /**
+     * 只统计查询条数；仓储用的就是 {@code query(sql, rowMapper, args)} 这一个入口。
+     *
+     * <p>★ 必须继承 {@code TenantAwareJdbcTemplate}：本类替换的是容器里的主
+     * {@code JdbcTemplate}，若只包一个朴素实现，V2-7 的租户改写会被整体绕过 ——
+     * 单号取值会撞复合唯一索引、报表查询也会跨租户。计数与租户过滤必须**同时**生效。
+     */
+    static final class CountingJdbcTemplate extends com.erp.shared.tenant.TenantAwareJdbcTemplate {
 
         private final StatementCounter counter;
 
-        CountingJdbcTemplate(DataSource dataSource, StatementCounter counter) {
-            super(dataSource);
+        CountingJdbcTemplate(DataSource dataSource, StatementCounter counter, boolean enforce) {
+            super(dataSource, enforce);
             this.counter = counter;
         }
 

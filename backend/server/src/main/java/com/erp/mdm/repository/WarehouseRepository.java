@@ -45,22 +45,15 @@ public class WarehouseRepository {
      */
     public long insert(String code, String name, String address, boolean enabled, int priority,
                        String requestId) {
-        KeyHolder keys = new GeneratedKeyHolder();
         try {
-            jdbc.update(con -> {
-                var ps = con.prepareStatement("""
+            return com.erp.shared.tenant.TenantJdbc.insertReturningId(jdbc,
+                    """
                         INSERT INTO warehouses (code, name, address, enabled, priority,
                                                 create_request_id)
                         VALUES (?, ?, ?, ?, ?, ?)
-                        """, new String[]{"id"});
-                ps.setString(1, code);
-                ps.setString(2, name);
-                ps.setString(3, address);
-                ps.setBoolean(4, enabled);
-                ps.setInt(5, priority);
-                ps.setString(6, requestId);
-                return ps;
-            }, keys);
+                        RETURNING id
+                        """,
+                    new Object[]{code, name, address, enabled, priority, requestId});
         } catch (DataIntegrityViolationException ex) {
             BusinessException duplicatedCode = DbErrors.translate(ex, "uq_warehouse_code",
                     ErrorCode.MDM_CODE_DUPLICATED, "仓库编码已存在：code=%s".formatted(code));
@@ -75,11 +68,6 @@ public class WarehouseRepository {
             }
             throw ex;
         }
-        Number id = keys.getKey();
-        if (id == null) {
-            throw new IllegalStateException("插入仓库后未取得主键：code=" + code);
-        }
-        return id.longValue();
     }
 
     /**

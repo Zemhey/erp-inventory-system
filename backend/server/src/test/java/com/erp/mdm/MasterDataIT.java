@@ -93,8 +93,10 @@ class MasterDataIT extends PostgresTestBase {
                 readyGate.countDown();
                 startGate.await(10, java.util.concurrent.TimeUnit.SECONDS);
                 try {
-                    products.create(new ProductApplicationService.CreateCommand(
-                            "P-RACE-001", "并发商品", null, null, true));
+                    com.erp.shared.tenant.TenantContext.runIn(
+                            com.erp.shared.tenant.TenantId.DEFAULT,
+                            () -> products.create(new ProductApplicationService.CreateCommand(
+                                    "P-RACE-001", "并发商品", null, null, true)));
                     succeeded.incrementAndGet();
                 } catch (BusinessException e) {
                     if (e.getCode() == ErrorCode.MDM_CODE_DUPLICATED) {

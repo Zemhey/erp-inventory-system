@@ -64,34 +64,16 @@ public class PurchaseReceiptRepository {
                              int totalQty, int acceptedQty, int rejectedQty,
                              long acceptedAmount, String requestId,
                              java.time.LocalDateTime receivedAt) {
-        KeyHolder keys = new GeneratedKeyHolder();
-        jdbc.update(con -> {
-            var ps = con.prepareStatement("""
+        return com.erp.shared.tenant.TenantJdbc.insertReturningId(jdbc,
+                """
                     INSERT INTO po_receipts
                         (receipt_no, purchase_order_id, supplier_id, warehouse_id, biz_date,
                          period, total_qty, accepted_qty, rejected_qty, accepted_amount,
                          request_id, received_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, new String[]{"id"});
-            ps.setString(1, receiptNo);
-            ps.setLong(2, purchaseOrderId);
-            ps.setLong(3, supplierId);
-            ps.setLong(4, warehouseId);
-            ps.setObject(5, bizDate);
-            ps.setString(6, period);
-            ps.setInt(7, totalQty);
-            ps.setInt(8, acceptedQty);
-            ps.setInt(9, rejectedQty);
-            ps.setLong(10, acceptedAmount);
-            ps.setString(11, requestId);
-            ps.setObject(12, receivedAt);
-            return ps;
-        }, keys);
-        Number id = keys.getKey();
-        if (id == null) {
-            throw new IllegalStateException("插入到货单后未取得主键：receiptNo=" + receiptNo);
-        }
-        return id.longValue();
+                    RETURNING id
+                    """,
+                new Object[]{receiptNo, purchaseOrderId, supplierId, warehouseId, bizDate, period, totalQty, acceptedQty, rejectedQty, acceptedAmount, requestId, receivedAt});
     }
 
     public void insertLine(long receiptId, int lineNo, long purchaseOrderLineId, long skuId,

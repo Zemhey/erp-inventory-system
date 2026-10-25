@@ -211,7 +211,9 @@ class CreditControlIT extends PostgresTestBase {
                 futures.add(pool.submit(() -> {
                     try {
                         start.await(5, TimeUnit.SECONDS);
-                        createOrder(8, requestId);
+                        com.erp.shared.tenant.TenantContext.runIn(
+                                com.erp.shared.tenant.TenantId.DEFAULT,
+                                () -> createOrder(8, requestId));
                         success.incrementAndGet();
                     } catch (BusinessException ex) {
                         if (ex.getCode() == ErrorCode.SAL_CREDIT_LIMIT_EXCEEDED) {

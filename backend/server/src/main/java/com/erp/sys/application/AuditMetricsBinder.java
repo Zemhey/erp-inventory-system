@@ -31,7 +31,9 @@ public class AuditMetricsBinder {
     @PostConstruct
     void bind() {
         try {
-            metrics.bindAuditLogsTotal("all", ignored -> repository.countAll(), repository);
+            metrics.bindAuditLogsTotal("all", ignored ->
+                    com.erp.shared.tenant.TenantContext.callAsSystem(repository::countAll),
+                    repository);
         } catch (RuntimeException ex) {
             // 指标注册失败（如重复注册）不能拖垮启动
             org.slf4j.LoggerFactory.getLogger(AuditMetricsBinder.class)

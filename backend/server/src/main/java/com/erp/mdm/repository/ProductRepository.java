@@ -47,22 +47,15 @@ public class ProductRepository {
      */
     public long insert(String code, String name, String category, String season, boolean enabled,
                        String requestId) {
-        KeyHolder keys = new GeneratedKeyHolder();
         try {
-            jdbc.update(con -> {
-                var ps = con.prepareStatement("""
+            return com.erp.shared.tenant.TenantJdbc.insertReturningId(jdbc,
+                    """
                         INSERT INTO products (code, name, category, season, enabled,
                                               create_request_id)
                         VALUES (?, ?, ?, ?, ?, ?)
-                        """, new String[]{"id"});
-                ps.setString(1, code);
-                ps.setString(2, name);
-                ps.setString(3, category);
-                ps.setString(4, season);
-                ps.setBoolean(5, enabled);
-                ps.setString(6, requestId);
-                return ps;
-            }, keys);
+                        RETURNING id
+                        """,
+                    new Object[]{code, name, category, season, enabled, requestId});
         } catch (DataIntegrityViolationException ex) {
             BusinessException duplicatedCode = DbErrors.translate(ex, "uq_product_code",
                     ErrorCode.MDM_CODE_DUPLICATED, "商品编码已存在：code=%s".formatted(code));
@@ -77,11 +70,6 @@ public class ProductRepository {
             }
             throw ex;
         }
-        Number id = keys.getKey();
-        if (id == null) {
-            throw new IllegalStateException("插入商品后未取得主键：code=" + code);
-        }
-        return id.longValue();
     }
 
     public Optional<Product> findById(long id) {

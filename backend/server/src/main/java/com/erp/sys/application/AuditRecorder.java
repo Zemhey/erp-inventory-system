@@ -52,9 +52,19 @@ public class AuditRecorder {
                        String resourceId, String bizRefNo, String beforeJson, String afterJson,
                        String traceId, String ip, AuditResult result, String errorCode) {
         try {
-            long id = repository.insert(actorId, actorName, action, resourceType, resourceId,
-                    bizRefNo, beforeJson, afterJson, traceId, ip, OffsetDateTime.now(),
-                    result, errorCode);
+            // ★ 匿名请求（登录失败、actuator）没有租户上下文；审计是链路证据，不能因此丢失。
+            //   这类写入显式归属默认租户（与 V13 的 DEFAULT 1 一致），而不是让 TenantSql
+            //   抛 SYS_TENANT_CONTEXT_MISSING。业务写入永远在有绑定租户的请求里，
+            //   走 else 分支，按真实租户落库（见 TenantInvariantsIT 的审计归属用例）。
+            long id = com.erp.shared.tenant.TenantContext.isBound()
+                    ? repository.insert(actorId, actorName, action, resourceType, resourceId,
+                            bizRefNo, beforeJson, afterJson, traceId, ip, OffsetDateTime.now(),
+                            result, errorCode)
+                    : com.erp.shared.tenant.TenantContext.callIn(
+                            com.erp.shared.tenant.TenantId.DEFAULT,
+                            () -> repository.insert(actorId, actorName, action, resourceType,
+                                    resourceId, bizRefNo, beforeJson, afterJson, traceId, ip,
+                                    OffsetDateTime.now(), result, errorCode));
             metrics.auditWritten(action, result);
             return id;
         } catch (RuntimeException ex) {

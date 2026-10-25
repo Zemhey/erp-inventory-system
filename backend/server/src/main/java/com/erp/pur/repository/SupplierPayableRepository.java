@@ -55,28 +55,15 @@ public class SupplierPayableRepository {
 
     public long insert(String payableNo, long supplierId, long purchaseOrderId, long receiptId,
                        LocalDate bizDate, String period, long originalAmount) {
-        KeyHolder keys = new GeneratedKeyHolder();
-        jdbc.update(con -> {
-            var ps = con.prepareStatement("""
+        return com.erp.shared.tenant.TenantJdbc.insertReturningId(jdbc,
+                """
                     INSERT INTO supplier_payables
                         (payable_no, supplier_id, purchase_order_id, receipt_id,
                          biz_date, period, original_amount)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """, new String[]{"id"});
-            ps.setString(1, payableNo);
-            ps.setLong(2, supplierId);
-            ps.setLong(3, purchaseOrderId);
-            ps.setLong(4, receiptId);
-            ps.setObject(5, bizDate);
-            ps.setString(6, period);
-            ps.setLong(7, originalAmount);
-            return ps;
-        }, keys);
-        Number id = keys.getKey();
-        if (id == null) {
-            throw new IllegalStateException("插入应付单后未取得主键：payableNo=" + payableNo);
-        }
-        return id.longValue();
+                    RETURNING id
+                    """,
+                new Object[]{payableNo, supplierId, purchaseOrderId, receiptId, bizDate, period, originalAmount});
     }
 
     public Optional<SupplierPayable> findById(long id) {

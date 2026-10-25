@@ -82,7 +82,10 @@ class DocumentNumberGeneratorIT extends PostgresTestBase {
             futures.add(pool.submit((Callable<Void>) () -> {
                 readyGate.countDown();
                 startGate.await(15, TimeUnit.SECONDS);   // 同时起跑，制造真实竞争
-                numbers.add(generator.next(DocumentNumberGenerator.DocType.PURCHASE_ORDER, day));
+                com.erp.shared.tenant.TenantContext.runIn(
+                        com.erp.shared.tenant.TenantId.DEFAULT,
+                        () -> numbers.add(generator.next(
+                                DocumentNumberGenerator.DocType.PURCHASE_ORDER, day)));
                 return null;
             }));
         }
