@@ -186,8 +186,7 @@ CREATE TABLE fin_expense (
     CONSTRAINT uq_fin_expense_no UNIQUE (tenant_id, expense_no)
 );
 COMMENT ON TABLE fin_expense IS
-    '费用报销单。状态机 DRAFT→SUBMITTED→APPROVED→PAID；驳回回 DRAFT 并留原因。'
-    || '简化两级审批（申请人 → 财务），不接 APS（简报 FR-V3-10：做不了就不卡住）';
+    '费用报销单。状态机 DRAFT→SUBMITTED→APPROVED→PAID；驳回回 DRAFT 并留原因。简化两级审批（申请人 → 财务），不接 APS（简报 FR-V3-10：做不了就不卡住）';
 
 CREATE TRIGGER trg_fin_expense_tenant_fill BEFORE INSERT ON fin_expense
     FOR EACH ROW EXECUTE FUNCTION erp_tenant_fill();
@@ -236,11 +235,9 @@ CREATE TABLE fin_invoice (
     )
 );
 COMMENT ON TABLE fin_invoice IS
-    '发票台账：OUTPUT 销项 / INPUT 进项（页面两个 Tab）。可关联进货/出货单；'
-    || '同一单据累计开票不得超过单据金额（超额 409，应用层校验）';
+    '发票台账：OUTPUT 销项 / INPUT 进项（页面两个 Tab）。可关联进货/出货单；同一单据累计开票不得超过单据金额（超额 409，应用层校验）';
 COMMENT ON COLUMN fin_invoice.invoice_type IS
-    '简报 §3 的 OUTPUT/INPUT 落在本列（Tab 分组键）；简报里重复的 direction 列被合并删除，'
-    || '理由见 .plan/V3-2-财务中心-报告.md「踩的坑」';
+    '简报 §3 的 OUTPUT/INPUT 落在本列（Tab 分组键）；简报里重复的 direction 列被合并删除，理由见 .plan/V3-2-财务中心-报告.md「踩的坑」';
 
 CREATE INDEX idx_fin_invoice_source ON fin_invoice (tenant_id, source_type, source_id);
 
@@ -303,9 +300,12 @@ UPDATE fin_account c
    AND p.code = '2221'
    AND c.parent_id IS NULL;
 
--- ─────────────────────────── ⑧' 权限种子（与 V12 同一写法） ───────────────────────────
-INSERT INTO app_role_permissions (role_id, permission)
-SELECT r.id, p.permission FROM app_roles r
+-- ─────────────────────────── ⑧' 权限种子 ───────────────────────────
+-- ★ V16 之后 app_role_permissions.tenant_id 已 NOT NULL，而迁移连接里没有会话租户变量
+--   （触发器 erp_tenant_fill 取到 NULL 会直接撞非空约束 —— psql 干跑实测抓到）。
+--   所以这里沿用 V17 的写法：**显式**把 r.tenant_id 写进列清单，为每个租户的角色各补一份。
+INSERT INTO app_role_permissions (tenant_id, role_id, permission)
+SELECT r.tenant_id, r.id, p.permission FROM app_roles r
 JOIN (VALUES
     ('ADMIN',   'fin:*'),
     ('FINANCE', 'fin:read'),  ('FINANCE', 'fin:account:write'),
