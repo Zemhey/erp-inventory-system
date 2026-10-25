@@ -6,6 +6,9 @@ import {
   discountLabel,
   mdmApi,
   type Customer,
+  type CustomerAddress,
+  type CustomerAddressCreate,
+  type CustomerAddressUpdate,
   type CustomerCreate,
   type CustomerUpdate,
 } from '@/api/client'
@@ -240,6 +243,207 @@ async function enableCustomer(row: Customer) {
     // 同上
   }
 }
+
+// ─────────────────────────── 收货地址（V18 · B2） ───────────────────────────
+
+const addressDrawer = ref(false)
+const addressCustomer = ref<Customer | null>(null)
+const addressList = ref<CustomerAddress[]>([])
+const addressLoading = ref(false)
+const addressError = ref('')
+const addressOnlyEnabled = ref(false)
+
+const addressDialog = ref(false)
+const editingAddress = ref<CustomerAddress | null>(null)
+const addressFormRef = ref<FormInstance>()
+const addressSaving = ref(false)
+const addressFormError = ref('')
+const addressForm = reactive({
+  addressKey: '',
+  recipientName: '',
+  phone: '',
+  province: '',
+  city: '',
+  district: '',
+  detailAddress: '',
+  isDefault: false,
+  enabled: true,
+})
+
+const addressRules: FormRules = {
+  addressKey: [
+    { required: true, message: '请输入地址键（如 HOME / OFFICE）', trigger: 'blur' },
+    { max: 32, message: '地址键最多 32 个字符', trigger: 'blur' },
+  ],
+  recipientName: [
+    { required: true, message: '请输入收件人', trigger: 'blur' },
+    { max: 64, message: '收件人最多 64 个字符', trigger: 'blur' },
+  ],
+  phone: [
+    { required: true, message: '请输入联系电话', trigger: 'blur' },
+    { max: 32, message: '电话最多 32 个字符', trigger: 'blur' },
+  ],
+  province: [{ required: true, message: '请输入省', trigger: 'blur' }],
+  city: [{ required: true, message: '请输入市', trigger: 'blur' }],
+  district: [{ max: 32, message: '区县最多 32 个字符', trigger: 'blur' }],
+  detailAddress: [
+    { required: true, message: '请输入详细地址', trigger: 'blur' },
+    { max: 200, message: '详细地址最多 200 个字符', trigger: 'blur' },
+  ],
+}
+
+/** 编辑默认地址时不允许直接取消默认；停用地址也不能设为默认（与后端规则一致）。 */
+const defaultSwitchDisabled = computed(
+  () => !!editingAddress.value && (!editingAddress.value.enabled || editingAddress.value.isDefault),
+)
+
+function regionText(address: CustomerAddress): string {
+  return [address.province, address.city, address.district].filter(Boolean).join(' / ')
+}
+
+function openAddresses(row: Customer) {
+  addressCustomer.value = row
+  addressOnlyEnabled.value = false
+  addressDrawer.value = true
+  loadAddresses()
+}
+
+async function loadAddresses() {
+  if (!addressCustomer.value) return
+  addressLoading.value = true
+  addressError.value = ''
+  try {
+    addressList.value = await mdmApi.listCustomerAddresses(
+      addressCustomer.value.id,
+      addressOnlyEnabled.value,
+    )
+  } catch (error) {
+    addressList.value = []
+    addressError.value = errorMessage(error)
+  } finally {
+    addressLoading.value = false
+  }
+}
+
+function clearAddressValidate() {
+  addressFormRef.value?.clearValidate()
+}
+
+function openCreateAddress() {
+  editingAddress.value = null
+  addressFormError.value = ''
+  Object.assign(addressForm, {
+    addressKey: '',
+    recipientName: '',
+    phone: '',
+    province: '',
+    city: '',
+    district: '',
+    detailAddress: '',
+    isDefault: addressList.value.length === 0,
+    enabled: true,
+  })
+  addressDialog.value = true
+}
+
+function openEditAddress(address: CustomerAddress) {
+  editingAddress.value = address
+  addressFormError.value = ''
+  Object.assign(addressForm, {
+    addressKey: address.addressKey,
+    recipientName: address.recipientName,
+    phone: address.phone,
+    province: address.province,
+    city: address.city,
+    district: address.district ?? '',
+    detailAddress: address.detailAddress,
+    isDefault: address.isDefault,
+    enabled: address.enabled,
+  })
+  addressDialog.value = true
+}
+
+async function saveAddress() {
+  if (!addressCustomer.value || !addressFormRef.value) return
+  const valid = await addressFormRef.value.validate().catch(() => false)
+  if (!valid) return
+
+  addressSaving.value = true
+  addressFormError.value = ''
+  try {
+    const customerId = addressCustomer.value.id
+    const common: CustomerAddressUpdate = {
+      recipientName: addressForm.recipientName.trim(),
+      phone: addressForm.phone.trim(),
+      province: addressForm.province.trim(),
+      city: addressForm.city.trim(),
+      district: addressForm.district.trim() || undefined,
+      detailAddress: addressForm.detailAddress.trim(),
+      isDefault: addressForm.isDefault,
+    }
+    if (editingAddress.value) {
+      await mdmApi.updateCustomerAddress(customerId, editingAddress.value.id, common)
+      ElMessage.success('收货地址已更新')
+    } else {
+      const createBody: CustomerAddressCreate = {
+        ...common,
+        addressKey: addressForm.addressKey.trim(),
+        enabled: addressForm.enabled,
+      }
+      await mdmApi.createCustomerAddress(customerId, createBody)
+      ElMessage.success('收货地址已创建')
+    }
+    addressDialog.value = false
+    await loadAddresses()
+  } catch (error) {
+    addressFormError.value = errorMessage(error)
+  } finally {
+    addressSaving.value = false
+  }
+}
+
+async function makeDefaultAddress(address: CustomerAddress) {
+  if (!addressCustomer.value) return
+  try {
+    await mdmApi.setDefaultCustomerAddress(addressCustomer.value.id, address.id)
+    ElMessage.success('已设为默认地址')
+    await loadAddresses()
+  } catch {
+    // 拦截器已提示
+  }
+}
+
+async function disableAddress(address: CustomerAddress) {
+  if (!addressCustomer.value) return
+  try {
+    await ElMessageBox.confirm(
+      `确定停用地址「${address.recipientName} · ${address.detailAddress}」吗？` +
+        '停用不删除，历史单据不受影响；若停用的是默认地址，会自动提升下一条启用地址。',
+      '停用地址',
+      { type: 'warning', confirmButtonText: '停用', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+  try {
+    await mdmApi.disableCustomerAddress(addressCustomer.value.id, address.id)
+    ElMessage.success('地址已停用')
+    await loadAddresses()
+  } catch {
+    // 同上
+  }
+}
+
+async function enableAddress(address: CustomerAddress) {
+  if (!addressCustomer.value) return
+  try {
+    await mdmApi.enableCustomerAddress(addressCustomer.value.id, address.id)
+    ElMessage.success('地址已启用')
+    await loadAddresses()
+  } catch {
+    // 同上
+  }
+}
 </script>
 
 <template>
@@ -314,13 +518,16 @@ async function enableCustomer(row: Customer) {
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column v-if="canWrite" label="操作" width="140" fixed="right">
+      <el-table-column label="操作" width="250" fixed="right">
         <template #default="{ row }">
-          <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
-          <el-button v-if="row.enabled" link type="danger" @click="disableCustomer(row)">
-            停用
-          </el-button>
-          <el-button v-else link type="success" @click="enableCustomer(row)">启用</el-button>
+          <el-button link type="primary" @click="openAddresses(row)">地址</el-button>
+          <template v-if="canWrite">
+            <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
+            <el-button v-if="row.enabled" link type="danger" @click="disableCustomer(row)">
+              停用
+            </el-button>
+            <el-button v-else link type="success" @click="enableCustomer(row)">启用</el-button>
+          </template>
         </template>
       </el-table-column>
     </PageTable>
@@ -381,6 +588,161 @@ async function enableCustomer(row: Customer) {
         <el-button type="primary" :loading="saving" @click="saveCustomer">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- 客户收货地址（一对多；默认地址唯一） -->
+    <el-drawer v-model="addressDrawer" size="70%" :with-header="true">
+      <template #header>
+        <div class="drawer-header">
+          <div>
+            <div class="drawer-title">
+              {{ addressCustomer?.code }} · 收货地址
+            </div>
+            <div class="text-muted">共 {{ addressList.length }} 条</div>
+          </div>
+          <el-button v-if="canWrite" type="primary" @click="openCreateAddress">
+            新建地址
+          </el-button>
+        </div>
+      </template>
+
+      <div class="drawer-toolbar">
+        <el-checkbox v-model="addressOnlyEnabled" @change="loadAddresses">
+          仅看启用地址
+        </el-checkbox>
+        <el-button @click="loadAddresses">刷新</el-button>
+      </div>
+
+      <el-alert
+        v-if="addressError"
+        type="error"
+        show-icon
+        :closable="false"
+        class="mb-16"
+        :title="`地址查询失败：${addressError}`"
+      >
+        <el-button size="small" @click="loadAddresses">重试</el-button>
+      </el-alert>
+
+      <el-empty
+        v-else-if="!addressLoading && addressList.length === 0"
+        description="该客户还没有收货地址"
+      >
+        <el-button v-if="canWrite" type="primary" @click="openCreateAddress">
+          新建第一个地址
+        </el-button>
+      </el-empty>
+
+      <el-table v-else v-loading="addressLoading" :data="addressList" border>
+        <el-table-column prop="addressKey" label="地址键" width="110" />
+        <el-table-column prop="recipientName" label="收件人" width="120" />
+        <el-table-column prop="phone" label="电话" width="140" />
+        <el-table-column label="省市区" min-width="180">
+          <template #default="{ row }">{{ regionText(row) }}</template>
+        </el-table-column>
+        <el-table-column prop="detailAddress" label="详细地址" min-width="220" />
+        <el-table-column label="默认" width="80">
+          <template #default="{ row }">
+            <el-tag v-if="row.isDefault" type="success" size="small">默认</el-tag>
+            <span v-else class="text-muted">-</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="80">
+          <template #default="{ row }">
+            <el-tag :type="row.enabled ? 'success' : 'info'" size="small">
+              {{ row.enabled ? '启用' : '停用' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column v-if="canWrite" label="操作" width="190" fixed="right">
+          <template #default="{ row }">
+            <el-button link type="primary" @click="openEditAddress(row)">编辑</el-button>
+            <el-button
+              v-if="row.enabled && !row.isDefault"
+              link
+              type="primary"
+              @click="makeDefaultAddress(row)"
+            >
+              设为默认
+            </el-button>
+            <el-button v-if="row.enabled" link type="danger" @click="disableAddress(row)">
+              停用
+            </el-button>
+            <el-button v-else link type="success" @click="enableAddress(row)">启用</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <el-dialog
+        v-model="addressDialog"
+        :title="editingAddress ? '编辑收货地址' : '新建收货地址'"
+        width="560px"
+        :close-on-click-modal="false"
+        append-to-body
+        @open="clearAddressValidate"
+      >
+        <el-form
+          ref="addressFormRef"
+          :model="addressForm"
+          :rules="addressRules"
+          label-width="100px"
+        >
+          <el-form-item label="地址键" prop="addressKey">
+            <el-input
+              v-model="addressForm.addressKey"
+              :disabled="!!editingAddress"
+              maxlength="32"
+              placeholder="如 HOME"
+            />
+            <div v-if="editingAddress" class="field-hint">地址键创建后不可修改</div>
+          </el-form-item>
+          <el-form-item label="收件人" prop="recipientName">
+            <el-input v-model="addressForm.recipientName" maxlength="64" placeholder="如 张三" />
+          </el-form-item>
+          <el-form-item label="联系电话" prop="phone">
+            <el-input v-model="addressForm.phone" maxlength="32" placeholder="如 13800000000" />
+          </el-form-item>
+          <el-form-item label="省" prop="province">
+            <el-input v-model="addressForm.province" maxlength="32" placeholder="如 浙江省" />
+          </el-form-item>
+          <el-form-item label="市" prop="city">
+            <el-input v-model="addressForm.city" maxlength="32" placeholder="如 杭州市" />
+          </el-form-item>
+          <el-form-item label="区 / 县" prop="district">
+            <el-input v-model="addressForm.district" maxlength="32" placeholder="如 西湖区（可选）" />
+          </el-form-item>
+          <el-form-item label="详细地址" prop="detailAddress">
+            <el-input
+              v-model="addressForm.detailAddress"
+              maxlength="200"
+              placeholder="如 文三路 1 号 2 幢 301"
+            />
+          </el-form-item>
+          <el-form-item label="默认地址">
+            <el-switch v-model="addressForm.isDefault" :disabled="defaultSwitchDisabled" />
+            <div v-if="defaultSwitchDisabled" class="field-hint">
+              停用地址不能设为默认；当前默认地址也不能直接取消，请把另一条地址设为默认
+            </div>
+            <div v-else class="field-hint">同一客户最多一个默认地址</div>
+          </el-form-item>
+          <el-form-item v-if="!editingAddress" label="启用">
+            <el-switch v-model="addressForm.enabled" />
+          </el-form-item>
+        </el-form>
+        <el-alert
+          v-if="addressFormError"
+          type="error"
+          show-icon
+          :closable="false"
+          :title="addressFormError"
+        />
+        <template #footer>
+          <el-button @click="addressDialog = false">取消</el-button>
+          <el-button type="primary" :loading="addressSaving" @click="saveAddress">
+            保存
+          </el-button>
+        </template>
+      </el-dialog>
+    </el-drawer>
   </div>
 </template>
 
@@ -402,6 +764,25 @@ async function enableCustomer(row: Customer) {
 
 .level-select {
   width: 220px;
+}
+
+.drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.drawer-title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.drawer-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
 }
 
 @media (max-width: 768px) {

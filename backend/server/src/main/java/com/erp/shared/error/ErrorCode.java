@@ -169,7 +169,21 @@ public enum ErrorCode {
     SYS_DICT_TYPE_NOT_FOUND(404),
 
     // ── 多租户（V2-7 · FR-TNT-04）──
-    SYS_TENANT_CONTEXT_MISSING(500);
+    SYS_TENANT_CONTEXT_MISSING(500),
+
+    // ── 主数据字段扩展（Batch B · B2，纯追加）──
+    /** 客户收货地址不存在（含不属于该客户 / 不属于当前租户 —— 统一 404 防枚举）。 */
+    MDM_ADDRESS_NOT_FOUND(404),
+    /** 地址键在客户内重复，或建单幂等键被另一个客户复用。 */
+    MDM_ADDRESS_DUPLICATED(409),
+    /** 仓库库位不存在（含不属于该仓库 / 当前租户）。 */
+    MDM_LOCATION_NOT_FOUND(404),
+    /** 库位编码在仓库内重复。 */
+    MDM_LOCATION_DUPLICATED(409),
+    /** 启用库位容量合计将超过仓库容量。 */
+    MDM_LOCATION_CAPACITY_EXCEEDED(409),
+    /** 商品规格属性请求非法（键重复、键/值超长、条数超限）。 */
+    MDM_PRODUCT_ATTRIBUTE_INVALID(400);
 
     private final int httpStatus;
 

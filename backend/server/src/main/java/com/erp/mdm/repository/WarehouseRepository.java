@@ -28,7 +28,8 @@ public class WarehouseRepository {
             rs.getString("name"),
             rs.getString("address"),
             rs.getBoolean("enabled"),
-            rs.getInt("priority"));
+            rs.getInt("priority"),
+            rs.getLong("capacity_qty"));
 
     private final JdbcTemplate jdbc;
 
@@ -78,21 +79,29 @@ public class WarehouseRepository {
      */
     public Optional<Warehouse> findByRequestId(String requestId) {
         return jdbc.query("""
-                SELECT id, code, name, address, enabled, priority
+                SELECT id, code, name, address, enabled, priority, capacity_qty
                   FROM warehouses WHERE create_request_id = ?
                 """, MAPPER, requestId).stream().findFirst();
     }
 
     public Optional<Warehouse> findById(long id) {
         return jdbc.query("""
-                SELECT id, code, name, address, enabled, priority
+                SELECT id, code, name, address, enabled, priority, capacity_qty
                   FROM warehouses WHERE id = ?
+                """, MAPPER, id).stream().findFirst();
+    }
+
+    /** 锁仓库行：库位容量校验与写入在同一把行锁下串行化。 */
+    public Optional<Warehouse> findByIdForUpdate(long id) {
+        return jdbc.query("""
+                SELECT id, code, name, address, enabled, priority, capacity_qty
+                  FROM warehouses WHERE id = ? FOR UPDATE
                 """, MAPPER, id).stream().findFirst();
     }
 
     public List<Warehouse> findAll(boolean onlyEnabled) {
         String sql = """
-                SELECT id, code, name, address, enabled, priority
+                SELECT id, code, name, address, enabled, priority, capacity_qty
                   FROM warehouses
                 """ + (onlyEnabled ? " WHERE enabled" : "") + " ORDER BY priority DESC, id";
         return jdbc.query(sql, MAPPER);
@@ -117,10 +126,19 @@ public class WarehouseRepository {
     /** 启用的仓库按发货优先级排序（FR-SAL-11）：与 V9 一致，数值越大越优先。 */
     public List<Warehouse> findEnabledByPriority() {
         return jdbc.query("""
-                SELECT id, code, name, address, enabled, priority
+                SELECT id, code, name, address, enabled, priority, capacity_qty
                   FROM warehouses WHERE enabled
                  ORDER BY priority DESC, id
                 """, MAPPER);
+    }
+
+    /** 设置仓库容量（0 = 未设定）；库位容量守恒的上限由应用层校验。 */
+    public boolean updateCapacity(long id, long capacityQty) {
+        return jdbc.update("""
+                UPDATE warehouses
+                   SET capacity_qty = ?, updated_at = now()
+                 WHERE id = ?
+                """, capacityQty, id) == 1;
     }
 
     public boolean disable(long id) {

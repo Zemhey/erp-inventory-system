@@ -305,6 +305,15 @@ DELETE FROM app_user_roles
  WHERE user_id IN (SELECT id FROM app_users WHERE username IN (${users}));
 DELETE FROM app_users WHERE username IN (${users});
 
+-- V18 主数据扩展子表先删：customer_addresses / warehouse_locations 的外键是
+-- ON DELETE RESTRICT（保护历史），不先清理会让父行删除失败。
+DELETE FROM product_attribute_values
+ WHERE product_id IN (SELECT id FROM e2e_products);
+DELETE FROM customer_addresses
+ WHERE customer_id IN (SELECT id FROM e2e_customers);
+DELETE FROM warehouse_locations
+ WHERE warehouse_id IN (SELECT id FROM e2e_warehouses);
+
 DELETE FROM skus WHERE product_id IN (SELECT id FROM e2e_products);
 DELETE FROM products WHERE id IN (SELECT id FROM e2e_products);
 DELETE FROM suppliers WHERE id IN (SELECT id FROM e2e_suppliers);
@@ -347,6 +356,18 @@ BEGIN
 
   SELECT count(*) INTO n FROM skus WHERE product_id IN (SELECT id FROM e2e_products);
   IF n <> 0 THEN RAISE EXCEPTION 'E2E 清理后仍有 % 个 SKU', n; END IF;
+
+  SELECT count(*) INTO n FROM product_attribute_values
+   WHERE product_id IN (SELECT id FROM e2e_products);
+  IF n <> 0 THEN RAISE EXCEPTION 'E2E 清理后仍有 % 条规格属性', n; END IF;
+
+  SELECT count(*) INTO n FROM customer_addresses
+   WHERE customer_id IN (SELECT id FROM e2e_customers);
+  IF n <> 0 THEN RAISE EXCEPTION 'E2E 清理后仍有 % 条客户地址', n; END IF;
+
+  SELECT count(*) INTO n FROM warehouse_locations
+   WHERE warehouse_id IN (SELECT id FROM e2e_warehouses);
+  IF n <> 0 THEN RAISE EXCEPTION 'E2E 清理后仍有 % 个库位', n; END IF;
 
   SELECT count(*) INTO n FROM products WHERE code LIKE ${prefix};
   IF n <> 0 THEN RAISE EXCEPTION 'E2E 清理后仍有 % 个商品', n; END IF;
