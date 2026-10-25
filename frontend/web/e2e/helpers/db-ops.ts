@@ -1,5 +1,6 @@
 import { querySql } from './db'
 import {
+  addTenantMembershipSql,
   baselineSql,
   cleanupSql,
   createUserSql,
@@ -54,6 +55,32 @@ export function createTempUser(username: string, roleCode: string, adminUsername
   }
   if (!roles) {
     throw new Error(`临时账号「${username}」未获得 ${roleCode} 角色，请检查 app_roles 种子数据。`)
+  }
+}
+
+/**
+ * 给临时账号追加第二个租户的成员关系与角色（B1）。
+ *
+ * 只改本 run 的临时账号；清理仍走 cleanupSql 的用户名清单（删用户时成员关系级联删除）。
+ */
+export function addTenantMembership(
+  username: string,
+  tenantCode: string,
+  roleCode: string,
+): void {
+  const raw = querySql(addTenantMembershipSql(username, tenantCode, roleCode))
+  const last = raw.split('\n').filter(Boolean).pop() ?? ''
+  const [memberships, roles] = last.split('\t').map(Number)
+  if (!memberships) {
+    throw new Error(
+      `追加成员关系失败：账号「${username}」不在租户「${tenantCode}」中（租户种子缺失？）`,
+    )
+  }
+  if (!roles) {
+    throw new Error(
+      `追加跨租户角色失败：租户「${tenantCode}」缺少角色「${roleCode}」` +
+        '（V16 应把演示租户角色复制成与默认租户同构）。',
+    )
   }
 }
 

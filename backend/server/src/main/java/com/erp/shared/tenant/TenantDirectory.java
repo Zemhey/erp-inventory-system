@@ -45,8 +45,42 @@ public class TenantDirectory {
 
     /** 某个租户的编码（诊断/日志用；不存在时返回空）。 */
     public java.util.Optional<String> codeOf(long tenantId) {
-        return TenantContext.callAsSystem(() -> jdbc.queryForList(
-                        "SELECT code FROM tenants WHERE id = ?", String.class, tenantId))
+        return byId(tenantId).map(TenantRef::code);
+    }
+
+    /**
+     * 全部租户（平台管理员列表用；按 id 升序，结果可复现）。
+     *
+     * <p>读的是 {@code tenants} —— 唯一不带 {@code tenant_id} 的业务表，
+     * 因此这里走系统旁路是"跨租户元数据读取"，不是绕过业务隔离。
+     */
+    public List<TenantRef> all() {
+        return TenantContext.callAsSystem(() -> jdbc.query(
+                "SELECT id, code, name, enabled FROM tenants ORDER BY id", MAPPER));
+    }
+
+    /** 按 id 取租户（登录/切换/每请求校验都用它；不存在返回空）。 */
+    public java.util.Optional<TenantRef> byId(long tenantId) {
+        if (!TenantId.isKnown(tenantId)) {
+            return java.util.Optional.empty();
+        }
+        return TenantContext.callAsSystem(() -> jdbc.query(
+                        "SELECT id, code, name, enabled FROM tenants WHERE id = ?", MAPPER, tenantId))
                 .stream().findFirst();
     }
+
+    /** 按编码取租户（登录可选参数 {@code tenantCode} 用它定位）。 */
+    public java.util.Optional<TenantRef> byCode(String code) {
+        if (code == null || code.isBlank()) {
+            return java.util.Optional.empty();
+        }
+        return TenantContext.callAsSystem(() -> jdbc.query(
+                        "SELECT id, code, name, enabled FROM tenants WHERE code = ?",
+                        MAPPER, code.trim()))
+                .stream().findFirst();
+    }
+
+    private static final org.springframework.jdbc.core.RowMapper<TenantRef> MAPPER =
+            (rs, i) -> new TenantRef(rs.getLong("id"), rs.getString("code"),
+                    rs.getString("name"), rs.getBoolean("enabled"));
 }

@@ -2,7 +2,7 @@
 import { reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import { Lock, User } from '@element-plus/icons-vue'
+import { Lock, OfficeBuilding, User } from '@element-plus/icons-vue'
 import { useSessionStore } from '@/stores/session'
 
 /**
@@ -23,6 +23,11 @@ const loading = ref(false)
 const form = reactive({
   username: '',
   password: '',
+  /**
+   * 可选租户编码（B1）：多租户成员用它选择本次登录的行动租户。
+   * 留空 = 账号的主租户；支持 `?tenant=demo` 预填，便于演示与排障链接。
+   */
+  tenantCode: typeof route.query.tenant === 'string' ? route.query.tenant : '',
 })
 
 const rules: FormRules = {
@@ -37,7 +42,7 @@ async function handleSubmit() {
 
   loading.value = true
   try {
-    await session.login(form.username, form.password)
+    await session.login(form.username, form.password, form.tenantCode)
     ElMessage.success('登录成功')
     const redirect = (route.query.redirect as string) || '/dashboard'
     router.push(redirect)
@@ -79,6 +84,15 @@ async function handleSubmit() {
           />
         </el-form-item>
 
+        <el-form-item label="租户编码（可选）" prop="tenantCode">
+          <el-input
+            v-model="form.tenantCode"
+            :prefix-icon="OfficeBuilding"
+            placeholder="多租户成员填写；留空进入主租户"
+            clearable
+          />
+        </el-form-item>
+
         <el-form-item>
           <el-button type="primary" :loading="loading" class="login-button" @click="handleSubmit">
             登 录
@@ -87,7 +101,8 @@ async function handleSubmit() {
       </el-form>
 
       <p class="login-tip text-muted">
-        账号由管理员创建（系统不提供自助注册）。
+        账号由管理员创建（系统不提供自助注册）。所属多个租户时，可在此选择登录租户；
+        登录后也可从顶栏切换。
       </p>
     </div>
   </div>

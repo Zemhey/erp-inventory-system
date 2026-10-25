@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import {
+  ArrowDown,
   Box,
   Checked,
   Coin,
@@ -63,6 +64,11 @@ onMounted(() => {
   mediaQuery = window.matchMedia('(max-width: 768px)')
   syncMobile()
   mediaQuery.addEventListener('change', syncMobile)
+  // B1：刷新页面后回填租户/成员列表，并顺带验证"租户是否被停用、token 是否仍有效"。
+  // 失败（401）由 axios 拦截器统一跳登录；这里不再重复提示。
+  if (session.isLoggedIn) {
+    void session.refresh().catch(() => undefined)
+  }
 })
 
 onBeforeUnmount(() => {
@@ -171,6 +177,9 @@ const menuGroups: MenuGroup[] = [
       // E1 合并时在本数组末尾追加（不重排、不动其它组）：
       { path: '/audits', title: '审计查询', icon: Search, permission: 'sys:read' },
       { path: '/dicts', title: '数据字典', icon: Notebook, permission: 'sys:read' },
+      // B1：平台租户管理。tenant:manage 只种给平台租户的 ADMIN；
+      // 普通租户管理员既看不到这个入口，直接请求也会 403（后端不接受 ADMIN 短路）。
+      { path: '/tenants', title: '租户管理', icon: OfficeBuilding, permission: 'tenant:manage' },
     ],
   },
 ]
@@ -209,6 +218,35 @@ watch(
     nextTick(() => menuRef.value?.open(group.key))
   },
 )
+
+/** 切换器是否正在请求（避免连点产生多个并发切换）。 */
+const switchingTenant = ref(false)
+
+/**
+ * 切换行动租户（B1）。
+ *
+ * ★ 必须等后端返回新 token 再更新会话：切换成功后角色/权限/菜单都换成
+ *   目标租户的；若当前页面在新租户里没有权限，直接回工作台，避免停在一个
+ *   注定 403 的页面。`router-view` 以 tenantId 为 key，切换后会重新挂载并取数，
+ *   不会把旧租户的列表留在屏幕上。
+ */
+async function handleSwitchTenant(command: string | number | object) {
+  const tenantCode = String(command)
+  if (!tenantCode || tenantCode === session.tenantCode) return
+  switchingTenant.value = true
+  try {
+    const result = await session.switchTenant(tenantCode)
+    ElMessage.success(`已切换到租户「${result.tenantName}」`)
+    const required = route.meta.permission
+    if (required && !session.hasPermission(required)) {
+      void router.push({ name: 'dashboard' })
+    }
+  } catch {
+    // 错误消息已由 axios 拦截器提示（403 非成员/停用，401 登录失效）
+  } finally {
+    switchingTenant.value = false
+  }
+}
 
 async function handleLogout() {
   try {
@@ -275,6 +313,44 @@ async function handleLogout() {
           </el-breadcrumb>
         </div>
         <div class="header-right">
+          <!-- B1：当前租户。只有真的是多租户成员才渲染切换器（单租户只显示名称）。 -->
+          <el-dropdown
+            v-if="session.isMultiTenant"
+            trigger="click"
+            :disabled="switchingTenant"
+            @command="handleSwitchTenant"
+          >
+            <span class="tenant-chip" title="切换租户">
+              <el-icon><OfficeBuilding /></el-icon>
+              <span class="tenant-name">{{ session.tenantName || session.tenantCode }}</span>
+              <span class="tenant-code">（{{ session.tenantCode }}）</span>
+              <el-icon><ArrowDown /></el-icon>
+            </span>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item
+                  v-for="t in session.tenants"
+                  :key="t.id"
+                  :command="t.code"
+                  :disabled="!t.enabled || t.id === session.tenantId"
+                >
+                  {{ t.name }}（{{ t.code }}）
+                  <el-tag v-if="t.id === session.tenantId" size="small" type="success" class="ml-8">
+                    当前
+                  </el-tag>
+                  <el-tag v-else-if="!t.enabled" size="small" type="info" class="ml-8">
+                    已停用
+                  </el-tag>
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+          <span v-else-if="session.tenantName" class="tenant-chip static">
+            <el-icon><OfficeBuilding /></el-icon>
+            <span class="tenant-name">{{ session.tenantName }}</span>
+            <span class="tenant-code">（{{ session.tenantCode }}）</span>
+          </span>
+
           <span class="text-muted mr-8 user-label">
             {{ session.displayName || session.username }}
             <template v-if="session.roles.length">（{{ session.roles.join(' / ') }}）</template>
@@ -283,9 +359,9 @@ async function handleLogout() {
         </div>
       </el-header>
 
-      <!-- 内容区 -->
+      <!-- 内容区：以 tenantId 为 key，切换租户后强制重挂当前页，避免残留旧租户数据 -->
       <el-main class="main">
-        <router-view />
+        <router-view :key="session.tenantId ?? 'no-tenant'" />
       </el-main>
     </el-container>
   </el-container>
@@ -370,6 +446,40 @@ async function handleLogout() {
 .header-right {
   display: flex;
   align-items: center;
+  gap: 10px;
+}
+
+.tenant-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border-radius: 12px;
+  background: #ecf5ff;
+  color: #409eff;
+  font-size: 13px;
+  line-height: 22px;
+  cursor: pointer;
+}
+
+.tenant-chip.static {
+  cursor: default;
+}
+
+.tenant-name {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tenant-code {
+  color: #909399;
+  font-size: 12px;
+}
+
+.ml-8 {
+  margin-left: 8px;
 }
 
 .main {

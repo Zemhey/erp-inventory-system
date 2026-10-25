@@ -44,6 +44,40 @@ export interface ApiError {
   traceId?: string
 }
 
+/**
+ * 租户元数据（B1）。与契约 `TenantView` 同形。
+ *
+ * `enabled=false` 的租户仍会出现在成员列表里（前端置灰），但后端在登录/切换时
+ * 仍会独立拒绝 —— 显示与授权是两件事。
+ */
+export interface TenantView {
+  id: number
+  code: string
+  name: string
+  enabled: boolean
+}
+
+/** 登录 / 切换租户 / 刷新会话共用的会话快照（契约 `LoginResult` 去掉 token）。 */
+export interface SessionSnapshot {
+  username: string
+  displayName: string | null
+  roles: string[]
+  permissions: string[]
+  mustChangePassword: boolean
+  passwordExpiresAt: string | null
+  passwordRules: string[]
+  tenantId: number
+  tenantCode: string
+  tenantName: string
+  tenants: TenantView[]
+}
+
+/** 登录与切换租户的响应（契约 `LoginResult`）。 */
+export interface LoginPayload extends SessionSnapshot {
+  token: string
+  tokenType: string
+}
+
 const TOKEN_KEY = 'erp.token'
 
 export function getToken(): string | null {
@@ -135,14 +169,34 @@ export default http
 
 // ═══════════════════════ 业务 API（按模块分组） ═══════════════════════
 
-/** 认证（FR-IAM-01）。 */
+/**
+ * 认证（FR-IAM-01 / FR-TNT-07）。
+ *
+ * ★ switchTenant 返回**新 token**（tid 已变）：调用方必须整体覆盖会话，
+ *   绝不能用旧 token 继续请求 —— 那会让界面显示与实际数据边界不一致。
+ */
 export const authApi = {
-  login: (username: string, password: string) =>
-    http.post<never, { token: string; username: string; displayName: string; roles: string[]; permissions: string[] }>(
-      '/auth/login',
-      { username, password },
-    ),
-  me: () => http.get<never, { username: string; roles: string[]; permissions: string[] }>('/auth/me'),
+  login: (username: string, password: string, tenantCode?: string) =>
+    http.post<never, LoginPayload>('/auth/login', {
+      username,
+      password,
+      ...(tenantCode && tenantCode.trim() ? { tenantCode: tenantCode.trim() } : {}),
+    }),
+  me: () => http.get<never, SessionSnapshot>('/auth/me'),
+  switchTenant: (tenantCode: string) =>
+    http.post<never, LoginPayload>('/auth/switch-tenant', { tenantCode }),
+}
+
+/**
+ * 平台租户管理（B1 · FR-TNT-08）。
+ *
+ * 只有平台租户管理员（`tenant:manage`，且**不享受 ADMIN 短路**）可调用；
+ * 普通租户管理员在菜单上看不到入口，直接请求也是 403。
+ */
+export const tenantApi = {
+  list: () => http.get<never, { items: TenantView[] }>('/tenants'),
+  setEnabled: (id: number, enabled: boolean) =>
+    http.post<never, TenantView>(`/tenants/${id}/enabled`, { enabled }),
 }
 
 /** 主数据：商品 / SKU / 供应商 / 客户 / 仓库（FR-MDM-01~04）。 */

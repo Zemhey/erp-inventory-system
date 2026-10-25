@@ -178,6 +178,14 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/sys/DictView.vue'),
         meta: { title: '数据字典', permission: 'sys:read' },
       },
+      // B1 追加：平台租户管理（只有平台租户管理员可见；后端同样强制）。
+      // 继续只往后加，通配兜底路由仍在数组最后。
+      {
+        path: 'tenants',
+        name: 'tenants',
+        component: () => import('@/views/iam/TenantManageView.vue'),
+        meta: { title: '租户管理', permission: 'tenant:manage' },
+      },
     ],
   },
   {

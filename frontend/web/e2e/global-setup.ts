@@ -3,7 +3,13 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { artifactsDir, runFile } from './helpers/paths'
 import type { RunInfo } from './helpers/run'
 import { normalizeRun } from './helpers/run'
-import { cleanupRun, createTempUser, readBaseline, resetReservedPeriods } from './helpers/db-ops'
+import {
+  addTenantMembership,
+  cleanupRun,
+  createTempUser,
+  readBaseline,
+  resetReservedPeriods,
+} from './helpers/db-ops'
 
 const STALE_AFTER_MS = 30 * 60 * 1000
 
@@ -57,6 +63,9 @@ export default async function globalSetup(): Promise<void> {
   try {
     createTempUser(viewerUsername, 'VIEWER', admin)
     createTempUser(financeUsername, 'FINANCE', admin)
+    // B1：VIEWER 同时是 demo 租户的 VIEWER —— 只有真的多租户成员，
+    // 顶栏才应出现切换器；单租户的 FINANCE 用作"不出现切换器"的对照。
+    addTenantMembership(viewerUsername, 'demo', 'VIEWER')
   } catch (error) {
     try {
       cleanupRun(info)

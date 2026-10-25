@@ -124,6 +124,51 @@ SELECT (SELECT count(*) FROM app_users WHERE username = ${user}),
 `.trim()
 }
 
+/**
+ * 给临时账号追加**第二个租户**的成员关系与角色（B1 多租户切换 E2E 用）。
+ *
+ * ★ 为什么不能复用 createUserSql：那条 SQL 只能把账号建在管理员的主租户里，
+ *   而"切换器只在真的多租户成员时出现"必须有一个跨两个租户的账号来证明。
+ *   这里直接用租户编码定位（E2E 库里固定有 default / demo 两个租户）。
+ *
+ * 返回两列：成员关系行数、目标租户角色行数；调用方必须都为 1，否则说明种子缺失。
+ */
+export function addTenantMembershipSql(
+  username: string,
+  tenantCode: string,
+  roleCode: string,
+): string {
+  const user = sqlString(username)
+  const tenant = sqlString(tenantCode)
+  const role = sqlString(roleCode)
+  return `
+INSERT INTO app_user_tenants (user_id, tenant_id)
+SELECT u.id, t.id
+  FROM app_users u
+  JOIN tenants t ON t.code = ${tenant}
+ WHERE u.username = ${user}
+ON CONFLICT DO NOTHING;
+
+INSERT INTO app_user_roles (tenant_id, user_id, role_id)
+SELECT t.id, u.id, r.id
+  FROM app_users u
+  JOIN tenants t ON t.code = ${tenant}
+  JOIN app_roles r ON r.tenant_id = t.id
+ WHERE u.username = ${user} AND r.code = ${role}
+ON CONFLICT DO NOTHING;
+
+SELECT (SELECT count(*) FROM app_user_tenants ut
+          JOIN app_users u ON u.id = ut.user_id
+          JOIN tenants t ON t.id = ut.tenant_id
+         WHERE u.username = ${user} AND t.code = ${tenant}),
+       (SELECT count(*) FROM app_user_roles ur
+          JOIN app_users u ON u.id = ur.user_id
+          JOIN tenants t ON t.id = ur.tenant_id
+          JOIN app_roles r ON r.id = ur.role_id
+         WHERE u.username = ${user} AND t.code = ${tenant} AND r.code = ${role});
+`.trim()
+}
+
 export function cleanupSql(run: RunInfo): string {
   assertSafeRun(run)
   const prefix = sqlString(`${run.runId}-%`)

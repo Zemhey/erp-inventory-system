@@ -33,7 +33,7 @@ import java.util.Set;
  */
 public final class TenantTables {
 
-    /** 全部带 {@code tenant_id} 的业务表（55 张，按 V16 的加列顺序）。 */
+    /** 全部带 {@code tenant_id} 的业务表（56 张；V16 的 55 张 + V17 的成员关系表）。 */
     public static final Set<String> ALL = Set.copyOf(List.of(
             // 主数据
             "warehouses", "products", "skus", "suppliers", "customers",
@@ -63,6 +63,8 @@ public final class TenantTables {
             // 系统：字典 / 数据权限 / 账号角色
             "dict_types", "dict_items", "data_scopes", "app_users", "app_roles",
             "app_user_roles", "app_role_permissions",
+            // B1：用户×租户成员关系（主租户也有一行；跨租户枚举必须走系统旁路）
+            "app_user_tenants",
             // 审批
             "approval_flows", "approval_instances", "approval_steps",
             // 审计（V13 已有列；V16 只追加索引，不改列）
