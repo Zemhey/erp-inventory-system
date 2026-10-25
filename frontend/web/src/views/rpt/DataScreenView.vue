@@ -285,6 +285,9 @@ function retryAll(): void {
     <div class="screen-stage" :style="{ transform: `scale(${scale})` }">
       <!-- 顶栏 -->
       <header class="screen-head">
+        <button class="back-btn" title="返回工作台" @click="router.push('/dashboard')">
+          <span class="back-arrow">←</span>返回系统
+        </button>
         <div class="head-left">
           <h1>进销存经营数据大屏</h1>
           <span class="head-sub">ERP · 报表中心 · 只读快照</span>
@@ -300,7 +303,6 @@ function retryAll(): void {
             </button>
             <button class="tool-btn" @click="retryAll">立即刷新</button>
             <button class="tool-btn" @click="toggleFullscreen">{{ fullscreen ? '退出全屏' : '全屏' }}</button>
-            <button class="tool-btn" @click="router.push('/dashboard')">返回系统</button>
           </div>
         </div>
       </header>
@@ -402,6 +404,34 @@ function retryAll(): void {
     linear-gradient(180deg, #0b1220 0%, #080f1b 100%);
   color: #d6e4f5;
   font-size: 14px;
+}
+/* 返回入口：画布整体是按 1920×1080 等比缩小渲染的，12px 的 .tool-btn 缩到
+   实际只有约 10px，所以这里必须用设计稿尺寸放大，而不是跟着工具组走小字号。 */
+.back-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  padding: 12px 22px;
+  border-radius: 6px;
+  border: 1px solid rgba(24, 192, 216, 0.6);
+  background: rgba(24, 192, 216, 0.18);
+  color: #d6f5fb;
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease;
+}
+.back-btn:hover {
+  background: rgba(24, 192, 216, 0.34);
+  border-color: rgba(24, 192, 216, 0.9);
+}
+.back-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 .screen-head {
   display: flex;
