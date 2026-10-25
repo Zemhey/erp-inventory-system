@@ -51,6 +51,11 @@ public class ShipmentApplicationService {
     private final DocumentNumberGenerator numberGenerator;
     private final ClockProvider clock;
     private final PeriodGuard periodGuard;
+    /**
+     * 凭证触发出口（V3-2 FR-V3-08，依赖倒置见 {@code shared.finance.VoucherTrigger}）。
+     * 确认发货后：借 1122 应收 / 贷 6001 收入；成本引擎有结转额时追加 6401/1405。
+     */
+    private final com.erp.shared.finance.VoucherTrigger vouchers;
 
     public ShipmentApplicationService(ShipmentRepository shipments,
                                       SalesOrderRepository salesOrderRows,
@@ -60,7 +65,8 @@ public class ShipmentApplicationService {
                                       SkuRepository skus,
                                       DocumentNumberGenerator numberGenerator,
                                       ClockProvider clock,
-                                      PeriodGuard periodGuard) {
+                                      PeriodGuard periodGuard,
+                                      com.erp.shared.finance.VoucherTrigger vouchers) {
         this.shipments = shipments;
         this.salesOrderRows = salesOrderRows;
         this.salesOrders = salesOrders;
@@ -70,6 +76,7 @@ public class ShipmentApplicationService {
         this.numberGenerator = numberGenerator;
         this.clock = clock;
         this.periodGuard = periodGuard;
+        this.vouchers = vouchers;
     }
 
     /** 计划中的一个拣货行（尚未落库）。 */
@@ -308,6 +315,8 @@ public class ShipmentApplicationService {
                     "发货单 %s 确认状态推进冲突（并发修改），请刷新后重试"
                             .formatted(shipment.shipmentNo()));
         }
+        // V3-2 FR-V3-08：出库确认 → 自动生成凭证（幂等键 (SAL_OUT, shipmentId)）。
+        vouchers.generateForSource("SAL_OUT", shipment.id());
         return require(shipmentId);
     }
 

@@ -46,17 +46,21 @@ public class SupplierPayableService {
     private final DocumentNumberGenerator numberGenerator;
     private final ClockProvider clock;
     private final PeriodGuard periodGuard;
+    /** 凭证触发出口（V3-2 FR-V3-08）：付款核销 → 借 2202 / 贷 1002 + 银行日记账。 */
+    private final com.erp.shared.finance.VoucherTrigger vouchers;
 
     public SupplierPayableService(SupplierPayableRepository payables,
                                   PayableAllocationRepository allocations,
                                   DocumentNumberGenerator numberGenerator,
                                   ClockProvider clock,
-                                  PeriodGuard periodGuard) {
+                                  PeriodGuard periodGuard,
+                                  com.erp.shared.finance.VoucherTrigger vouchers) {
         this.payables = payables;
         this.allocations = allocations;
         this.numberGenerator = numberGenerator;
         this.clock = clock;
         this.periodGuard = periodGuard;
+        this.vouchers = vouchers;
     }
 
     // ─────────────────────────── 应付生成 ───────────────────────────
@@ -264,6 +268,7 @@ public class SupplierPayableService {
         String paymentNo = numberGenerator.next(
                 DocumentNumberGenerator.DocType.SUPPLIER_PAYMENT, bizDate);
         String period = "%04d-%02d".formatted(bizDate.getYear(), bizDate.getMonthValue());
+        long firstAllocationId = 0;
         for (AllocationCommand a : ordered) {
             if (!payables.increasePaid(a.payableId(), a.amount())) {
                 // 预检后仍失败 = 并发抢走了余额；条件 UPDATE 是最终守卫
@@ -271,9 +276,16 @@ public class SupplierPayableService {
                         "核销额超过应付余额（并发冲突）：payableId=%d, amount=%d"
                                 .formatted(a.payableId(), a.amount()));
             }
-            allocations.insert(paymentNo, cmd.supplierId(), a.payableId(), a.amount(),
-                    cmd.amount(), bizDate, period, trimToNull(cmd.remark()), cmd.requestId());
+            long allocationId = allocations.insert(paymentNo, cmd.supplierId(), a.payableId(),
+                    a.amount(), cmd.amount(), bizDate, period, trimToNull(cmd.remark()),
+                    cmd.requestId());
+            if (firstAllocationId == 0) {
+                firstAllocationId = allocationId;
+            }
         }
+        // V3-2 FR-V3-08：付款核销 → 自动生成凭证。来源 id 约定 = 该笔付款的首条核销明细 id
+        //（付款没有头表，见 V10；FinSourceRepository.payment 顺着它反查整笔金额）。
+        vouchers.generateForSource("PUR_PAY", firstAllocationId);
         return new PaymentResult(paymentNo, cmd.amount(),
                 allocations.findByRequestId(cmd.requestId()));
     }
