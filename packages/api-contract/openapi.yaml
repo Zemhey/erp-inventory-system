@@ -45,6 +45,8 @@ tags:
     description: 认证与权限（登录 / 改密 / 账号 / 角色 / 数据权限，FR-IAM-04~06）
   - name: aps
     description: 审批流（提交 / 同意 / 驳回 / 撤回 / 转办，FR-APS-01~02；只输出可否，不改单据状态）
+  - name: fin
+    description: 财务中心（V3-2：科目 / 凭证 / 业务单据自动生成凭证 / 银行日记账 / 报销 / 发票 / 两张报表；金额单位元）
 
 paths:
   # ─────────────────────────── MDM ───────────────────────────
@@ -5259,6 +5261,594 @@ paths:
               schema: { $ref: '#/components/schemas/ApiError' }
 
 
+  # ═════════════════ V3-2 财务中心（tag: fin，W2 泳道纯追加）═════════════════
+  # 金额口径：财务域一律「元」两位小数（简报 §5：numeric(18,2) + BigDecimal，禁 double），
+  # 与业务域的「整数分」（ADR-0005）在凭证生成处以 movePointLeft(2) 精确换算。
+  /fin/accounts:
+    get:
+      tags: [fin]
+      summary: 会计科目平铺列表（fin:read；新租户首次访问自动补种标准科目模板）
+      operationId: listFinAccounts
+      responses:
+        '200':
+          description: items = FinAccount 数组
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+    post:
+      tags: [fin]
+      summary: 新建科目（fin:account:write；编码在本租户内唯一）
+      operationId: createFinAccount
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FinAccountCreate' }
+      responses:
+        '200':
+          description: 新建科目
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/FinAccount' }
+        '409':
+          description: FIN_ACCOUNT_DUPLICATED（编码重复）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+  /fin/accounts/tree:
+    get:
+      tags: [fin]
+      summary: 科目树（一级科目为根，children 递归；页面按 category 六大类分组渲染）
+      operationId: getFinAccountTree
+      responses:
+        '200':
+          description: items = 树节点数组（FinAccount + children）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+
+  /fin/accounts/{id}:
+    put:
+      tags: [fin]
+      summary: 修改科目（编码与父级创建后不可改；停用被引用科目允许、删除不允许）
+      operationId: updateFinAccount
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FinAccountUpdate' }
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [fin]
+      summary: 删除科目（被凭证分录引用或有子科目 → 409 FIN_ACCOUNT_IN_USE）
+      operationId: deleteFinAccount
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '409':
+          description: FIN_ACCOUNT_IN_USE
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+  /fin/vouchers:
+    get:
+      tags: [fin]
+      summary: 凭证分页列表（status / sourceType / period / from / to / keyword 过滤）
+      operationId: pageFinVouchers
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [DRAFT, AUDITED, POSTED] }
+        - name: sourceType
+          in: query
+          schema: { type: string, enum: [MANUAL, PUR_IN, SAL_OUT, PUR_PAY, SAL_RCV, EXPENSE, INVOICE] }
+        - name: period
+          in: query
+          schema: { type: string, pattern: '^\d{4}-\d{2}$' }
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+        - { name: keyword, in: query, schema: { type: string }, description: 凭证号 / 来源单号 / 分录摘要 }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          $ref: '#/components/responses/PageResponse'
+    post:
+      tags: [fin]
+      summary: 手工录凭证（借贷必须相等；不等 400 FIN_VOUCHER_UNBALANCED，details 带差额）
+      description: 落 DRAFT；状态机 DRAFT → AUDITED → POSTED，POSTED 后不可改（只能红冲，下期能力）。
+      operationId: createFinVoucher
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FinVoucherCreate' }
+      responses:
+        '200':
+          description: 新建凭证（含分录）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/FinVoucher' }
+        '400':
+          description: "FIN_VOUCHER_UNBALANCED（details: totalDebit / totalCredit / diff）或 FIN_VOUCHER_LINE_INVALID"
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+  /fin/vouchers/{id}:
+    get:
+      tags: [fin]
+      summary: 凭证详情（头 + 全部分录）
+      operationId: getFinVoucher
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [fin]
+      summary: 修改凭证（仅 DRAFT；分录整单替换，借贷平衡校验同 POST）
+      operationId: updateFinVoucher
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FinVoucherCreate' }
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '409':
+          description: FIN_VOUCHER_STATUS_ILLEGAL（非 DRAFT 不可改）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+  /fin/vouchers/{id}/audit:
+    post:
+      tags: [fin]
+      summary: 审核凭证（DRAFT → AUDITED）
+      operationId: auditFinVoucher
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /fin/vouchers/{id}/post:
+    post:
+      tags: [fin]
+      summary: 过账凭证（AUDITED → POSTED；报表只统计 POSTED）
+      operationId: postFinVoucher
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /fin/bank-accounts:
+    get:
+      tags: [fin]
+      summary: 银行账户列表（默认账户排首位）
+      operationId: listBankAccounts
+      responses:
+        '200':
+          description: items = BankAccount 数组
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+    post:
+      tags: [fin]
+      summary: 新建银行账户（本租户第一个账户自动成为默认入账账户）
+      operationId: createBankAccount
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BankAccountCreate' }
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /fin/bank-accounts/{id}:
+    put:
+      tags: [fin]
+      summary: 修改银行账户（balance 字段是账面余额，手工调整仅初始化时使用）
+      operationId: updateBankAccount
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BankAccountUpdate' }
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [fin]
+      summary: 删除银行账户（已有日记账流水 → 409，请停用而不是删除）
+      operationId: deleteBankAccount
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /fin/bank-accounts/{id}/default:
+    post:
+      tags: [fin]
+      summary: 设为默认账户（同租户其余账户自动取消默认；收付款自动日记账的落点）
+      operationId: setDefaultBankAccount
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+
+  /fin/cash-journal:
+    get:
+      tags: [fin]
+      summary: 现金/银行日记账（当日余额 = 上日余额 + 借 − 贷，余额逐笔连续）
+      operationId: queryCashJournal
+      parameters:
+        - { name: accountId, in: query, schema: { type: integer, format: int64 } }
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+      responses:
+        '200':
+          description: items = CashJournalEntry 数组（时间倒序，上限 500）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+    post:
+      tags: [fin]
+      summary: 手工补录日记账（利息 / 银行间调拨等；自动延续余额链并回写账户余额）
+      operationId: addCashJournalEntry
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CashJournalCreate' }
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+
+  /fin/expenses:
+    get:
+      tags: [fin]
+      summary: 报销单分页（status / keyword 过滤）
+      operationId: pageFinExpenses
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [DRAFT, SUBMITTED, APPROVED, PAID] }
+        - { name: keyword, in: query, schema: { type: string } }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          $ref: '#/components/responses/PageResponse'
+    post:
+      tags: [fin]
+      summary: 新建报销单（明细合计 = 主表金额，落 DRAFT）
+      operationId: createFinExpense
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FinExpenseCreate' }
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '400':
+          description: FIN_EXPENSE_AMOUNT_MISMATCH（明细为空 / 金额非正）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+  /fin/expenses/{id}:
+    get:
+      tags: [fin]
+      summary: 报销单详情（含明细行）
+      operationId: getFinExpense
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [fin]
+      summary: 修改报销单（仅 DRAFT；驳回后同样是 DRAFT + rejectReason）
+      operationId: updateFinExpense
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FinExpenseCreate' }
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    delete:
+      tags: [fin]
+      summary: 删除报销单（仅 DRAFT）
+      operationId: deleteFinExpense
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /fin/expenses/{id}/submit:
+    post:
+      tags: [fin]
+      summary: 提交审批（DRAFT → SUBMITTED）
+      operationId: submitFinExpense
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /fin/expenses/{id}/approve:
+    post:
+      tags: [fin]
+      summary: 审批通过（SUBMITTED → APPROVED；权限 fin:expense:approve，与申请人分离）
+      operationId: approveFinExpense
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /fin/expenses/{id}/reject:
+    post:
+      tags: [fin]
+      summary: 驳回（SUBMITTED → DRAFT，原因写 reject_reason，必填）
+      operationId: rejectFinExpense
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string, maxLength: 255 }
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '400':
+          description: SYS_VALIDATION_ERROR（原因必填）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+  /fin/expenses/{id}/pay:
+    post:
+      tags: [fin]
+      summary: 付款（APPROVED → PAID，自动生成凭证 借6602/贷1002 并落银行日记账）
+      operationId: payFinExpense
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /fin/invoices:
+    get:
+      tags: [fin]
+      summary: 发票台账分页（type = OUTPUT 销项 / INPUT 进项，页面两个 Tab）
+      operationId: pageFinInvoices
+      parameters:
+        - name: type
+          in: query
+          schema: { type: string, enum: [OUTPUT, INPUT] }
+        - name: status
+          in: query
+          schema: { type: string, enum: [NORMAL, VOID] }
+        - { name: keyword, in: query, schema: { type: string } }
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          $ref: '#/components/responses/PageResponse'
+    post:
+      tags: [fin]
+      summary: 登记发票（可关联进货单/出货单；同一单据累计开票不得超过单据金额）
+      operationId: createFinInvoice
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FinInvoiceCreate' }
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '409':
+          description: "FIN_INVOICE_OVER_AMOUNT（details: docAmount / invoiced / requested / over）"
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+  /fin/invoices/{id}:
+    get:
+      tags: [fin]
+      summary: 发票详情
+      operationId: getFinInvoice
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [fin]
+      summary: 修改发票（仅 NORMAL；改额同样受"同一单据不超额"约束）
+      operationId: updateFinInvoice
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FinInvoiceCreate' }
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    delete:
+      tags: [fin]
+      summary: 删除发票（台账订正用；业务作废走 /void）
+      operationId: deleteFinInvoice
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+
+  /fin/invoices/{id}/void:
+    post:
+      tags: [fin]
+      summary: 作废发票（释放该单据的已开额度；超额校验只统计 NORMAL）
+      operationId: voidFinInvoice
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /fin/reports/balance-sheet:
+    get:
+      tags: [fin]
+      summary: 资产负债表（只统计 POSTED 凭证；资产 = 负债 + 权益 + 累计利润，diff 必须回传）
+      description: |
+        - 科目余额 = init_balance + Σ借 − Σ贷（按 direction 取号）；
+        - accumulatedProfit 是截至该期间的损益累计净额，作为权益侧的平衡项
+          （损益结转到利润分配属下期能力，不做它这张表永远不平）；
+        - balanced=false 时 diff 给出具体差额（简报验收"不平要报差异"）。
+      operationId: getBalanceSheet
+      parameters:
+        - name: period
+          in: query
+          required: true
+          schema: { type: string, pattern: '^\d{4}-\d{2}$' }
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '400':
+          description: FIN_REPORT_PERIOD_INVALID
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+  /fin/reports/income-statement:
+    get:
+      tags: [fin]
+      summary: 利润表（本期：营业收入 − 营业成本 − 费用 = 净利润；同时给出毛利）
+      operationId: getIncomeStatement
+      parameters:
+        - name: period
+          in: query
+          required: true
+          schema: { type: string, pattern: '^\d{4}-\d{2}$' }
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+
+  /fin/overview:
+    get:
+      tags: [fin]
+      summary: 财务中心首页（资金余额 / 应收总额 / 应付总额 / 本月收支 + 近 6 个月现金流）
+      description: 卡片数字与明细页同源同口径：资金=启用银行账户余额合计；应收/应付=业务域余额（分→元换算）；收支=日记账按月合计。
+      operationId: getFinanceOverview
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+
 components:
   parameters:
     RequestId:
@@ -7750,3 +8340,270 @@ components:
           type: integer
           minimum: 0
           description: 账期天数；0 = 现结
+
+    # ═════════ V3-2 财务中心 schemas（tag: fin，W2 泳道纯追加）═════════
+    # ★ 这里的所有金额字段都是「元」两位小数（FinMoney），区别于业务域「分」：
+    #   财务域是复式记账展示口径（简报 §5），换算发生在生成凭证处。
+    FinMoney:
+      type: number
+      format: double
+      description: 金额（元，两位小数；Java 侧 BigDecimal，舍入 HALF_UP）
+      example: 1234.56
+
+    FinAccountCategory:
+      type: string
+      enum: [ASSET, LIABILITY, EQUITY, COST, REVENUE, EXPENSE]
+
+    FinAccountDirection:
+      type: string
+      enum: [DEBIT, CREDIT]
+
+    FinAccount:
+      type: object
+      required: [id, code, name, category, direction, leaf, enabled]
+      properties:
+        id: { type: integer, format: int64 }
+        code: { type: string, example: '1122' }
+        name: { type: string, example: 应收账款 }
+        parentId: { type: integer, format: int64, nullable: true }
+        category: { $ref: '#/components/schemas/FinAccountCategory' }
+        categoryLabel: { type: string, example: 资产 }
+        direction: { $ref: '#/components/schemas/FinAccountDirection' }
+        directionLabel: { type: string, example: 借 }
+        leaf: { type: boolean, description: 仅末级科目可记账 }
+        initBalance: { $ref: '#/components/schemas/FinMoney' }
+        enabled: { type: boolean }
+        remark: { type: string, nullable: true }
+        children:
+          type: array
+          description: 仅 /fin/accounts/tree 返回
+          items: { type: object }
+
+    FinAccountCreate:
+      type: object
+      required: [code, name, category, direction]
+      properties:
+        code: { type: string, minLength: 1, maxLength: 32 }
+        name: { type: string, minLength: 1, maxLength: 64 }
+        parentId: { type: integer, format: int64, nullable: true }
+        category: { $ref: '#/components/schemas/FinAccountCategory' }
+        direction: { $ref: '#/components/schemas/FinAccountDirection' }
+        initBalance: { $ref: '#/components/schemas/FinMoney' }
+        enabled: { type: boolean, default: true }
+        remark: { type: string, maxLength: 255 }
+
+    FinAccountUpdate:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 64 }
+        direction: { $ref: '#/components/schemas/FinAccountDirection' }
+        initBalance: { $ref: '#/components/schemas/FinMoney' }
+        enabled: { type: boolean }
+        remark: { type: string, maxLength: 255 }
+
+    FinVoucherLine:
+      type: object
+      required: [lineNo, accountId, accountCode, summary]
+      properties:
+        id: { type: integer, format: int64 }
+        lineNo: { type: integer }
+        accountId: { type: integer, format: int64 }
+        accountCode: { type: string, description: 冗余科目编码（报表/审计锚点） }
+        summary: { type: string, maxLength: 128 }
+        debit: { $ref: '#/components/schemas/FinMoney' }
+        credit: { $ref: '#/components/schemas/FinMoney' }
+
+    FinVoucher:
+      type: object
+      required: [id, voucherNo, voucherDate, period, sourceType, status, totalDebit, totalCredit]
+      properties:
+        id: { type: integer, format: int64 }
+        voucherNo: { type: string, example: PZ20261001-0001 }
+        voucherDate: { type: string, format: date }
+        period: { type: string, pattern: '^\d{4}-\d{2}$' }
+        sourceType: { type: string, enum: [MANUAL, PUR_IN, SAL_OUT, PUR_PAY, SAL_RCV, EXPENSE, INVOICE] }
+        sourceTypeLabel: { type: string }
+        sourceId: { type: integer, format: int64, nullable: true }
+        sourceNo: { type: string, nullable: true }
+        status: { type: string, enum: [DRAFT, AUDITED, POSTED] }
+        statusLabel: { type: string }
+        totalDebit: { $ref: '#/components/schemas/FinMoney' }
+        totalCredit: { $ref: '#/components/schemas/FinMoney' }
+        summary: { type: string, nullable: true, description: 列表视图 = 首条分录摘要 }
+        lineCount: { type: integer }
+        createdBy: { type: integer, format: int64, nullable: true }
+        auditedBy: { type: integer, format: int64, nullable: true }
+        postedAt: { type: string, nullable: true }
+        remark: { type: string, nullable: true }
+        lines:
+          type: array
+          items: { $ref: '#/components/schemas/FinVoucherLine' }
+
+    FinVoucherCreate:
+      type: object
+      required: [lines]
+      properties:
+        voucherDate: { type: string, format: date, description: 省略 = 业务时钟今天 }
+        remark: { type: string, maxLength: 255 }
+        lines:
+          type: array
+          minItems: 2
+          items:
+            type: object
+            required: [accountId]
+            properties:
+              accountId: { type: integer, format: int64 }
+              summary: { type: string, maxLength: 128 }
+              debit: { $ref: '#/components/schemas/FinMoney' }
+              credit: { $ref: '#/components/schemas/FinMoney' }
+
+    BankAccount:
+      type: object
+      required: [id, code, name, balance, enabled]
+      properties:
+        id: { type: integer, format: int64 }
+        code: { type: string }
+        name: { type: string }
+        bankName: { type: string, nullable: true }
+        accountNo: { type: string, nullable: true }
+        currency: { type: string, example: CNY }
+        balance: { $ref: '#/components/schemas/FinMoney' }
+        isDefault: { type: boolean, description: 收付款自动日记账的落点，每租户至多一个 }
+        enabled: { type: boolean }
+        remark: { type: string, nullable: true }
+
+    BankAccountCreate:
+      type: object
+      required: [code, name]
+      properties:
+        code: { type: string, minLength: 1, maxLength: 32 }
+        name: { type: string, minLength: 1, maxLength: 64 }
+        bankName: { type: string, maxLength: 64 }
+        accountNo: { type: string, maxLength: 64 }
+        currency: { type: string, default: CNY }
+        initBalance: { $ref: '#/components/schemas/FinMoney' }
+        isDefault: { type: boolean }
+        enabled: { type: boolean, default: true }
+        remark: { type: string, maxLength: 255 }
+
+    BankAccountUpdate:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 64 }
+        bankName: { type: string, maxLength: 64 }
+        accountNo: { type: string, maxLength: 64 }
+        initBalance: { $ref: '#/components/schemas/FinMoney', description: 账面余额（仅初始化调整用） }
+        isDefault: { type: boolean }
+        enabled: { type: boolean }
+        remark: { type: string, maxLength: 255 }
+
+    CashJournalEntry:
+      type: object
+      required: [id, accountId, bizDate, direction, amount, balance]
+      properties:
+        id: { type: integer, format: int64 }
+        accountId: { type: integer, format: int64 }
+        bizDate: { type: string, format: date }
+        direction: { type: string, enum: [DEBIT, CREDIT], description: DEBIT 收 / CREDIT 支（资产账户借增贷减） }
+        directionLabel: { type: string }
+        amount: { $ref: '#/components/schemas/FinMoney' }
+        balance: { $ref: '#/components/schemas/FinMoney', description: 当日余额 = 上日余额 + 借 − 贷 }
+        sourceType: { type: string }
+        sourceId: { type: integer, format: int64, nullable: true }
+        summary: { type: string }
+
+    CashJournalCreate:
+      type: object
+      required: [accountId, direction, amount]
+      properties:
+        accountId: { type: integer, format: int64 }
+        bizDate: { type: string, format: date }
+        direction: { type: string, enum: [DEBIT, CREDIT] }
+        amount: { $ref: '#/components/schemas/FinMoney' }
+        summary: { type: string, maxLength: 128 }
+
+    FinExpense:
+      type: object
+      required: [id, expenseNo, applicantName, expenseType, amount, status, applyDate]
+      properties:
+        id: { type: integer, format: int64 }
+        expenseNo: { type: string, example: BX20261001-0001 }
+        applicantId: { type: integer, format: int64, nullable: true }
+        applicantName: { type: string }
+        departmentId: { type: integer, format: int64, nullable: true }
+        departmentName: { type: string, nullable: true }
+        expenseType: { type: string, example: 差旅费 }
+        amount: { $ref: '#/components/schemas/FinMoney' }
+        status: { type: string, enum: [DRAFT, SUBMITTED, APPROVED, PAID] }
+        statusLabel: { type: string }
+        applyDate: { type: string, format: date }
+        rejectReason: { type: string, nullable: true, description: 驳回原因（状态回 DRAFT 后仍保留） }
+        paidAt: { type: string, nullable: true }
+        remark: { type: string, nullable: true }
+        lines:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: integer, format: int64 }
+              lineNo: { type: integer }
+              expenseItem: { type: string }
+              amount: { $ref: '#/components/schemas/FinMoney' }
+              invoiceNo: { type: string, nullable: true }
+              remark: { type: string, nullable: true }
+
+    FinExpenseCreate:
+      type: object
+      required: [expenseType, lines]
+      properties:
+        expenseType: { type: string, maxLength: 32 }
+        departmentId: { type: integer, format: int64, nullable: true }
+        departmentName: { type: string, maxLength: 64 }
+        applyDate: { type: string, format: date }
+        remark: { type: string, maxLength: 255 }
+        lines:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [expenseItem, amount]
+            properties:
+              expenseItem: { type: string, maxLength: 64 }
+              amount: { $ref: '#/components/schemas/FinMoney' }
+              invoiceNo: { type: string, maxLength: 64 }
+              remark: { type: string, maxLength: 255 }
+
+    FinInvoice:
+      type: object
+      required: [id, invoiceNo, type, partnerName, amount, taxAmount, totalAmount, invoiceDate, status]
+      properties:
+        id: { type: integer, format: int64 }
+        invoiceNo: { type: string }
+        type: { type: string, enum: [OUTPUT, INPUT] }
+        typeLabel: { type: string }
+        partnerId: { type: integer, format: int64, nullable: true }
+        partnerName: { type: string }
+        amount: { $ref: '#/components/schemas/FinMoney', description: 不含税 }
+        taxAmount: { $ref: '#/components/schemas/FinMoney' }
+        totalAmount: { $ref: '#/components/schemas/FinMoney', description: 价税合计 = amount + taxAmount（DB CHECK） }
+        invoiceDate: { type: string, format: date }
+        sourceType: { type: string, enum: [PURCHASE_ORDER, SALES_ORDER], nullable: true }
+        sourceId: { type: integer, format: int64, nullable: true }
+        status: { type: string, enum: [NORMAL, VOID] }
+        statusLabel: { type: string }
+        remark: { type: string, nullable: true }
+
+    FinInvoiceCreate:
+      type: object
+      required: [invoiceNo, type, partnerName, amount]
+      properties:
+        invoiceNo: { type: string, minLength: 1, maxLength: 64 }
+        type: { type: string, enum: [OUTPUT, INPUT] }
+        partnerId: { type: integer, format: int64, nullable: true }
+        partnerName: { type: string, maxLength: 64 }
+        amount: { $ref: '#/components/schemas/FinMoney' }
+        taxAmount: { $ref: '#/components/schemas/FinMoney', description: 省略 = 0（免税） }
+        invoiceDate: { type: string, format: date }
+        sourceType: { type: string, enum: [PURCHASE_ORDER, SALES_ORDER] }
+        sourceId: { type: integer, format: int64 }
+        remark: { type: string, maxLength: 255 }
