@@ -21,8 +21,21 @@ declare module 'vue-router' {
     permission?: string
     /** 是否在侧边栏隐藏 */
     hidden?: boolean
+    /**
+     * 脱离主布局渲染（不挂侧边栏/顶栏/面包屑）。
+     * 给数据大屏这类"整屏画布"页面用：它原本作为 MainLayout 子路由时只能靠
+     * `position:fixed + z-index` 去盖住外壳，一旦某个祖先带上 transform，
+     * fixed 就退化成相对该祖先定位，封面立刻失效。提为顶层路由是结构上的正解。
+     */
+    fullscreen?: boolean
   }
 }
+
+// 模块用 meta.fullscreen 声明整屏页：这类路由提到顶层（path 必须是绝对路径），
+// 其余仍作为 MainLayout 的子路由。这样加页面依然只需要改 modules/*.ts 一个文件。
+const allModuleRoutes = navGroups.flatMap((group) => group.routes)
+const fullscreenRoutes = allModuleRoutes.filter((r) => r.meta?.fullscreen)
+const nestedRoutes = allModuleRoutes.filter((r) => !r.meta?.fullscreen)
 
 const routes: RouteRecordRaw[] = [
   {
@@ -36,8 +49,9 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/layouts/MainLayout.vue'),
     redirect: '/dashboard',
     // 各导航模块声明的子路由（path 为相对路径），顺序由模块 order 决定
-    children: navGroups.flatMap((group) => group.routes),
+    children: nestedRoutes,
   },
+  ...fullscreenRoutes,
   {
     // 兜底：未匹配的路径回工作台，避免白屏
     path: '/:pathMatch(.*)*',

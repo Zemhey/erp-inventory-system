@@ -18,6 +18,7 @@
  *   position:fixed 覆盖整视口 + 可选的原生 Fullscreen API，效果等同独立全屏页。
  */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { mdmApi, rptApi } from '@/api/client'
 import { reportApi } from '@/api/report'
@@ -25,6 +26,10 @@ import MiniChart from './components/MiniChart.vue'
 import RollingNumber from './components/RollingNumber.vue'
 import { isoDate, isoMonth, presetRange } from './core/dates'
 import { yuan } from './core/registry'
+
+// 本路由是顶层整屏页（meta.fullscreen），不套 MainLayout，所以没有侧边栏可退，
+// 必须自带返回入口。
+const router = useRouter()
 
 // ─────────────────────────── 布局缩放 ───────────────────────────
 
@@ -295,6 +300,7 @@ function retryAll(): void {
             </button>
             <button class="tool-btn" @click="retryAll">立即刷新</button>
             <button class="tool-btn" @click="toggleFullscreen">{{ fullscreen ? '退出全屏' : '全屏' }}</button>
+            <button class="tool-btn" @click="router.push('/dashboard')">返回系统</button>
           </div>
         </div>
       </header>
@@ -371,23 +377,22 @@ function retryAll(): void {
 </template>
 
 <style scoped>
-/* 覆盖 MainLayout：本泳道不能改路由骨架，用 fixed 层实现同等的全屏视口 */
+/* 整屏页：由 router meta.fullscreen 提为顶层路由，不再需要盖住主布局 */
 .screen-root {
-  position: fixed;
-  inset: 0;
-  z-index: 2000;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: #060c17;
   overflow: hidden;
 }
 .screen-stage {
+  flex: none;
   width: 1920px;
   height: 1080px;
-  transform-origin: top left;
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  margin-left: -960px;
-  margin-top: -540px;
+  /* flex 居中 + 关于自身中心缩放，二者不冲突；旧的 left/top 50% 配负 margin
+     定位的是未缩放的盒子，再叠 transform-origin: top left 会让整块朝左上跑出去 */
   display: flex;
   flex-direction: column;
   gap: 14px;

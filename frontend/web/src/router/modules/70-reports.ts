@@ -86,10 +86,10 @@ const routes: RouteRecordRaw[] = [
     meta: { title: entry.title, permission: 'rpt:read' },
   })),
   {
-    path: 'screen',
+    path: '/screen',
     name: 'data-screen',
     component: () => import('@/views/rpt/DataScreenView.vue'),
-    meta: { title: '数据大屏', permission: 'rpt:read' },
+    meta: { title: '数据大屏', permission: 'rpt:read', fullscreen: true },
   },
 ]
 
