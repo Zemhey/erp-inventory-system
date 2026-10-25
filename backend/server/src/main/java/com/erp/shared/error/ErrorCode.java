@@ -179,7 +179,21 @@ public enum ErrorCode {
     /** 平台租户管理里按 id 找不到租户（只有 tenant:manage 持有者可见此错误）。 */
     TENANT_NOT_FOUND(404),
     /** 租户状态操作非法（如停用平台租户、停用当前所在租户）。 */
-    TENANT_STATE_ILLEGAL(409);
+    TENANT_STATE_ILLEGAL(409),
+
+    // ── 主数据字段扩展（Batch B · B2，纯追加）──
+    /** 客户收货地址不存在（含不属于该客户 / 不属于当前租户 —— 统一 404 防枚举）。 */
+    MDM_ADDRESS_NOT_FOUND(404),
+    /** 地址键在客户内重复，或建单幂等键被另一个客户复用。 */
+    MDM_ADDRESS_DUPLICATED(409),
+    /** 仓库库位不存在（含不属于该仓库 / 当前租户）。 */
+    MDM_LOCATION_NOT_FOUND(404),
+    /** 库位编码在仓库内重复。 */
+    MDM_LOCATION_DUPLICATED(409),
+    /** 启用库位容量合计将超过仓库容量。 */
+    MDM_LOCATION_CAPACITY_EXCEEDED(409),
+    /** 商品规格属性请求非法（键重复、键/值超长、条数超限）。 */
+    MDM_PRODUCT_ATTRIBUTE_INVALID(400);
 
     private final int httpStatus;
 

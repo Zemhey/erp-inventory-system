@@ -33,10 +33,12 @@ import java.util.Set;
  */
 public final class TenantTables {
 
-    /** 全部带 {@code tenant_id} 的业务表（56 张；V16 的 55 张 + V17 的成员关系表）。 */
+    /** 全部带 {@code tenant_id} 的业务表（59 张 = V16 的 55 张 + V17 的成员关系表 1 张 + V18 的主数据扩展 3 张）。 */
     public static final Set<String> ALL = Set.copyOf(List.of(
             // 主数据
             "warehouses", "products", "skus", "suppliers", "customers",
+            // 主数据扩展（V18 · B2）：客户地址 / 仓库库位 / 商品规格属性
+            "customer_addresses", "warehouse_locations", "product_attribute_values",
             // 库存
             "inventory_balances", "inventory_ledger", "inventory_reservations",
             "inventory_transfers", "transfer_lines", "stocktakes", "stocktake_lines",

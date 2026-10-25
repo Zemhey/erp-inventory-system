@@ -55,6 +55,47 @@ export interface WarehouseDto {
   code: string
   name: string
   enabled: boolean
+  capacityQty?: number
+}
+
+/** 客户收货地址（V18 · B2）。 */
+export interface CustomerAddressDto {
+  id: number
+  customerId: number
+  addressKey: string
+  recipientName: string
+  phone: string
+  province: string
+  city: string
+  district?: string | null
+  detailAddress: string
+  isDefault: boolean
+  enabled: boolean
+}
+
+/** 仓库库位（V18 · B2）。 */
+export interface WarehouseLocationDto {
+  id: number
+  warehouseId: number
+  locationCode: string
+  name?: string | null
+  capacityQty: number
+  enabled: boolean
+}
+
+export interface WarehouseLocationReconcileDto {
+  warehouseId: number
+  warehouseCapacityQty: number
+  locationCapacityQty: number
+  difference: number
+  enabledLocationCount: number
+  totalLocationCount: number
+  consistent: boolean
+}
+
+export interface ProductAttributeDto {
+  key: string
+  value: string
 }
 
 export interface OrderLineDto {
@@ -221,7 +262,7 @@ export class ApiClient {
   ) {}
 
   private async call<T>(
-    method: 'GET' | 'POST',
+    method: 'GET' | 'POST' | 'PUT',
     path: string,
     options: { query?: Query; body?: unknown } = {},
   ): Promise<T> {
@@ -293,6 +334,65 @@ export class ApiClient {
 
   createWarehouse(body: { code: string; name: string }): Promise<WarehouseDto> {
     return this.call('POST', '/warehouses', { body: { ...body, enabled: true } })
+  }
+
+  // ── 主数据扩展（V18 · B2）──
+  listCustomerAddresses(customerId: number): Promise<CustomerAddressDto[]> {
+    return this.call('GET', `/customers/${customerId}/addresses`)
+  }
+
+  createCustomerAddress(
+    customerId: number,
+    body: {
+      addressKey: string
+      recipientName: string
+      phone: string
+      province: string
+      city: string
+      district?: string
+      detailAddress: string
+      isDefault?: boolean
+      enabled?: boolean
+    },
+  ): Promise<CustomerAddressDto> {
+    return this.call('POST', `/customers/${customerId}/addresses`, { body })
+  }
+
+  setDefaultCustomerAddress(
+    customerId: number,
+    addressId: number,
+  ): Promise<CustomerAddressDto> {
+    return this.call('POST', `/customers/${customerId}/addresses/${addressId}/default`)
+  }
+
+  listWarehouseLocations(warehouseId: number): Promise<WarehouseLocationDto[]> {
+    return this.call('GET', `/warehouses/${warehouseId}/locations`)
+  }
+
+  createWarehouseLocation(
+    warehouseId: number,
+    body: { locationCode: string; name?: string; capacityQty: number; enabled?: boolean },
+  ): Promise<WarehouseLocationDto> {
+    return this.call('POST', `/warehouses/${warehouseId}/locations`, { body })
+  }
+
+  reconcileWarehouseLocations(warehouseId: number): Promise<WarehouseLocationReconcileDto> {
+    return this.call('GET', `/warehouses/${warehouseId}/locations/reconcile`)
+  }
+
+  setWarehouseCapacity(warehouseId: number, capacityQty: number): Promise<WarehouseDto> {
+    return this.call('PUT', `/warehouses/${warehouseId}/capacity`, { body: { capacityQty } })
+  }
+
+  listProductAttributes(productId: number): Promise<{ items: ProductAttributeDto[] }> {
+    return this.call('GET', `/products/${productId}/attributes`)
+  }
+
+  replaceProductAttributes(
+    productId: number,
+    attributes: ProductAttributeDto[],
+  ): Promise<{ items: ProductAttributeDto[] }> {
+    return this.call('PUT', `/products/${productId}/attributes`, { body: { attributes } })
   }
 
   // ── 进货单 ──

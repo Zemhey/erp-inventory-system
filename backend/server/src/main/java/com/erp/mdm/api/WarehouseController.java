@@ -116,6 +116,7 @@ public class WarehouseController {
         m.put("address", w.address());
         m.put("enabled", w.enabled());
         m.put("priority", w.priority());
+        m.put("capacityQty", w.capacityQty());
         return m;
     }
 }

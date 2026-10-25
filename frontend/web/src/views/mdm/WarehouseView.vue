@@ -6,6 +6,10 @@ import {
   mdmApi,
   type Warehouse,
   type WarehouseCreate,
+  type WarehouseLocation,
+  type WarehouseLocationCreate,
+  type WarehouseLocationReconcile,
+  type WarehouseLocationUpdate,
   type WarehouseUpdate,
 } from '@/api/client'
 import PageTable from '@/components/PageTable.vue'
@@ -170,6 +174,204 @@ async function enableWarehouse(row: Warehouse) {
     // 同上
   }
 }
+
+// ─────────────────────────── 库位与容量（V18 · B2） ───────────────────────────
+
+const locationDrawer = ref(false)
+const locationWarehouse = ref<Warehouse | null>(null)
+const locationList = ref<WarehouseLocation[]>([])
+const locationLoading = ref(false)
+const locationError = ref('')
+const locationOnlyEnabled = ref(false)
+const reconcile = ref<WarehouseLocationReconcile | null>(null)
+
+const locationDialog = ref(false)
+const editingLocation = ref<WarehouseLocation | null>(null)
+const locationFormRef = ref<FormInstance>()
+const locationSaving = ref(false)
+const locationFormError = ref('')
+const locationForm = reactive({
+  locationCode: '',
+  name: '',
+  capacityQty: 1,
+})
+
+const locationRules: FormRules = {
+  locationCode: [
+    { required: true, message: '请输入库位编码', trigger: 'blur' },
+    { max: 32, message: '库位编码最多 32 个字符', trigger: 'blur' },
+  ],
+  name: [{ max: 64, message: '名称最多 64 个字符', trigger: 'blur' }],
+  capacityQty: [{ required: true, message: '请输入库位容量', trigger: 'blur' }],
+}
+
+const capacityDialog = ref(false)
+const capacitySaving = ref(false)
+const capacityError = ref('')
+const capacityForm = reactive({ capacityQty: 0 })
+
+const reconcileTitle = computed(() => {
+  if (!reconcile.value) return '容量核对'
+  return reconcile.value.consistent ? '容量核对：一致' : '容量核对：不一致'
+})
+
+const reconcileDetail = computed(() => {
+  const r = reconcile.value
+  if (!r) return ''
+  const capacity = r.warehouseCapacityQty === 0 ? '未设定' : String(r.warehouseCapacityQty)
+  return (
+    `仓库容量 ${capacity} / 启用库位合计 ${r.locationCapacityQty} / 差额 ${r.difference}` +
+    `（启用 ${r.enabledLocationCount} 个，共 ${r.totalLocationCount} 个）`
+  )
+})
+
+function openLocations(row: Warehouse) {
+  locationWarehouse.value = row
+  locationOnlyEnabled.value = false
+  locationDrawer.value = true
+  loadLocations()
+}
+
+async function loadLocations() {
+  if (!locationWarehouse.value) return
+  locationLoading.value = true
+  locationError.value = ''
+  try {
+    const warehouseId = locationWarehouse.value.id
+    const [items, check] = await Promise.all([
+      mdmApi.listWarehouseLocations(warehouseId, locationOnlyEnabled.value),
+      mdmApi.reconcileWarehouseLocations(warehouseId),
+    ])
+    locationList.value = items
+    reconcile.value = check
+    // 容量可能刚被其他页面改过：同步列表里的仓库行，避免抽屉头部显示旧值
+    const row = warehouses.value.find((w) => w.id === warehouseId)
+    if (row) row.capacityQty = check.warehouseCapacityQty
+    locationWarehouse.value = row ?? locationWarehouse.value
+  } catch (error) {
+    locationList.value = []
+    locationError.value = errorMessage(error)
+  } finally {
+    locationLoading.value = false
+  }
+}
+
+function clearLocationValidate() {
+  locationFormRef.value?.clearValidate()
+}
+
+function openCreateLocation() {
+  editingLocation.value = null
+  locationFormError.value = ''
+  Object.assign(locationForm, { locationCode: '', name: '', capacityQty: 1 })
+  locationDialog.value = true
+}
+
+function openEditLocation(location: WarehouseLocation) {
+  editingLocation.value = location
+  locationFormError.value = ''
+  Object.assign(locationForm, {
+    locationCode: location.locationCode,
+    name: location.name ?? '',
+    capacityQty: location.capacityQty,
+  })
+  locationDialog.value = true
+}
+
+async function saveLocation() {
+  if (!locationWarehouse.value || !locationFormRef.value) return
+  const valid = await locationFormRef.value.validate().catch(() => false)
+  if (!valid) return
+
+  locationSaving.value = true
+  locationFormError.value = ''
+  try {
+    const warehouseId = locationWarehouse.value.id
+    if (editingLocation.value) {
+      const body: WarehouseLocationUpdate = {
+        name: locationForm.name.trim() || undefined,
+        capacityQty: Number(locationForm.capacityQty),
+      }
+      await mdmApi.updateWarehouseLocation(warehouseId, editingLocation.value.id, body)
+      ElMessage.success('库位已更新')
+    } else {
+      const body: WarehouseLocationCreate = {
+        locationCode: locationForm.locationCode.trim(),
+        name: locationForm.name.trim() || undefined,
+        capacityQty: Number(locationForm.capacityQty),
+        enabled: true,
+      }
+      await mdmApi.createWarehouseLocation(warehouseId, body)
+      ElMessage.success('库位已创建')
+    }
+    locationDialog.value = false
+    await loadLocations()
+  } catch (error) {
+    locationFormError.value = errorMessage(error)
+  } finally {
+    locationSaving.value = false
+  }
+}
+
+async function disableLocation(location: WarehouseLocation) {
+  if (!locationWarehouse.value) return
+  try {
+    await ElMessageBox.confirm(
+      `确定停用库位「${location.locationCode}」吗？停用不删除，历史库存与流水不受影响；` +
+        '该库位容量将从仓库已分配容量中扣除。',
+      '停用库位',
+      { type: 'warning', confirmButtonText: '停用', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+  try {
+    await mdmApi.disableWarehouseLocation(locationWarehouse.value.id, location.id)
+    ElMessage.success('库位已停用')
+    await loadLocations()
+  } catch {
+    // 拦截器已提示
+  }
+}
+
+async function enableLocation(location: WarehouseLocation) {
+  if (!locationWarehouse.value) return
+  try {
+    await mdmApi.enableWarehouseLocation(locationWarehouse.value.id, location.id)
+    ElMessage.success('库位已启用')
+    await loadLocations()
+  } catch {
+    // 同上
+  }
+}
+
+function openCapacityDialog() {
+  capacityError.value = ''
+  capacityForm.capacityQty = locationWarehouse.value?.capacityQty ?? 0
+  capacityDialog.value = true
+}
+
+async function saveCapacity() {
+  if (!locationWarehouse.value) return
+  capacitySaving.value = true
+  capacityError.value = ''
+  try {
+    const updated = await mdmApi.setWarehouseCapacity(
+      locationWarehouse.value.id,
+      Number(capacityForm.capacityQty),
+    )
+    const row = warehouses.value.find((w) => w.id === updated.id)
+    if (row) row.capacityQty = updated.capacityQty
+    locationWarehouse.value = row ?? locationWarehouse.value
+    capacityDialog.value = false
+    ElMessage.success('仓库容量已更新')
+    await loadLocations()
+  } catch (error) {
+    capacityError.value = errorMessage(error)
+  } finally {
+    capacitySaving.value = false
+  }
+}
 </script>
 
 <template>
@@ -218,6 +420,11 @@ async function enableWarehouse(row: Warehouse) {
       <el-table-column label="地址" min-width="240">
         <template #default="{ row }">{{ row.address || '-' }}</template>
       </el-table-column>
+      <el-table-column label="容量" width="120">
+        <template #default="{ row }">
+          {{ row.capacityQty > 0 ? `${row.capacityQty} 件` : '未设定' }}
+        </template>
+      </el-table-column>
       <el-table-column label="状态" width="90">
         <template #default="{ row }">
           <el-tag :type="row.enabled ? 'success' : 'info'" size="small">
@@ -225,13 +432,16 @@ async function enableWarehouse(row: Warehouse) {
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column v-if="canWrite" label="操作" width="140" fixed="right">
+      <el-table-column label="操作" width="250" fixed="right">
         <template #default="{ row }">
-          <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
-          <el-button v-if="row.enabled" link type="danger" @click="disableWarehouse(row)">
-            停用
-          </el-button>
-          <el-button v-else link type="success" @click="enableWarehouse(row)">启用</el-button>
+          <el-button link type="primary" @click="openLocations(row)">库位</el-button>
+          <template v-if="canWrite">
+            <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
+            <el-button v-if="row.enabled" link type="danger" @click="disableWarehouse(row)">
+              停用
+            </el-button>
+            <el-button v-else link type="success" @click="enableWarehouse(row)">启用</el-button>
+          </template>
         </template>
       </el-table-column>
     </PageTable>
@@ -270,6 +480,167 @@ async function enableWarehouse(row: Warehouse) {
         <el-button type="primary" :loading="saving" @click="saveWarehouse">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- 仓库库位与容量守恒核对 -->
+    <el-drawer v-model="locationDrawer" size="75%" :with-header="true">
+      <template #header>
+        <div class="drawer-header">
+          <div>
+            <div class="drawer-title">
+              {{ locationWarehouse?.code }} · 库位
+            </div>
+            <div class="text-muted">共 {{ locationList.length }} 个库位</div>
+          </div>
+          <el-button v-if="canWrite" type="primary" @click="openCreateLocation">
+            新建库位
+          </el-button>
+        </div>
+      </template>
+
+      <div class="drawer-toolbar">
+        <span class="capacity-label">
+          仓库容量：{{ (locationWarehouse?.capacityQty ?? 0) > 0
+            ? `${locationWarehouse?.capacityQty} 件`
+            : '未设定' }}
+        </span>
+        <el-button v-if="canWrite" @click="openCapacityDialog">设置容量</el-button>
+        <el-checkbox v-model="locationOnlyEnabled" @change="loadLocations">
+          仅看启用库位
+        </el-checkbox>
+        <el-button @click="loadLocations">刷新</el-button>
+      </div>
+
+      <el-alert
+        v-if="reconcile"
+        :type="reconcile.consistent ? 'success' : 'warning'"
+        :title="reconcileTitle"
+        :closable="false"
+        show-icon
+        class="mb-16"
+      >
+        <div>{{ reconcileDetail }}</div>
+      </el-alert>
+
+      <el-alert
+        v-if="locationError"
+        type="error"
+        show-icon
+        :closable="false"
+        class="mb-16"
+        :title="`库位查询失败：${locationError}`"
+      >
+        <el-button size="small" @click="loadLocations">重试</el-button>
+      </el-alert>
+
+      <el-empty
+        v-else-if="!locationLoading && locationList.length === 0"
+        description="该仓库还没有库位"
+      >
+        <el-button v-if="canWrite" type="primary" @click="openCreateLocation">
+          新建第一个库位
+        </el-button>
+      </el-empty>
+
+      <el-table v-else v-loading="locationLoading" :data="locationList" border>
+        <el-table-column prop="locationCode" label="库位编码" width="130" />
+        <el-table-column prop="name" label="名称" min-width="160">
+          <template #default="{ row }">{{ row.name || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="容量" width="120" align="right">
+          <template #default="{ row }">{{ row.capacityQty }} 件</template>
+        </el-table-column>
+        <el-table-column label="状态" width="90">
+          <template #default="{ row }">
+            <el-tag :type="row.enabled ? 'success' : 'info'" size="small">
+              {{ row.enabled ? '启用' : '停用' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column v-if="canWrite" label="操作" width="160" fixed="right">
+          <template #default="{ row }">
+            <el-button link type="primary" @click="openEditLocation(row)">编辑</el-button>
+            <el-button v-if="row.enabled" link type="danger" @click="disableLocation(row)">
+              停用
+            </el-button>
+            <el-button v-else link type="success" @click="enableLocation(row)">启用</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <el-dialog
+        v-model="locationDialog"
+        :title="editingLocation ? '编辑库位' : '新建库位'"
+        width="520px"
+        :close-on-click-modal="false"
+        append-to-body
+        @open="clearLocationValidate"
+      >
+        <el-form
+          ref="locationFormRef"
+          :model="locationForm"
+          :rules="locationRules"
+          label-width="100px"
+        >
+          <el-form-item label="库位编码" prop="locationCode">
+            <el-input
+              v-model="locationForm.locationCode"
+              :disabled="!!editingLocation"
+              maxlength="32"
+              placeholder="如 A-01"
+            />
+            <div v-if="editingLocation" class="field-hint">库位编码创建后不可修改</div>
+          </el-form-item>
+          <el-form-item label="名称" prop="name">
+            <el-input v-model="locationForm.name" maxlength="64" placeholder="如 A 区 01" />
+          </el-form-item>
+          <el-form-item label="容量" prop="capacityQty">
+            <el-input-number v-model="locationForm.capacityQty" :min="1" :step="1" />
+            <span class="field-hint inline">件；启用库位合计不得超过仓库容量</span>
+          </el-form-item>
+        </el-form>
+        <el-alert
+          v-if="locationFormError"
+          type="error"
+          show-icon
+          :closable="false"
+          :title="locationFormError"
+        />
+        <template #footer>
+          <el-button @click="locationDialog = false">取消</el-button>
+          <el-button type="primary" :loading="locationSaving" @click="saveLocation">
+            保存
+          </el-button>
+        </template>
+      </el-dialog>
+
+      <el-dialog
+        v-model="capacityDialog"
+        title="设置仓库容量"
+        width="460px"
+        :close-on-click-modal="false"
+        append-to-body
+      >
+        <el-form label-width="100px">
+          <el-form-item label="仓库容量">
+            <el-input-number v-model="capacityForm.capacityQty" :min="0" :step="1" />
+            <span class="field-hint inline">件；0 = 未设定（不限制库位容量）</span>
+          </el-form-item>
+        </el-form>
+        <el-alert
+          v-if="capacityError"
+          type="error"
+          show-icon
+          :closable="false"
+          :title="capacityError"
+        />
+        <template #footer>
+          <el-button @click="capacityDialog = false">取消</el-button>
+          <el-button type="primary" :loading="capacitySaving" @click="saveCapacity">
+            保存
+          </el-button>
+        </template>
+      </el-dialog>
+    </el-drawer>
   </div>
 </template>
 
@@ -284,6 +655,35 @@ async function enableWarehouse(row: Warehouse) {
   margin-left: auto;
   font-size: 12px;
   color: #909399;
+}
+
+.drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.drawer-title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.drawer-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.capacity-label {
+  font-weight: 600;
+}
+
+.field-hint.inline {
+  display: inline-block;
+  margin-left: 8px;
+  margin-top: 0;
 }
 
 @media (max-width: 768px) {

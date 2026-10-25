@@ -209,6 +209,14 @@ export const mdmApi = {
   updateProduct: (id: number, body: ProductUpdate) => http.put<never, Product>(`/products/${id}`, body),
   disableProduct: (id: number) => http.post<never, Product>(`/products/${id}/disable`),
 
+  // 商品规格属性（V18 · B2）：全量替换，空数组=清空
+  listProductAttributes: (productId: number) =>
+    http.get<never, { items: ProductAttribute[] }>(`/products/${productId}/attributes`),
+  replaceProductAttributes: (productId: number, attributes: ProductAttribute[]) =>
+    http.put<never, { items: ProductAttribute[] }>(`/products/${productId}/attributes`, {
+      attributes,
+    }),
+
   // SKU
   /**
    * @param params.skuSize 尺码筛选（如 "L"）
@@ -251,6 +259,31 @@ export const mdmApi = {
     http.put<never, Customer>(`/customers/${id}`, body),
   disableCustomer: (id: number) => http.post<never, Customer>(`/customers/${id}/disable`),
 
+  // 客户收货地址（V18 · B2）
+  listCustomerAddresses: (customerId: number, onlyEnabled = false) =>
+    http.get<never, CustomerAddress[]>(`/customers/${customerId}/addresses`, {
+      params: { onlyEnabled },
+    }),
+  createCustomerAddress: (customerId: number, body: CustomerAddressCreate) =>
+    http.post<never, CustomerAddress>(`/customers/${customerId}/addresses`, body),
+  updateCustomerAddress: (
+    customerId: number,
+    addressId: number,
+    body: CustomerAddressUpdate,
+  ) => http.put<never, CustomerAddress>(`/customers/${customerId}/addresses/${addressId}`, body),
+  setDefaultCustomerAddress: (customerId: number, addressId: number) =>
+    http.post<never, CustomerAddress>(
+      `/customers/${customerId}/addresses/${addressId}/default`,
+    ),
+  disableCustomerAddress: (customerId: number, addressId: number) =>
+    http.post<never, CustomerAddress>(
+      `/customers/${customerId}/addresses/${addressId}/disable`,
+    ),
+  enableCustomerAddress: (customerId: number, addressId: number) =>
+    http.post<never, CustomerAddress>(
+      `/customers/${customerId}/addresses/${addressId}/enable`,
+    ),
+
   // 仓库（不分页，返回数组）
   listWarehouses: (onlyEnabled = false) =>
     http.get<never, Warehouse[]>('/warehouses', { params: { onlyEnabled } }),
@@ -258,6 +291,37 @@ export const mdmApi = {
   updateWarehouse: (id: number, body: WarehouseUpdate) =>
     http.put<never, Warehouse>(`/warehouses/${id}`, body),
   disableWarehouse: (id: number) => http.post<never, Warehouse>(`/warehouses/${id}/disable`),
+
+  // 仓库库位与容量（V18 · B2）
+  listWarehouseLocations: (warehouseId: number, onlyEnabled = false) =>
+    http.get<never, WarehouseLocation[]>(`/warehouses/${warehouseId}/locations`, {
+      params: { onlyEnabled },
+    }),
+  createWarehouseLocation: (warehouseId: number, body: WarehouseLocationCreate) =>
+    http.post<never, WarehouseLocation>(`/warehouses/${warehouseId}/locations`, body),
+  updateWarehouseLocation: (
+    warehouseId: number,
+    locationId: number,
+    body: WarehouseLocationUpdate,
+  ) =>
+    http.put<never, WarehouseLocation>(
+      `/warehouses/${warehouseId}/locations/${locationId}`,
+      body,
+    ),
+  disableWarehouseLocation: (warehouseId: number, locationId: number) =>
+    http.post<never, WarehouseLocation>(
+      `/warehouses/${warehouseId}/locations/${locationId}/disable`,
+    ),
+  enableWarehouseLocation: (warehouseId: number, locationId: number) =>
+    http.post<never, WarehouseLocation>(
+      `/warehouses/${warehouseId}/locations/${locationId}/enable`,
+    ),
+  reconcileWarehouseLocations: (warehouseId: number) =>
+    http.get<never, WarehouseLocationReconcile>(
+      `/warehouses/${warehouseId}/locations/reconcile`,
+    ),
+  setWarehouseCapacity: (warehouseId: number, capacityQty: number) =>
+    http.put<never, Warehouse>(`/warehouses/${warehouseId}/capacity`, { capacityQty }),
 }
 
 /** 库存（FR-INV-01/02/03）。 */
@@ -593,6 +657,12 @@ export interface ProductUpdate {
   enabled?: boolean
 }
 
+/** 商品级扩展规格属性（V18 · B2）：键值对，不参与 SKU 颜色×尺码唯一键。 */
+export interface ProductAttribute {
+  key: string
+  value: string
+}
+
 export interface Sku {
   id: number
   productId: number
@@ -695,6 +765,45 @@ export interface CustomerUpdate {
   enabled?: boolean
 }
 
+/** 客户收货地址（V18 · B2）。同一客户最多一个 isDefault。 */
+export interface CustomerAddress {
+  id: number
+  customerId: number
+  addressKey: string
+  recipientName: string
+  phone: string
+  province: string
+  city: string
+  district?: string | null
+  detailAddress: string
+  isDefault: boolean
+  enabled: boolean
+}
+
+export interface CustomerAddressCreate {
+  addressKey: string
+  recipientName: string
+  phone: string
+  province: string
+  city: string
+  district?: string
+  detailAddress: string
+  isDefault?: boolean
+  enabled?: boolean
+}
+
+/** addressKey 创建后不可改。 */
+export interface CustomerAddressUpdate {
+  recipientName: string
+  phone: string
+  province: string
+  city: string
+  district?: string
+  detailAddress: string
+  isDefault?: boolean
+  enabled?: boolean
+}
+
 export interface Warehouse {
   id: number
   code: string
@@ -703,6 +812,8 @@ export interface Warehouse {
   enabled: boolean
   /** 发货选仓优先级：与 V9 一致，越大越优先（FR-SAL-11） */
   priority: number
+  /** 仓库容量（件）；0 = 未设定（V18） */
+  capacityQty: number
 }
 
 export interface WarehouseCreate {
@@ -719,6 +830,40 @@ export interface WarehouseUpdate {
   address?: string
   enabled?: boolean
   priority?: number
+}
+
+/** 仓库库位（V18 · B2）。库存维度不含库位，容量用于仓内分配核对。 */
+export interface WarehouseLocation {
+  id: number
+  warehouseId: number
+  locationCode: string
+  name?: string | null
+  capacityQty: number
+  enabled: boolean
+}
+
+export interface WarehouseLocationCreate {
+  locationCode: string
+  name?: string
+  capacityQty: number
+  enabled?: boolean
+}
+
+/** locationCode 创建后不可改。 */
+export interface WarehouseLocationUpdate {
+  name?: string
+  capacityQty: number
+}
+
+/** 守恒核对：SUM(启用库位容量) vs 仓库容量。 */
+export interface WarehouseLocationReconcile {
+  warehouseId: number
+  warehouseCapacityQty: number
+  locationCapacityQty: number
+  difference: number
+  enabledLocationCount: number
+  totalLocationCount: number
+  consistent: boolean
 }
 
 export interface InventoryBalance {

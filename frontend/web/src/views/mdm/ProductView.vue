@@ -7,6 +7,7 @@ import {
   fenToYuan,
   yuanToFen,
   type Product,
+  type ProductAttribute,
   type ProductCreate,
   type ProductUpdate,
   type Sku,
@@ -354,6 +355,85 @@ async function saveSku() {
     savingSku.value = false
   }
 }
+
+// ─────────────────────────── 商品规格属性（V18 · B2） ───────────────────────────
+
+interface AttributeRow {
+  key: string
+  value: string
+}
+
+const attributeDialog = ref(false)
+const attributeProduct = ref<Product | null>(null)
+const attributeLoading = ref(false)
+const attributeError = ref('')
+const attributeSaving = ref(false)
+const attributeRows = ref<AttributeRow[]>([])
+
+async function openAttributes(row: Product) {
+  attributeProduct.value = row
+  attributeDialog.value = true
+  await loadAttributes()
+}
+
+async function loadAttributes() {
+  if (!attributeProduct.value) return
+  attributeLoading.value = true
+  attributeError.value = ''
+  try {
+    const data = await mdmApi.listProductAttributes(attributeProduct.value.id)
+    attributeRows.value = data.items.map((item) => ({ key: item.key, value: item.value }))
+  } catch (error) {
+    attributeRows.value = []
+    attributeError.value = errorMessage(error)
+  } finally {
+    attributeLoading.value = false
+  }
+}
+
+function addAttributeRow() {
+  if (attributeRows.value.length >= 50) {
+    ElMessage.warning('规格属性最多 50 条')
+    return
+  }
+  attributeRows.value.push({ key: '', value: '' })
+}
+
+function removeAttributeRow(index: number) {
+  attributeRows.value.splice(index, 1)
+}
+
+async function saveAttributes() {
+  if (!attributeProduct.value) return
+  const cleaned: ProductAttribute[] = attributeRows.value.map((row) => ({
+    key: row.key.trim(),
+    value: row.value.trim(),
+  }))
+  if (cleaned.some((row) => !row.key || !row.value)) {
+    ElMessage.warning('属性键和属性值都不能为空')
+    return
+  }
+  const keys = new Set<string>()
+  for (const row of cleaned) {
+    if (keys.has(row.key)) {
+      ElMessage.warning(`属性键重复：${row.key}`)
+      return
+    }
+    keys.add(row.key)
+  }
+
+  attributeSaving.value = true
+  attributeError.value = ''
+  try {
+    await mdmApi.replaceProductAttributes(attributeProduct.value.id, cleaned)
+    ElMessage.success('规格属性已保存（全量替换）')
+    await loadAttributes()
+  } catch (error) {
+    attributeError.value = errorMessage(error)
+  } finally {
+    attributeSaving.value = false
+  }
+}
 </script>
 
 <template>
@@ -422,9 +502,10 @@ async function saveSku() {
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="230" fixed="right">
+      <el-table-column label="操作" width="320" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" @click="openSkus(row)">SKU 管理</el-button>
+          <el-button link type="primary" @click="openAttributes(row)">规格属性</el-button>
           <el-button v-if="canWrite" link type="primary" @click="openEditProduct(row)">
             编辑
           </el-button>
@@ -615,6 +696,61 @@ async function saveSku() {
         <el-button type="primary" :loading="savingSku" @click="saveSku">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- 商品规格属性（键值；与 SKU 矩阵正交） -->
+    <el-dialog
+      v-model="attributeDialog"
+      :title="attributeProduct ? `${attributeProduct.code} · 规格属性` : '规格属性'"
+      width="640px"
+      :close-on-click-modal="false"
+    >
+      <el-alert
+        type="info"
+        show-icon
+        :closable="false"
+        class="mb-16"
+        title="规格属性是款级键值（面料/版型/执行标准等），不参与 SKU 颜色×尺码唯一键；保存为全量替换。"
+      />
+      <el-alert
+        v-if="attributeError"
+        type="error"
+        show-icon
+        :closable="false"
+        class="mb-16"
+        :title="`规格属性加载失败：${attributeError}`"
+      >
+        <el-button size="small" @click="loadAttributes">重试</el-button>
+      </el-alert>
+
+      <div v-loading="attributeLoading">
+        <el-empty
+          v-if="!attributeRows.length"
+          description="还没有规格属性，可添加面料、版型、执行标准等"
+        />
+        <div v-for="(row, index) in attributeRows" :key="index" class="attribute-row">
+          <el-input v-model="row.key" maxlength="32" placeholder="如 面料" />
+          <el-input v-model="row.value" maxlength="256" placeholder="如 纯棉" />
+          <el-button v-if="canWrite" link type="danger" @click="removeAttributeRow(index)">
+            删除
+          </el-button>
+        </div>
+      </div>
+      <el-button v-if="canWrite" class="add-attribute" @click="addAttributeRow">
+        添加属性
+      </el-button>
+
+      <template #footer>
+        <el-button @click="attributeDialog = false">关闭</el-button>
+        <el-button
+          v-if="canWrite"
+          type="primary"
+          :loading="attributeSaving"
+          @click="saveAttributes"
+        >
+          保存
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -646,6 +782,18 @@ async function saveSku() {
   font-size: 16px;
   font-weight: 600;
   color: #303133;
+}
+
+.attribute-row {
+  display: grid;
+  grid-template-columns: 1fr 2fr auto;
+  gap: 8px;
+  margin-bottom: 8px;
+  align-items: center;
+}
+
+.add-attribute {
+  margin-top: 4px;
 }
 
 @media (max-width: 768px) {
