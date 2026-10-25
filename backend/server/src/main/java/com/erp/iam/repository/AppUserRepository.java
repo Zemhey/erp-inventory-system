@@ -1,6 +1,7 @@
 package com.erp.iam.repository;
 
 import com.erp.iam.domain.AppUser;
+import com.erp.shared.tenant.TenantContext;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -74,8 +75,37 @@ public class AppUserRepository {
                 .map(this::withRolesAndPermissions);
     }
 
-    /** 装载角色编码与权限并集。 */
-    private AppUser withRolesAndPermissions(AppUser u) {
+    /**
+     * 全局按用户名读账号行（<b>不装载角色</b>），只给"还不知道/不固定租户"的路径用：
+     * 登录、token 解析、切换租户。调用方随后必须在<b>目标租户</b>下调用
+     * {@link #withRolesAndPermissions(AppUser)} 装载该租户的角色。
+     *
+     * <p><b>★ 为什么不能继续用 {@code findByUsername} + 系统旁路</b>：
+     * 后者会在旁路下顺手装载角色，而角色查询也被旁路放行 —— 于是一个多租户成员
+     * 会拿到<b>所有租户的角色并集</b>，在租户 A 里拿到租户 B 的权限。
+     * 这是 B1 引入成员关系后才会显形的漏洞，必须把"找账号"与"装角色"拆开。
+     */
+    public Optional<AppUser> findByUsernameGlobal(String username) {
+        return TenantContext.callAsSystem(() -> jdbc.query(
+                        "SELECT " + COLUMNS + " FROM app_users WHERE username = ?",
+                        USER_MAPPER, username))
+                .stream().findFirst();
+    }
+
+    /** 全局按 id 读账号行（不装载角色）；账号级属性（密码过期、启用状态）与租户无关。 */
+    public Optional<AppUser> findByIdGlobal(long id) {
+        return TenantContext.callAsSystem(() -> jdbc.query(
+                        "SELECT " + COLUMNS + " FROM app_users WHERE id = ?", USER_MAPPER, id))
+                .stream().findFirst();
+    }
+
+    /**
+     * 在<b>当前租户上下文</b>下装载角色编码与权限并集。
+     *
+     * <p>调用方必须已经绑定明确的租户：这个方法是"某人在某租户里的权限"的
+     * 唯一组装点，在系统旁路下调用会把所有租户的角色混在一起。
+     */
+    public AppUser withRolesAndPermissions(AppUser u) {
         List<String> roles = jdbc.queryForList("""
                 SELECT r.code FROM app_roles r
                   JOIN app_user_roles ur ON ur.role_id = r.id

@@ -169,7 +169,17 @@ public enum ErrorCode {
     SYS_DICT_TYPE_NOT_FOUND(404),
 
     // ── 多租户（V2-7 · FR-TNT-04）──
-    SYS_TENANT_CONTEXT_MISSING(500);
+    SYS_TENANT_CONTEXT_MISSING(500),
+
+    // ── 多租户 UI / 平台租户管理（B1 · FR-TNT-07/08）──
+    /** 已登录，但不是目标租户的成员（登录可选 tenantCode / 切换租户时拒绝）。 */
+    IAM_TENANT_NOT_MEMBER(403),
+    /** 目标租户已停用：登录、切换、以及该租户的既有 token 全部拒绝。 */
+    IAM_TENANT_DISABLED(403),
+    /** 平台租户管理里按 id 找不到租户（只有 tenant:manage 持有者可见此错误）。 */
+    TENANT_NOT_FOUND(404),
+    /** 租户状态操作非法（如停用平台租户、停用当前所在租户）。 */
+    TENANT_STATE_ILLEGAL(409);
 
     private final int httpStatus;
 

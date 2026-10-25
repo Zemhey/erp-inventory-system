@@ -54,6 +54,23 @@ public record AppUser(long id, long tenantId, String username, String passwordHa
         return lockedUntil != null && lockedUntil.isAfter(nowInstant);
     }
 
+    /**
+     * 返回"以指定租户身份行动"的副本（B1 · FR-TNT-07）。
+     *
+     * <p><b>为什么需要这个副本而不是直接改 {@code app_users.tenant_id}</b>：
+     * {@code tenant_id} 是账号的<b>主租户</b>（home），切换租户只改变本次会话的
+     * 行动租户（JWT 的 {@code tid} 与角色装载范围），不应该把人从主租户迁走。
+     * 两者一旦混用，退出登录后就再也回不到原租户。
+     */
+    public AppUser actingAs(long actingTenantId) {
+        if (!com.erp.shared.tenant.TenantId.isKnown(actingTenantId)) {
+            throw new IllegalArgumentException("非法租户 id：" + actingTenantId);
+        }
+        return new AppUser(id, actingTenantId, username, passwordHash, displayName,
+                enabled, failedAttempts, lockedUntil, passwordExpiresAt, mustChangePassword,
+                roles, permissions);
+    }
+
     /** 是否具备某权限。支持 "模块:*" 通配。 */
     public boolean hasPermission(String permission) {
         if (permissions.contains(permission)) {

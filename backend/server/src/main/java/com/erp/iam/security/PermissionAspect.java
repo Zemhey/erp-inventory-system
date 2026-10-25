@@ -38,17 +38,20 @@ public class PermissionAspect {
     @Around("@annotation(com.erp.iam.security.RequirePermission) "
             + "|| @within(com.erp.iam.security.RequirePermission)")
     public Object check(ProceedingJoinPoint pjp) throws Throwable {
-        String[] required = resolveRequirement(pjp);
+        RequirePermission requirement = resolveRequirement(pjp);
+        String[] required = requirement.value();
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null || !auth.isAuthenticated() || auth.getPrincipal() == null) {
             throw new BusinessException(ErrorCode.IAM_UNAUTHENTICATED,
                     "未登录或登录已过期，请重新登录");
         }
 
-        // 角色 ADMIN 视为全权（避免每新增一个权限码就要改一次 ADMIN 的授权数据）
+        // 角色 ADMIN 视为全权（避免每新增一个权限码就要改一次 ADMIN 的授权数据）。
+        // ★ 平台级权限可以关掉这条捷径：每个租户都有自己的 ADMIN，短路会让普通
+        //   租户管理员也能进平台接口。见 RequirePermission#adminBypass。
         boolean isAdmin = auth.getAuthorities().stream()
                 .anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()));
-        if (isAdmin) {
+        if (isAdmin && requirement.adminBypass()) {
             return pjp.proceed();
         }
 
@@ -67,15 +70,15 @@ public class PermissionAspect {
                         .formatted(String.join(" | ", required), user.roles()));
     }
 
-    private String[] resolveRequirement(ProceedingJoinPoint pjp) {
+    private RequirePermission resolveRequirement(ProceedingJoinPoint pjp) {
         MethodSignature sig = (MethodSignature) pjp.getSignature();
         RequirePermission onMethod = sig.getMethod().getAnnotation(RequirePermission.class);
         if (onMethod != null) {
-            return onMethod.value();
+            return onMethod;
         }
         RequirePermission onClass = pjp.getTarget().getClass().getAnnotation(RequirePermission.class);
         if (onClass != null) {
-            return onClass.value();
+            return onClass;
         }
         // 理论上不会到这里（切点已限定），保守起见拒绝而非放行
         throw new BusinessException(ErrorCode.IAM_FORBIDDEN, "权限声明缺失，拒绝访问");

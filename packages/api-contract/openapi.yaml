@@ -5118,6 +5118,146 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ApiError' }
 
+  # ══════════════════════════════════════════════════════════════════════════
+  # B1 · 租户 UI / 平台租户管理（FR-TNT-07/08）· 2026-10-25
+  #
+  # 本段只追加与租户/认证相关的 3 个操作；不改 MDM、报表等其它泳道的路径。
+  # 权限边界：
+  #   · /auth/switch-tenant  → 登录用户对自己会话的操作，无业务权限码；
+  #   · /tenants*            → tenant:manage，且**不接受 ADMIN 角色短路**
+  #     （普通租户也有 ADMIN；只有平台租户 id=1 的 ADMIN 被种了该权限码）。
+  # 平台管理员只能管理 tenants 元数据，业务请求仍由 TenantSql 按当前租户过滤，
+  # 跨租户业务数据仍返回 404 —— 这条边界由后端用例守着。
+  # ══════════════════════════════════════════════════════════════════════════
+
+  /auth/switch-tenant:
+    post:
+      tags: [iam]
+      summary: 切换本次会话的行动租户（重新签发 JWT）
+      description: |
+        校验目标租户是当前账号的成员且处于启用状态，然后**重新签发** JWT
+        （`tid` 变为目标租户），返回与登录同形的会话快照。
+
+        ★ 必须重新签发而不是只改前端显示：租户在服务端决定每次请求的数据边界；
+        只改显示会让"界面是租户 B、实际读写租户 A"同时成立，是最危险的一类假象。
+
+        未知租户编码与非成员返回同一个 `IAM_TENANT_NOT_MEMBER`（403），
+        不借错误码泄露"系统里有哪些租户"；停用租户返回 `IAM_TENANT_DISABLED`（403）。
+
+        幂等：状态迁移型（只换出一个新 token，无持久数量副作用），
+        **不消费 `X-Request-Id`**；重复切换会产生多个彼此独立、tid 相同的 token。
+      operationId: switchTenant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SwitchTenantRequest' }
+      responses:
+        '200':
+          description: 切换成功；`data.token` 是带新 `tid` 的 Bearer JWT
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/LoginResult' }
+        '400':
+          description: '`SYS_VALIDATION_ERROR` —— 租户编码缺失/超长'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403':
+          description: |
+            `IAM_TENANT_NOT_MEMBER`（非成员 / 未知编码，刻意不区分）/
+            `IAM_TENANT_DISABLED`（目标租户已停用）/ `IAM_ACCOUNT_DISABLED`（账号已停用）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+  /tenants:
+    get:
+      tags: [iam]
+      summary: 租户清单（平台租户元数据，不分页）
+      description: |
+        权限码 `tenant:manage`，且**不接受 ADMIN 角色短路**：每个租户都有自己的
+        ADMIN，若沿用短路，普通租户管理员也能看到并调用平台接口。V17 只把该权限码
+        种给平台租户（id=1）的 ADMIN。
+
+        只读 `tenants` 元数据（id / code / name / enabled），**不返回任何业务数据**；
+        平台管理员拿其它租户的业务 id 请求业务接口仍是 404。
+      operationId: listTenants
+      responses:
+        '200':
+          description: 租户列表（按 id 升序）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/TenantView' }
+        '403':
+          description: '`IAM_FORBIDDEN` —— 缺少 `tenant:manage`（普通租户 ADMIN 也会落到这里）'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+  /tenants/{id}/enabled:
+    post:
+      tags: [iam]
+      summary: 启用 / 停用租户（平台元数据）
+      description: |
+        权限码 `tenant:manage`（同样不接受 ADMIN 短路）。纯开关，不消费 `X-Request-Id`。
+
+        停用后的即时语义：该租户的既有 token 在**下一个请求**就 401
+        （`AuthenticationService.resolve` 校验租户启用），不需要等 token 过期。
+
+        两条自我保护：不能停用平台租户（id=1，平台管理员的账号主租户），
+        不能停用当前所在租户（否则本会话连"再启用回来"的请求都会被拒绝）。
+      operationId: setTenantEnabled
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SetEnabledRequest' }
+      responses:
+        '200':
+          description: 更新后的租户元数据
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/TenantView' }
+        '403':
+          description: '`IAM_FORBIDDEN` —— 缺少 `tenant:manage`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '404':
+          description: '`TENANT_NOT_FOUND` —— 租户 id 不存在'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '409':
+          description: '`TENANT_STATE_ILLEGAL` —— 停用平台租户，或停用当前所在租户'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
 
 components:
   parameters:
@@ -6604,23 +6744,58 @@ components:
           minLength: 1
           maxLength: 128
           description: 明文密码，仅经 TLS 传输；服务端存 BCrypt 哈希且**永不回显**
+        tenantCode:
+          type: string
+          maxLength: 32
+          nullable: true
+          description: |
+            可选租户编码（B1）。多租户成员用它选择本次登录的行动租户；
+            缺省 = 账号的主租户。未知编码与非成员返回同一个
+            `IAM_TENANT_NOT_MEMBER`（403），不借错误码泄露租户是否存在；
+            租户停用返回 `IAM_TENANT_DISABLED`（403）。租户校验在密码校验**之后**，
+            避免把用户名枚举面扩大到"用户名 × 租户"。
+
+    SwitchTenantRequest:
+      type: object
+      required: [tenantCode]
+      properties:
+        tenantCode:
+          type: string
+          minLength: 1
+          maxLength: 32
+          description: 目标租户编码；必须是当前账号的成员且租户处于启用状态
+
+    TenantView:
+      type: object
+      description: |
+        租户元数据（B1）。只包含界面展示与切换判断所需字段，不含幂等键/创建时间等内部元数据。
+        出现在登录/切换/`/auth/me` 的 `tenants` 列表与平台租户管理页。
+      required: [id, code, name, enabled]
+      properties:
+        id: { type: integer, format: int64 }
+        code: { type: string, maxLength: 32 }
+        name: { type: string, maxLength: 128 }
+        enabled:
+          type: boolean
+          description: 停用租户的登录、切换与既有 token 全部拒绝（401/403）
 
     LoginResult:
       type: object
-      required: [token, tokenType, username, permissions, mustChangePassword, passwordRules]
+      required: [token, tokenType, username, permissions, mustChangePassword, passwordRules, tenantId, tenantCode, tenantName, tenants]
       properties:
         token:
           type: string
-          description: Bearer JWT
+          description: Bearer JWT；切换租户后是**重新签发**的 token，`tid` 已变为目标租户
         tokenType: { type: string, enum: [Bearer], example: Bearer }
         username: { type: string }
         displayName: { type: string, nullable: true }
         roles:
           type: array
+          description: 当前行动租户内的角色编码（不是所有租户的并集）
           items: { type: string }
         permissions:
           type: array
-          description: 权限码并集（已排序）
+          description: 当前行动租户内的权限码并集（已排序）
           items: { type: string }
         mustChangePassword:
           type: boolean
@@ -6634,19 +6809,32 @@ components:
           type: array
           description: 当前生效的密码规则（人工可读），前端展示在改密页供用户照做
           items: { type: string }
+        tenantId:
+          type: integer
+          format: int64
+          description: 当前行动租户 id（= JWT 的 `tid` 声明）
+        tenantCode: { type: string, maxLength: 32, description: 当前行动租户编码 }
+        tenantName: { type: string, maxLength: 128, description: 当前行动租户显示名 }
+        tenants:
+          type: array
+          description: |
+            该账号的全部租户成员关系（含停用项，按 id 升序）。
+            前端**只在 `length > 1` 时**显示租户切换器 —— 单租户用户不应看到切换入口。
+          items: { $ref: '#/components/schemas/TenantView' }
 
     CurrentUserView:
       type: object
-      required: [username, permissions, mustChangePassword, passwordRules]
+      required: [username, permissions, mustChangePassword, passwordRules, tenantId, tenantCode, tenantName, tenants]
       properties:
         username: { type: string }
         displayName: { type: string, nullable: true }
         roles:
           type: array
+          description: 当前行动租户内的角色编码
           items: { type: string }
         permissions:
           type: array
-          description: 权限码并集（已排序）
+          description: 当前行动租户内的权限码并集（已排序）
           items: { type: string }
         mustChangePassword: { type: boolean }
         passwordExpiresAt:
@@ -6656,6 +6844,16 @@ components:
         passwordRules:
           type: array
           items: { type: string }
+        tenantId:
+          type: integer
+          format: int64
+          description: 当前行动租户 id（= 当前 token 的 `tid`）；刷新页面后据此恢复顶栏
+        tenantCode: { type: string, maxLength: 32 }
+        tenantName: { type: string, maxLength: 128 }
+        tenants:
+          type: array
+          description: 该账号的全部租户成员关系（含停用项，按 id 升序）；长度 > 1 才显示切换器
+          items: { $ref: '#/components/schemas/TenantView' }
 
     ChangePasswordRequest:
       type: object
