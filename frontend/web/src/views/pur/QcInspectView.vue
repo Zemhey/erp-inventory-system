@@ -36,12 +36,21 @@ async function loadOrders() {
   ordersLoading.value = true
   error.value = ''
   try {
-    const [approved, partial, received] = await Promise.all([
+    // 待检 = 已审核待收(APPROVED) + 部分到货(PARTIAL) + 已到齐(COMPLETED)。
+    // DocumentStatus 没有 RECEIVED 这个值，写错会让整块看板空白。
+    const settled = await Promise.allSettled([
       purApi.list({ status: 'APPROVED', page: 1, size: 60 }),
       purApi.list({ status: 'PARTIAL', page: 1, size: 60 }),
-      purApi.list({ status: 'RECEIVED', page: 1, size: 60 }),
+      purApi.list({ status: 'COMPLETED', page: 1, size: 60 }),
     ])
-    orders.value = [...approved.items, ...partial.items, ...received.items]
+    const buckets = settled.map((s) => (s.status === 'fulfilled' ? s.value.items : []))
+    const failed = settled.filter((s) => s.status === 'rejected')
+    orders.value = buckets.flat()
+    if (failed.length > 0 && orders.value.length === 0) {
+      error.value = errorMessage((failed[0] as PromiseRejectedResult).reason)
+    } else if (failed.length > 0) {
+      error.value = `${failed.length} 个状态桶取数失败，已展示其余结果`
+    }
   } catch (cause) {
     orders.value = []
     error.value = errorMessage(cause)
