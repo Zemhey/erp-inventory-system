@@ -2,33 +2,8 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import {
-  ArrowDown,
-  Box,
-  Checked,
-  Coin,
-  DataAnalysis,
-  Files,
-  Goods,
-  Grid,
-  House,
-  Key,
-  Menu as MenuIcon,
-  Money,
-  Notebook,
-  OfficeBuilding,
-  RefreshLeft,
-  Search,
-  Sell,
-  Setting,
-  ShoppingCart,
-  SwitchButton,
-  Tickets,
-  TrendCharts,
-  User,
-  Van,
-  Wallet,
-} from '@element-plus/icons-vue'
+import { ArrowDown, OfficeBuilding, SwitchButton } from '@element-plus/icons-vue'
+import { navGroups } from '@/router/registry'
 import { useSessionStore } from '@/stores/session'
 
 /**
@@ -78,111 +53,14 @@ onBeforeUnmount(() => {
 const asideWidth = computed(() => (collapsed.value || isMobile.value ? '64px' : '210px'))
 const menuCollapsed = computed(() => collapsed.value || isMobile.value)
 
-interface MenuItem {
-  path: string
-  title: string
-  icon: unknown
-  permission?: string
-}
-
-interface MenuGroup {
-  key: string
-  title: string
-  icon: unknown
-  /** 单入口组（工作台）直接渲染成菜单项，不套二级菜单。 */
-  flat?: boolean
-  items: MenuItem[]
-}
-
 /**
- * 菜单分组：8 组、21 个入口。
+ * 菜单分组：直接取导航模块注册表（src/router/modules/*.ts）。
  *
- * ★ 新增入口只改这里对应的组，不再往一条长列表里追加 ——
- *   之前"只往后加"的约定保证了不冲突，但也把菜单堆成了 21 项流水账。
+ * ★ 侧边栏不再在本文件里硬编码 —— 一个业务模块的分组、菜单项、路由写在同一个文件，
+ *   加页面不需要同时改路由表和侧边栏两处，多人并行开发也不会互相冲突。
  * ★ 权限过滤仍然逐个入口做（visibleGroups），空组自动隐藏。
  */
-const menuGroups: MenuGroup[] = [
-  {
-    key: 'workbench',
-    title: '工作台',
-    icon: House,
-    flat: true,
-    items: [{ path: '/dashboard', title: '工作台', icon: House }],
-  },
-  {
-    key: 'master-data',
-    title: '主数据',
-    icon: Grid,
-    items: [
-      { path: '/products', title: '商品与 SKU', icon: Goods, permission: 'mdm:read' },
-      { path: '/suppliers', title: '供应商', icon: OfficeBuilding, permission: 'mdm:read' },
-      { path: '/customers', title: '客户 / 会员', icon: User, permission: 'mdm:read' },
-      { path: '/warehouses', title: '仓库', icon: Box, permission: 'mdm:read' },
-    ],
-  },
-  {
-    key: 'inventory',
-    title: '库存',
-    icon: Box,
-    items: [
-      { path: '/inventory', title: '库存查询', icon: MenuIcon, permission: 'inv:read' },
-      { path: '/inventory-transfers', title: '调拨作业', icon: Van, permission: 'inv:read' },
-      { path: '/inventory-stock-ops', title: '盘点与调整', icon: Files, permission: 'inv:read' },
-    ],
-  },
-  {
-    key: 'purchase',
-    title: '采购',
-    icon: ShoppingCart,
-    items: [
-      { path: '/purchase-requisitions', title: '请购与质检', icon: Tickets, permission: 'pur:read' },
-      { path: '/purchase-orders', title: '进货单', icon: ShoppingCart, permission: 'pur:read' },
-      { path: '/supplier-payables', title: '应付与付款', icon: Wallet, permission: 'pur:payable' },
-    ],
-  },
-  {
-    key: 'sales',
-    title: '销售',
-    icon: Sell,
-    items: [
-      { path: '/sales-quotes', title: '报价单', icon: Tickets, permission: 'sal:read' },
-      { path: '/sales-orders', title: '出货单', icon: Sell, permission: 'sal:read' },
-      { path: '/shipments', title: '拣货发货', icon: Van, permission: 'sal:read' },
-      { path: '/return-orders', title: '退货单', icon: RefreshLeft, permission: 'rma:read' },
-      { path: '/receivables', title: '应收 / 收款', icon: Money, permission: 'sal:read' },
-    ],
-  },
-  {
-    key: 'finance',
-    title: '财务',
-    icon: Coin,
-    items: [
-      { path: '/settlements', title: '结算', icon: Coin, permission: 'set:read' },
-      { path: '/margin', title: '毛利分析', icon: TrendCharts, permission: 'cst:read' },
-    ],
-  },
-  {
-    key: 'reports',
-    title: '报表',
-    icon: DataAnalysis,
-    items: [{ path: '/reports', title: '报表', icon: DataAnalysis, permission: 'rpt:read' }],
-  },
-  {
-    key: 'system',
-    title: '系统',
-    icon: Setting,
-    items: [
-      { path: '/approvals', title: '审批工作台', icon: Checked, permission: 'aps:read' },
-      { path: '/iam', title: '用户与角色', icon: Key, permission: 'iam:read' },
-      // E1 合并时在本数组末尾追加（不重排、不动其它组）：
-      { path: '/audits', title: '审计查询', icon: Search, permission: 'sys:read' },
-      { path: '/dicts', title: '数据字典', icon: Notebook, permission: 'sys:read' },
-      // B1：平台租户管理。tenant:manage 只种给平台租户的 ADMIN；
-      // 普通租户管理员既看不到这个入口，直接请求也会 403（后端不接受 ADMIN 短路）。
-      { path: '/tenants', title: '租户管理', icon: OfficeBuilding, permission: 'tenant:manage' },
-    ],
-  },
-]
+const menuGroups = navGroups
 
 const visibleGroups = computed(() =>
   menuGroups
