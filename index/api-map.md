@@ -68,6 +68,17 @@
 | GET | `/reports/purchase` | `purchaseReport` | 进货统计（按供应商/商品/期间） |
 | GET | `/reports/sales` | `salesReport` | 出货统计（按客户/商品/期间） |
 | GET | `/reports/inventory-summary` | `inventorySummaryReport` | 进销存汇总表（期初 + 入 − 出 = 期末） |
+| GET | `/reports/operating` | `operatingReport` | 经营日报/月报（流水四数满足 INV-6，单据金额另列） |
+| GET | `/reports/inventory-turnover` | `inventoryTurnoverReport` | 库存周转与呆滞（周转天数、N 天无出库） |
+| GET | `/reports/customer-contribution` | `customerContributionReport` | 客户贡献与复购（Top N、复购率、新客/回头客） |
+| GET | `/reports/aging` | `agingReport` | 应收/应付账龄（0-30 / 31-60 / 61-90 / 90+） |
+| GET | `/reports/purchase/export` | `purchaseExportReport` | 进货统计导出 CSV（与页面同一查询、同一舍入） |
+| GET | `/reports/sales/export` | `salesExportReport` | 出货统计导出 CSV（与页面同一查询、同一舍入） |
+| GET | `/reports/inventory-summary/export` | `inventorySummaryExportReport` | 进销存汇总导出 CSV（与页面同一 SQL，含名称列） |
+| GET | `/reports/operating/export` | `operatingExportReport` | 经营日报/月报导出 CSV（与页面同一查询、同一舍入） |
+| GET | `/reports/inventory-turnover/export` | `inventoryTurnoverExportReport` | 库存周转与呆滞导出 CSV（与页面同一查询、同一舍入） |
+| GET | `/reports/customer-contribution/export` | `customerContributionExportReport` | 客户贡献与复购导出 CSV（含全量汇总） |
+| GET | `/reports/aging/export` | `agingExportReport` | 应收/应付账龄导出 CSV（含守恒汇总） |
 | POST | `/nl/command` | `nlCommand` | 自然语言操作入口（FR-SYS-04） |
 | POST | `/cost/recalculate` | `recalculateCost` | 全量重算成本层（FR-CST-01，INV-11） |
 | POST | `/cost/monthly` | `runCostMonthly` | 成本月结（FR-CST-02，幂等） |

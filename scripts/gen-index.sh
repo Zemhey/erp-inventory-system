@@ -85,7 +85,9 @@ gen_modules() {
         rpt) duty="统计报表（只读）" ;;
         nl) duty="自然语言解析与意图调度（不承载业务规则）" ;;
         sys) duty="幂等、审计、测试钩子" ;;
-        shared) duty="通用：时间、金额、错误码" ;;
+        aps) duty="审批流定义与实例流转（会签/或签、金额阈值）" ;;
+        cst) duty="移动加权成本、月结转、毛利分析" ;;
+        shared) duty="通用：时间、金额、错误码、租户上下文" ;;
         *) duty="（未登记，请补充 docs/03 模块表）" ;;
       esac
       echo "| \`$mod\` | $duty | $files | $lines | $tests |" >> "$out"

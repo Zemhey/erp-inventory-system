@@ -4,9 +4,9 @@
 ![Java](https://img.shields.io/badge/Java-17-007396?logo=openjdk&logoColor=white)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.3-6DB33F?logo=springboot&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-956%20passing-brightgreen)
-![Coverage](https://img.shields.io/badge/line%20coverage-86.79%25-brightgreen)
-![Branch](https://img.shields.io/badge/branch%20coverage-65.72%25-yellowgreen)
+![Tests](https://img.shields.io/badge/tests-1204%20passing-brightgreen)
+![Coverage](https://img.shields.io/badge/line%20coverage-87.55%25-brightgreen)
+![Branch](https://img.shields.io/badge/branch%20coverage-68.57%25-yellowgreen)
 
 > **多端 B/S 进销存 SaaS 平台 + 配套自动化测试体系**
 > Java 17 · Spring Boot 3 · PostgreSQL 16 · Vue 3 · uni-app
@@ -85,12 +85,12 @@
 
 ## 项目状态
 
-**当前阶段：M0/M1/M2/M3/M7/M8 完成 ✅，M4 两批、M2.5 红冲与 M6 制品已合并；V2 波 A + 波 B 已合并 V2-1 库存作业、V2-2 采购闭环、V2-3 销售闭环、V2-4 成本毛利、V2-5 审计可观测、V2-6 权限审批（956 条后端用例全绿 · 行 86.79% / 分支 65.72% · 契约 130 路径 / 161 操作 · **操作级契约债清零** · Web 20 个业务页 + miniapp 18 页 · MCP 6 工具 · 单机版一键包）· 下一步：V2-C3 字段级契约债 ∥ E1 Web 审计/字典页，随后 V2-7 租户隔离独占批次**
+**当前阶段：M0/M1/M2/M3/M7/M8 完成 ✅，M4 两批、M2.5 红冲与 M6 制品已合并；V2 波 A + 波 B 全部合并（V2-1 库存作业、V2-2 采购闭环、V2-3 销售闭环、V2-4 成本毛利、V2-5 审计可观测、V2-6 权限审批、**V2-7 租户隔离**），V2-8 报表、C3 字段门禁、E1 审计/字典页、UI-IA 信息架构均已进 main（**1204 条后端用例全绿 · 行 87.55% / 分支 68.57% · 契约 141 路径 / 172 操作 / 146 schema · 字段级门禁 0 错误 · Web 22 个业务页 + miniapp 18 页 · Web E2E 36 · MCP 6 工具 · 单机版一键包**）· 下一步：**Batch B**（B1 租户 UI → B2 主数据字段 → B3 小程序 PDA → B4 演示包装）**
 
 - ✅ 方向与路线确定（行业、技术栈、测试体系）
 - ✅ 规划文档（00~07 + 11 条 ADR）
 - ✅ **M0 交付**：OpenAPI 六资源契约 · Spring Boot 3 骨架 · Flyway schema · 库存纵向切片 · compose 一键起环境 · CI 三道门禁
-- ✅ **M1 交付**：主数据（商品/SKU 矩阵/供应商/客户/仓库）· 进货闭环 · 出货闭环（FEFO）· IAM（JWT + RBAC）· 统一状态机 · 原子取号 · M1 基线 156 条测试（**当前累计 956 条全绿**）
+- ✅ **M1 交付**：主数据（商品/SKU 矩阵/供应商/客户/仓库）· 进货闭环 · 出货闭环（FEFO）· IAM（JWT + RBAC）· 统一状态机 · 原子取号 · M1 基线 156 条测试（**当前累计 1204 条全绿**）
 - ✅ **M3 交付**：登录 / 布局 / 工作台 + 商品与 SKU + 供应商 / 客户 / 仓库 + 库存查询（实存·预占·可用 + 流水追溯）+ 进货单（状态机 + 分批入库）+ 出货单（建单即预占 + 折扣 + 出货），**7 个业务页面全齐、无占位页**；S7 全局打磨（空状态、错误态、窄屏适配）；**S8 Playwright E2E 14 条关键路径，真实后端 + 真实 PostgreSQL 连续两遍 15/15 全绿**，测试数据清理后开发库回到基线
 - ✅ **M2 交付**：退货 `FR-RMA-01`（9 个接口，含"可退出货单查询"）· 日清 / 月结锁账 / 对账 / 账期查询 `FR-SET-01~03` · 三类报表 `FR-RPT-01~03` · `BR-INV-05` 预占超时自动释放 —— 16 个新接口全部有实现有测试，`CONTRACT_ONLY` 清零；前端 10 个业务页面（退货/结算/报表三页 + 退货建单接入可退查询 + 结算页账期列表）；M2 验收时后端 **221 条用例全绿**（M2 基线行 **82.6%** / 分支 **60.9%**）；E2E **19 条 + 登录 setup** 连跑两遍全绿；红冲（FR-SAL-04 / FR-PUR-03）与 G5~G13 体验债转 M2.5（计划：[`.plan/M2-计划书.md`](.plan/M2-计划书.md)）
 - 🚧 **M4 两批均已合并**：第一批 `feat/m4-miniapp`（merge `104674e`）—— `frontend/miniapp` uni-app 工程 + 登录 / 工作台 / 库存查询 3 页，`build:h5` / `build:mp-weixin` / `build:app` 通过；第二批 `feat/m4b-pages`（merge `fedca69`）—— 出货 / 进货 / 商品只读共 **7 个新页面**（`pages.json` 实测 **10 页**）+ H5 E2E 工程 **6 spec / 8 test**（唯一前缀造数 + 硬清理）。**未实测**：微信开发者工具联调、Android 打包与真机（需 HBuilderX 与开发者工具）
@@ -99,7 +99,7 @@
 - ✅ **M7 完成（stub 验证）**：`POST /nl/command` 自然语言入口（8 意图、意图级权限、建单幂等）+ `packages/mcp-server` 6 个 stdio 工具 + 工作台 NL 输入框；默认 `stub` 解析器离线可复现，**真实 LLM 待用户提供 key**
 - ✅ **M8 单机版完成**：`infra/standalone/**` 15 文件（merge `2a48b12`）—— Docker compose 单机编排、`start` / `stop` / `status` / `backup` 的 `.ps1` 与 `.sh` 双份脚本、公共函数库、种子管理员 SQL、`.env.example` 与运行手册（Windows/Linux、离线、备份、升级、排障）。**未实测**：Linux/macOS 真机与真实离线环境
 
-### V2 商业化扩展（波 A + 波 B 前两条已合并）
+### V2 商业化扩展（波 A + 波 B 全部合并）
 
 | 期 | 内容 | merge | 关键交付 |
 |---|---|---|---|
@@ -113,9 +113,14 @@
 | V2-D1 | 移动端第三批 | `93fa6b9` | miniapp **10 页 → 18 页**：报价 2 / 发货扫码 2 / 应收收款 2 / 待我审批 2 + 两套独立状态机镜像；H5 E2E **9 → 23 passed**（14 条 `TC-MOB`，含超额核销被拒、只读身份看不到收款表单、转办需 `aps:approve`）；后端零改动；顺带修 `JAVA_TOOL_OPTIONS` 串味导致 BCrypt 脚本误判失败，并让 miniapp E2E 可各用自己的 PG |
 | 契约清偿 1 | 43 条债务 | `0a1e227` | 契约 **90 → 133 操作 / 107 路径**；确立「`UNDOCUMENTED_DEBT` 保持空集是新的 DoD」；V2-3 的 28 条当时作为「待清偿 2」保留 |
 | 契约清偿 2 | V2-3 的 28 条 | `78bbb27` | 契约 **133 → 161 操作 / 130 路径 / 133 schema**，豁免集**归零**；语义差集自证纯增量（唯一改动的既有 schema 是 `SalesOrderLine`，只加可选字段）；顺带登记 **4 条字段级缺陷** → V2-C3 |
+| V2-C3 | 字段级契约债 | `653b553` | 修 `Warehouse.priority` / `Sku.seasonCode/bandCode/launchDate` / `discountRate.minimum` / 悬空 `$ref`；交付 `scripts/schema-field-check.py`（修复前当场报、修复后 0 错误） |
+| E1 | 审计/字典界面 | `7867dca` | `/audits`（6 维筛选 + before/after diff + traceId 时间线）、`/dicts`（只读字典浏览）；`TC-SYS-091~096` + `TC-API-115~124`；Web E2E 20 → **36** |
+| UI-IA | 信息架构与驾驶舱 | `dbe87c9` | 菜单 21 项 → **23 项 / 8 组**；工作台扩成待办驾驶舱；esbuild 固定 **0.25.11**（`921d1a3`） |
+| V2-8 | 报表体系 | `cbe33e9` | 报表 **8 页签**（进货/出货/进销存/经营/周转/贡献/AR/AP）+ **7 个 CSV 导出** + 打印；`FR-RPT-05~09` / `FR-SET-06`；契约 **172 操作 / 141 路径 / 146 schema** |
+| V2-7 | 租户隔离 | `ec425e2` | `V16` 全表 `tenant_id` + RLS/触发器 + `TenantSql` 强制改写 + JWT `tid` + `TenantContext`；**135 格跨租户矩阵**（异租户 404/空 + 同租户正对照）；分支 1155 绿，合并后 1204 绿 |
 
-★ 当前基线（含 V2-C1/C2/D1）：**956 条用例 / 行 86.79%（8622/9934）/ 分支 65.72%（2270/3454）**（`78bbb27` 合并后强制复跑，门限从未降低）；`scripts/contract-check.py` **0 错误**通过，`UNDOCUMENTED_DEBT` 回到**空集**，契约 **161 操作 / 130 路径 / 133 schema**。
-★ 本地契约门禁 `scripts/contract-check.py` 现存 **8 条真实过度承诺**（MDM 写端点声明 `X-Request-Id` 而实现不消费）→ V2-C1 补齐实现；V2-3 的 28 条缺口 → V2-C2。进度真相见 [docs/00](docs/00-索引与追踪矩阵.md) 与 [.plan/V2-指挥状态.md](.plan/V2-指挥状态.md)。
+★ 当前基线（含 V2-C3/E1/UI-IA/V2-8/V2-7）：**1204 条用例 / 0 失败 / 0 错误 / 0 跳过 / 行 87.55%（9344/10673）/ 分支 68.57%（2686/3917）**（`f6c1986` 在全新 ASCII 工作树 `clean check --no-daemon --offline`，11m02s；门限从未降低）；`scripts/contract-check.py` **0 错误**（172 操作 / 141 路径 / 146 schema），`scripts/schema-field-check.py` **0 错误**，`UNDOCUMENTED_DEBT` **空集**。
+★ 合并后 Web E2E 在独立 PG 上复跑 **36/36**；过程中修复了 V2-7 造成的临时账号造数回归（`app_users.tenant_id NOT NULL`）。进度真相见 [docs/00](docs/00-索引与追踪矩阵.md) 与 [.plan/批次-2026-10-25-Batch-B.md](.plan/批次-2026-10-25-Batch-B.md)。
 
 ### 工程实践亮点
 
@@ -126,7 +131,7 @@
 | **可测试性设计** | 注入 `ClockProvider`，让跨月结算/效期/预占超时成为可测命题，而非等到真实时间发生 |
 | **索引自动化** | 代码索引由脚本从源码与 OpenAPI 生成并纳入 CI 校验，杜绝文档腐化（[ADR-0009](docs/07-决策记录ADR/ADR-0009-代码索引脚本生成.md)） |
 | **需求↔测试可追踪** | 每个用例带 `TC-xxx` 编号，[追踪矩阵](docs/00-索引与追踪矩阵.md) 自动汇总，扫空行即得测试待办 |
-| **真实 E2E** | Playwright 驱动真实后端 + 真实 PostgreSQL（不 mock），**19 条关键路径**覆盖登录、主数据、进货、出货、退货、结算锁账、报表与 VIEWER/FINANCE 权限；测试数据用唯一前缀、按依赖顺序清理并硬校验基线（`.plan/M2-计划书.md` §5.5） |
+| **真实 E2E** | Playwright 驱动真实后端 + 真实 PostgreSQL（不 mock），**36 passed（含登录 setup）**覆盖登录、主数据、进货、出货、退货、结算锁账、报表、审计/字典与 VIEWER/FINANCE 权限；测试数据用唯一前缀、按依赖顺序清理并硬校验基线（`.plan/M2-计划书.md` §5.5） |
 
 ## ⚠ Windows 构建路径（本机必读）
 
@@ -139,7 +144,7 @@
 ```powershell
 .\scripts\build-env.ps1          # 创建 D:\erp-build 联接（非破坏、可回滚）
 cd D:\erp-build\backend\server
-.\gradlew.bat test               # 运行测试（251 条，全绿）
+.\gradlew.bat check              # 运行测试 + 覆盖率门禁（1204 条，全绿）
 ```
 
 删除联接：`.\scripts\build-env.ps1 -Remove`

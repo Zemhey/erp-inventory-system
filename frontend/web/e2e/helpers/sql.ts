@@ -104,14 +104,15 @@ export function createUserSql(username: string, roleCode: string, adminUsername:
   const admin = sqlString(adminUsername)
   const role = sqlString(roleCode)
   return `
-INSERT INTO app_users (username, password_hash, display_name)
-SELECT ${user}, password_hash, 'E2E ' || ${role}
-  FROM app_users WHERE username = ${admin}
+INSERT INTO app_users (tenant_id, username, password_hash, display_name)
+SELECT a.tenant_id, ${user}, a.password_hash, 'E2E ' || ${role}
+  FROM app_users a WHERE a.username = ${admin}
 ON CONFLICT (username) DO NOTHING;
 
-INSERT INTO app_user_roles (user_id, role_id)
-SELECT u.id, r.id
-  FROM app_users u, app_roles r
+INSERT INTO app_user_roles (tenant_id, user_id, role_id)
+SELECT u.tenant_id, u.id, r.id
+  FROM app_users u
+  JOIN app_roles r ON r.tenant_id = u.tenant_id
  WHERE u.username = ${user} AND r.code = ${role}
 ON CONFLICT DO NOTHING;
 

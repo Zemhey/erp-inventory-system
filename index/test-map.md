@@ -71,6 +71,16 @@
 | `TC-NL-011` | ★ 失败语义：无法识别 422、参数非法 400、空指令 400、业务 404 原样透出 | `backend/server/src/test/java/com/erp/api/NlCommandApiIT.java` |
 | `TC-API-018` | ★ 三个报表接口全部可达且包络符合契约；默认分组是 supplier/customer；报表零写入 | `backend/server/src/test/java/com/erp/api/ReportApiIT.java` |
 | `TC-RPT-009` | 非法参数一律 400：groupBy 取值非法 / 跨报表维度 / from>to / period 格式 / 缺参数 | `backend/server/src/test/java/com/erp/api/ReportApiIT.java` |
+| `TC-API-135` | ★ 四个新报表可达：包络、字段名与数值符合契约 | `backend/server/src/test/java/com/erp/api/ReportV28ApiIT.java` |
+| `TC-API-136` | 参数非法一律 400：dimension / deadDays / limit | `backend/server/src/test/java/com/erp/api/ReportV28ApiIT.java` |
+| `TC-API-137` | 账龄参数：type 非法/缺失、asOf 缺失均 400；大小写不敏感 | `backend/server/src/test/java/com/erp/api/ReportV28ApiIT.java` |
+| `TC-API-138` | from > to / 日期格式错误 / 缺必填参数均 400，不落到 500 | `backend/server/src/test/java/com/erp/api/ReportV28ApiIT.java` |
+| `TC-API-139` | 默认值：dimension=day、deadDays=30、limit=20；month 粒度返回月行 | `backend/server/src/test/java/com/erp/api/ReportV28ApiIT.java` |
+| `TC-API-140` | 七个导出端点：200 + text/csv + attachment 文件名 + UTF-8 BOM | `backend/server/src/test/java/com/erp/api/ReportV28ApiIT.java` |
+| `TC-API-141` | ★ 同一 HTTP 参数下，经营报表 JSON 与 CSV 逐格一致（31 行 × 9 列） | `backend/server/src/test/java/com/erp/api/ReportV28ApiIT.java` |
+| `TC-API-142` | 鉴权：未登录 401；有登录但无 rpt:read 的角色 403 | `backend/server/src/test/java/com/erp/api/ReportV28ApiIT.java` |
+| `TC-API-143` | ★ 全部新报表 + 导出跑完后，单据/流水/余额/应收应付计数零变化 | `backend/server/src/test/java/com/erp/api/ReportV28ApiIT.java` |
+| `TC-API-144` | 空区间/无数据：四个报表 200，不 500；经营报表按分桶返回零行 | `backend/server/src/test/java/com/erp/api/ReportV28ApiIT.java` |
 | `TC-API-014` | ★ 退货 HTTP 端到端：建单→提交→审核→入库，响应字段符合契约；出货明细露出 returnedQty | `backend/server/src/test/java/com/erp/api/ReturnOrderApiIT.java` |
 | `TC-API-015` | 退货接口守卫：缺 X-Request-Id → 400（不是 500）；VIEWER 可查不可建；未登录 401 | `backend/server/src/test/java/com/erp/api/ReturnOrderApiIT.java` |
 | `TC-RMA-013` | ★ 只有 rma:read 的临时账号也能拿到非空可退列表；同一账号读 /sales-orders 仍然 403 | `backend/server/src/test/java/com/erp/api/ReturnableOrderApiIT.java` |
@@ -450,6 +460,31 @@
 | `TC-RMA-010` | 入库后作废必须被拒绝（红冲属 M2.5），且已回补的库存不动 | `backend/server/src/test/java/com/erp/rma/ReturnOrderIT.java` |
 | `TC-RMA-011` | ★ 指定批次与效期回补：货进到新批次，且下一次出货的 FEFO 能看见它 | `backend/server/src/test/java/com/erp/rma/ReturnOrderIT.java` |
 | `TC-RMA-012` | ★ 不变量：余额净和 == 流水净和；退货数量 == RETURN_IN 流水正变动合计 | `backend/server/src/test/java/com/erp/rma/ReturnOrderIT.java` |
+| `TC-RPT-035` | ★ 应收四桶：行级与汇总级 桶合计 == 余额；桶金额精确 | `backend/server/src/test/java/com/erp/rpt/ReportAgingIT.java` |
+| `TC-RPT-036` | ★ 账龄边界：30/31、60/61、90/91 各自落桶；未到期与无到期日归 0-30 | `backend/server/src/test/java/com/erp/rpt/ReportAgingIT.java` |
+| `TC-RPT-037` | ★ 应付四桶：以应付单业务日起算，行级/汇总级同样守恒 | `backend/server/src/test/java/com/erp/rpt/ReportAgingIT.java` |
+| `TC-RPT-038` | 作废与余额为 0 的应收不进账龄；正常行照常 | `backend/server/src/test/java/com/erp/rpt/ReportAgingIT.java` |
+| `TC-RPT-039` | 汇总 == 各行相加；伙伴数、余额、四桶全部对齐 | `backend/server/src/test/java/com/erp/rpt/ReportAgingIT.java` |
+| `TC-RPT-040` | asOf 推移会把同一笔余额从 0-30 推到 31-60、61-90、90+ | `backend/server/src/test/java/com/erp/rpt/ReportAgingIT.java` |
+| `TC-RPT-041` | 空账龄：AR/AP 都返回空 items 与全零汇总 | `backend/server/src/test/java/com/erp/rpt/ReportAgingIT.java` |
+| `TC-RPT-028` | ★ 与出货统计逐格一致：同区间同仓库的数量/金额/单据数完全相同 | `backend/server/src/test/java/com/erp/rpt/ReportContributionIT.java` |
+| `TC-RPT-029` | 复购 = 期间单据数 ≥ 2：两单为复购，一单不是 | `backend/server/src/test/java/com/erp/rpt/ReportContributionIT.java` |
+| `TC-RPT-030` | 新客 = from 之前无已执行出货；历史客户为回头客；只有历史单的客户不出行 | `backend/server/src/test/java/com/erp/rpt/ReportContributionIT.java` |
+| `TC-RPT-031` | 汇总覆盖全部客户：复购率万分比 3333、新客/回头客、总数守恒 | `backend/server/src/test/java/com/erp/rpt/ReportContributionIT.java` |
+| `TC-RPT-032` | Top N 只截断 items，summary 仍覆盖全量；limit 越界 400 | `backend/server/src/test/java/com/erp/rpt/ReportContributionIT.java` |
+| `TC-RPT-033` | 仓库过滤：分仓贡献之和 == 全部，且各自与同仓出货统计一致 | `backend/server/src/test/java/com/erp/rpt/ReportContributionIT.java` |
+| `TC-RPT-034` | 空区间：items 为空、summary 全零、复购率 0，不除以零 | `backend/server/src/test/java/com/erp/rpt/ReportContributionIT.java` |
+| `TC-RPT-042` | ★ 进货统计 CSV == 同一次服务查询逐格；逗号/引号名称可正确往返 | `backend/server/src/test/java/com/erp/rpt/ReportExportIT.java` |
+| `TC-RPT-043` | ★ 出货统计 CSV == 服务查询，含 .5 尾差舍入与订单数 | `backend/server/src/test/java/com/erp/rpt/ReportExportIT.java` |
+| `TC-RPT-044` | ★ 进销存 CSV 与服务导出查询逐格；名称与页面同一格式 | `backend/server/src/test/java/com/erp/rpt/ReportExportIT.java` |
+| `TC-RPT-045` | ★ 经营日报/月报 CSV == 服务查询；日/月两种粒度都验证 | `backend/server/src/test/java/com/erp/rpt/ReportExportIT.java` |
+| `TC-RPT-046` | ★ 周转 CSV == 服务查询：周转天数一位小数，无出库为 -，呆滞 是/否 | `backend/server/src/test/java/com/erp/rpt/ReportExportIT.java` |
+| `TC-RPT-047` | ★ 客户贡献 CSV == 服务查询；Top N 行 + 全量汇总行 | `backend/server/src/test/java/com/erp/rpt/ReportExportIT.java` |
+| `TC-RPT-048` | ★ 账龄 AR/AP CSV == 服务查询；明细行与汇总行逐格，桶合计守恒 | `backend/server/src/test/java/com/erp/rpt/ReportExportIT.java` |
+| `TC-RPT-049` | CSV 文件形态：UTF-8 BOM、CRLF、text/csv、attachment 文件名 | `backend/server/src/test/java/com/erp/rpt/ReportExportIT.java` |
+| `TC-RPT-050` | 导出遵守筛选条件：换仓库/换区间后行集变化，且仍与服务查询一致 | `backend/server/src/test/java/com/erp/rpt/ReportExportIT.java` |
+| `TC-RPT-051` | 导出同样受鉴权保护：未登录 401 | `backend/server/src/test/java/com/erp/rpt/ReportExportIT.java` |
+| `TC-RPT-052` | ★ 导出是只读的：跑完全部导出，单据/流水/余额/应收应付计数不变 | `backend/server/src/test/java/com/erp/rpt/ReportExportIT.java` |
 | `TC-RPT-001` | 进货统计按供应商分组：数量/金额与已入库明细一致；未入库与已作废不进统计 | `backend/server/src/test/java/com/erp/rpt/ReportIT.java` |
 | `TC-RPT-002` | 进货统计按 product / sku / day / month 分组：行数与合计全部对得上 | `backend/server/src/test/java/com/erp/rpt/ReportIT.java` |
 | `TC-RPT-003` | 出货统计按客户分组：金额按行折扣公式；.5 尾差与 Java HALF_UP 完全一致 | `backend/server/src/test/java/com/erp/rpt/ReportIT.java` |
@@ -461,6 +496,20 @@
 | `TC-RPT-010` | ★ 与日清口径可对照：同日同仓的采购/销售数量金额，与 §3.4 日清公式重算一致 | `backend/server/src/test/java/com/erp/rpt/ReportIT.java` |
 | `TC-RPT-011` | ★ 无 N+1：分组数从 1 涨到 8，每张报表仍只发一条聚合 SQL | `backend/server/src/test/java/com/erp/rpt/ReportIT.java` |
 | `TC-RPT-012` | ★ 两种口径不许混：单据 biz_date vs 流水 occurred_at，跨天执行各归各的 | `backend/server/src/test/java/com/erp/rpt/ReportIT.java` |
+| `TC-RPT-014` | ★ 逐日出行（含空日）：每行 期初+入−出=期末，首行期初来自期初流水，末日等于当前余额 | `backend/server/src/test/java/com/erp/rpt/ReportOperatingIT.java` |
+| `TC-RPT-015` | ★ 与原始流水独立复算一致；进货/销售金额与单据对象独立复算一致（两条路径） | `backend/server/src/test/java/com/erp/rpt/ReportOperatingIT.java` |
+| `TC-RPT-016` | ★ 月报按完整自然月：跨月区间首尾月恒等式成立；日合计 == 月合计 | `backend/server/src/test/java/com/erp/rpt/ReportOperatingIT.java` |
+| `TC-RPT-017` | 仓库过滤：分仓期末之和 == 全部，跨仓不串数；空仓日仍出行 | `backend/server/src/test/java/com/erp/rpt/ReportOperatingIT.java` |
+| `TC-RPT-018` | ★ 口径不混：2/28 的单据在 3/20 才入库，单据侧归 2/28、流水侧归 3/20 | `backend/server/src/test/java/com/erp/rpt/ReportOperatingIT.java` |
+| `TC-RPT-019` | 空区间：日/月都按分桶返回 0 行，不是空数组也不是错误 | `backend/server/src/test/java/com/erp/rpt/ReportOperatingIT.java` |
+| `TC-RPT-020` | 单日闭区间包含首末日；from > to 必须 400 | `backend/server/src/test/java/com/erp/rpt/ReportOperatingIT.java` |
+| `TC-RPT-021` | ★ 期初/期末/出库与流水独立复算一致；周转天数 = (期初+期末)/2 × 天数 / 出库 | `backend/server/src/test/java/com/erp/rpt/ReportTurnoverIT.java` |
+| `TC-RPT-022` | 周转天数保留一位小数（10.333… → 10.3）；无出库为 null，不抛除零 | `backend/server/src/test/java/com/erp/rpt/ReportTurnoverIT.java` |
+| `TC-RPT-023` | 呆滞：N 天无出库；从未出库从首次流水起算；年轻库存不算呆滞 | `backend/server/src/test/java/com/erp/rpt/ReportTurnoverIT.java` |
+| `TC-RPT-024` | 呆滞阈值可调：40 天前出库在 30 天口径下呆滞、60 天口径下不呆滞 | `backend/server/src/test/java/com/erp/rpt/ReportTurnoverIT.java` |
+| `TC-RPT-025` | ★ 与进销存汇总同口径：同月同 SKU 的期初/期末/出库逐格一致 | `backend/server/src/test/java/com/erp/rpt/ReportTurnoverIT.java` |
+| `TC-RPT-026` | 仓库过滤：只返回该仓的 SKU，分仓之和 == 全部 | `backend/server/src/test/java/com/erp/rpt/ReportTurnoverIT.java` |
+| `TC-RPT-027` | 只返回期末有库存的 SKU：清空的 SKU 不出行；deadDays 越界与 from>to 均 400 | `backend/server/src/test/java/com/erp/rpt/ReportTurnoverIT.java` |
 | `TC-RPT-013` | ★ 三条报表计划：事实表各只扫一次、分组在数据库完成、V6 索引可用 | `backend/server/src/test/java/com/erp/rpt/repository/ReportQueryPlanIT.java` |
 | `TC-SAL-081` | 额度 0 = 不设限：大额订单可建，且不写信用快照 | `backend/server/src/test/java/com/erp/sal/CreditControlIT.java` |
 | `TC-SAL-082` | ★★ 信用超额拒单：额度 5000，订单 6000 → 拒单且预占/订单/快照全部为 0 | `backend/server/src/test/java/com/erp/sal/CreditControlIT.java` |
@@ -583,6 +632,47 @@
 | `TC-CST-003` | mulDivHalfUp：正数按 HALF_UP 舍入 | `backend/server/src/test/java/com/erp/shared/money/MoneyMathTest.java` |
 | `TC-CST-004` | mulDivHalfUp：负数按远离零方向 HALF_UP | `backend/server/src/test/java/com/erp/shared/money/MoneyMathTest.java` |
 | `TC-CST-005` | 除数为 0 / 非法入参必须拒绝 | `backend/server/src/test/java/com/erp/shared/money/MoneyMathTest.java` |
+| `TC-TNT-064` | 查询/更新/批量的每个重载都经过改写层（空操作也能到达） | `backend/server/src/test/java/com/erp/shared/tenant/TenantJdbcSurfaceIT.java` |
+| `TC-TNT-065` | ★ PreparedStatementCreator 族必须大声失败（拿不到 SQL 文本就不能保证过滤） | `backend/server/src/test/java/com/erp/shared/tenant/TenantJdbcSurfaceIT.java` |
+| `TC-TNT-066` | TenantJdbc 辅助与 TenantDirectory：查询已存在/不存在的租户，诊断上下文 | `backend/server/src/test/java/com/erp/shared/tenant/TenantJdbcSurfaceIT.java` |
+| `TC-TNT-060` | ★ 无法安全改写的 INSERT 形态必须抛，而不是静默返回原 SQL | `backend/server/src/test/java/com/erp/shared/tenant/TenantSqlDiagnosticsTest.java` |
+| `TC-TNT-061` | 非业务表 / 无表语句 / 空语句原样返回；非法租户直接拒绝 | `backend/server/src/test/java/com/erp/shared/tenant/TenantSqlDiagnosticsTest.java` |
+| `TC-TNT-062` | ★ 每个 *_request_id 列都生成正确的部分索引谓词（具体列先于通用列） | `backend/server/src/test/java/com/erp/shared/tenant/TenantSqlDiagnosticsTest.java` |
+| `TC-TNT-063` | 诊断入口：别名 / RETURNING / 无尾巴 / touchesBusinessTables 的全部分支 | `backend/server/src/test/java/com/erp/shared/tenant/TenantSqlDiagnosticsTest.java` |
+| `TC-TNT-001` | 按 id 直查：谓词追加在 WHERE 之后 | `backend/server/src/test/java/com/erp/shared/tenant/TenantSqlTest.java` |
+| `TC-TNT-002` | 无 WHERE 的列表查询：自动补 WHERE 1 = 1 再追加 | `backend/server/src/test/java/com/erp/shared/tenant/TenantSqlTest.java` |
+| `TC-TNT-003` | LIMIT/OFFSET 在谓词之后（不会把占位符排到 LIMIT 后面） | `backend/server/src/test/java/com/erp/shared/tenant/TenantSqlTest.java` |
+| `TC-TNT-004` | ★ 联表：两侧各自带谓词（靠别名限定，不串味） | `backend/server/src/test/java/com/erp/shared/tenant/TenantSqlTest.java` |
+| `TC-TNT-005` | ★ LEFT JOIN：右表谓词写进 ON（保住外连接语义），左表谓词仍在 WHERE | `backend/server/src/test/java/com/erp/shared/tenant/TenantSqlTest.java` |
+| `TC-TNT-006` | 聚合统计：GROUP BY 在谓词之后 | `backend/server/src/test/java/com/erp/shared/tenant/TenantSqlTest.java` |
+| `TC-TNT-007` | ★ WITH + DISTINCT ON + 子查询：CTE 内外都要有谓词 | `backend/server/src/test/java/com/erp/shared/tenant/TenantSqlTest.java` |
+| `TC-TNT-008` | ★ 派生表（FROM (SELECT …)）里的业务表也要被过滤 | `backend/server/src/test/java/com/erp/shared/tenant/TenantSqlTest.java` |
+| `TC-TNT-009` | FOR UPDATE 在谓词之后（否则锁的范围会跨租户） | `backend/server/src/test/java/com/erp/shared/tenant/TenantSqlTest.java` |
+| `TC-TNT-010` | EXISTS 子查询：内层业务表也带谓词 | `backend/server/src/test/java/com/erp/shared/tenant/TenantSqlTest.java` |
+| `TC-TNT-011` | UNION 的两个分支各自带谓词（谓词留在各自分支内，不跨作用域） | `backend/server/src/test/java/com/erp/shared/tenant/TenantSqlTest.java` |
+| `TC-TNT-030` | ★ UNION ALL + 第二分支联表：每个分支按各自的表追加别名谓词 | `backend/server/src/test/java/com/erp/shared/tenant/TenantSqlTest.java` |
+| `TC-TNT-049` | ★ LEFT JOIN 的右表谓词进 ON（写进 WHERE 会把外连接退化成内连接） | `backend/server/src/test/java/com/erp/shared/tenant/TenantSqlTest.java` |
+| `TC-TNT-012` | 非业务表（tenants / flyway_schema_history）不被改写 | `backend/server/src/test/java/com/erp/shared/tenant/TenantSqlTest.java` |
+| `TC-TNT-013` | 单行 VALUES：列清单加一列、行尾加一个字面量 | `backend/server/src/test/java/com/erp/shared/tenant/TenantSqlTest.java` |
+| `TC-TNT-014` | ★ 多行 VALUES：每一行都追加（只加第一行会让第二行落错租户） | `backend/server/src/test/java/com/erp/shared/tenant/TenantSqlTest.java` |
+| `TC-TNT-015` | ★ 占位符个数不变（字面量注入的核心性质） | `backend/server/src/test/java/com/erp/shared/tenant/TenantSqlTest.java` |
+| `TC-TNT-016` | RETURNING id 不被破坏（取主键的路径必须仍然可用） | `backend/server/src/test/java/com/erp/shared/tenant/TenantSqlTest.java` |
+| `TC-TNT-017` | ★ ON CONFLICT 的目标列表也要前缀 tenant_id（复合唯一改了，目标必须跟着改） | `backend/server/src/test/java/com/erp/shared/tenant/TenantSqlTest.java` |
+| `TC-TNT-018` | ON CONFLICT DO NOTHING（无目标）不改动 | `backend/server/src/test/java/com/erp/shared/tenant/TenantSqlTest.java` |
+| `TC-TNT-019` | ★ INSERT … SELECT：列清单补列、SELECT 列表补值，源表也被过滤 | `backend/server/src/test/java/com/erp/shared/tenant/TenantSqlTest.java` |
+| `TC-TNT-050` | ★ 已显式带 tenant_id 的 INSERT，仍要修 ON CONFLICT 目标（否则复合唯一匹配不上） | `backend/server/src/test/java/com/erp/shared/tenant/TenantSqlTest.java` |
+| `TC-TNT-051` | ★ 发货计划的 request_id 幂等目标补 tenant_id，并保留（非部分）索引可用的谓词 | `backend/server/src/test/java/com/erp/shared/tenant/TenantSqlTest.java` |
+| `TC-TNT-052` | ★ INSERT … SELECT + ON CONFLICT：SELECT 列表与 ON CONFLICT 之间必须有空白（防 1ON） | `backend/server/src/test/java/com/erp/shared/tenant/TenantSqlTest.java` |
+| `TC-TNT-020` | ★ 拒绝改写：INSERT 缺列清单 → 抛（不能静默放过一条无租户的写） | `backend/server/src/test/java/com/erp/shared/tenant/TenantSqlTest.java` |
+| `TC-TNT-021` | UPDATE 带 WHERE：谓词追加在其后 | `backend/server/src/test/java/com/erp/shared/tenant/TenantSqlTest.java` |
+| `TC-TNT-022` | ★ 无 WHERE 的 UPDATE：补 WHERE 1 = 1（否则会更新全库所有租户的行） | `backend/server/src/test/java/com/erp/shared/tenant/TenantSqlTest.java` |
+| `TC-TNT-023` | DELETE FROM：同法 | `backend/server/src/test/java/com/erp/shared/tenant/TenantSqlTest.java` |
+| `TC-TNT-024` | ★ TRUNCATE 是 DDL，不改写（造数工具要能清全库） | `backend/server/src/test/java/com/erp/shared/tenant/TenantSqlTest.java` |
+| `TC-TNT-025` | ★ JdbcTemplate 层改过之后，DataSource 层再过一遍是 no-op | `backend/server/src/test/java/com/erp/shared/tenant/TenantSqlTest.java` |
+| `TC-TNT-026` | ★ 手工写了谓词的 SQL 不会被重复追加（当前租户断言） | `backend/server/src/test/java/com/erp/shared/tenant/TenantSqlTest.java` |
+| `TC-TNT-027` | ★ 只给两张表中一张加了谓词时，仍会被补上（不能被误判成已完成） | `backend/server/src/test/java/com/erp/shared/tenant/TenantSqlTest.java` |
+| `TC-TNT-028` | ★ 没有绑定租户 → 抛 SYS_TENANT_CONTEXT_MISSING，绝不回落默认租户 | `backend/server/src/test/java/com/erp/shared/tenant/TenantSqlTest.java` |
+| `TC-TNT-029` | 系统旁路上下文也不能走业务查询（没有确定的租户归属） | `backend/server/src/test/java/com/erp/shared/tenant/TenantSqlTest.java` |
 | `TC-SYS-001` | ★ /actuator/prometheus 返回 200 且匿名可访问（抓取器不带 JWT） | `backend/server/src/test/java/com/erp/sys/ActuatorPrometheusIT.java` |
 | `TC-SYS-002` | ★ 端点含自定义业务指标：erp_order_placed_total / erp_order_failed_total / erp_audit_* | `backend/server/src/test/java/com/erp/sys/ActuatorPrometheusIT.java` |
 | `TC-SYS-003` | ★ 指标暴露格式合法：每个指标都有 HELP/TYPE 且带 application 标签 | `backend/server/src/test/java/com/erp/sys/ActuatorPrometheusIT.java` |
@@ -673,5 +763,33 @@
 | `TC-SYS-077` | ★ 动作集合包含所有业务域（新增动作时必须来改这条用例，形成提醒） | `backend/server/src/test/java/com/erp/sys/domain/AuditEnumsTest.java` |
 | `TC-SYS-078` | OTHER 只作为兜底存在，不参与路径映射（避免它变成常用分支） | `backend/server/src/test/java/com/erp/sys/domain/AuditEnumsTest.java` |
 | `TC-SYS-079` | 动作名长度不超过数据库列宽 VARCHAR(32) | `backend/server/src/test/java/com/erp/sys/domain/AuditEnumsTest.java` |
+| `TC-API-125` | ★ 登录结果与 token 都携带租户：租户 2 用户登录后 tenantId=2，且只能读自己的数据 | `backend/server/src/test/java/com/erp/tenant/TenantAuthIT.java` |
+| `TC-API-126` | ★ 没有 tid 声明的 token（旧版本签发）→ 401，不能靠库里的租户兜底 | `backend/server/src/test/java/com/erp/tenant/TenantAuthIT.java` |
+| `TC-API-127` | ★ tid 与账号真实归属不一致 → 401（不能拿别的租户的声明蒙混） | `backend/server/src/test/java/com/erp/tenant/TenantAuthIT.java` |
+| `TC-API-128` | ★ 商品/SKU 是最基础的读路径：跨租户 id → 404，同租户 200 有内容 | `backend/server/src/test/java/com/erp/tenant/TenantAuthIT.java` |
+| `TC-API-133` | ★ 租户 ∧ 数据权限的复合过滤：跨租户 404、同租户跨仓 404、本租户本仓 200 | `backend/server/src/test/java/com/erp/tenant/TenantAuthIT.java` |
+| `TC-API-134` | ★ 反向越权同样 404：租户 1 的 token 查租户 2 的商品/单据/审计 | `backend/server/src/test/java/com/erp/tenant/TenantAuthIT.java` |
+| `TC-TNT-044` | ★ Σ(各租户库存) == 全局库存；任一租户的 SQL 只能看见自己的行 | `backend/server/src/test/java/com/erp/tenant/TenantInvariantsIT.java` |
+| `TC-TNT-045` | ★ 单号序列按租户独立：同一天两个租户都从 0001 开始，各自递增不串号 | `backend/server/src/test/java/com/erp/tenant/TenantInvariantsIT.java` |
+| `TC-TNT-046` | ★ 幂等键按租户：同一 requestId 在两个租户各建一单；同租户重放只回自己那单 | `backend/server/src/test/java/com/erp/tenant/TenantInvariantsIT.java` |
+| `TC-TNT-047` | ★ 审计归属：租户 2 写入后按真实 tenant_id 查库 == 2（不是 DB 默认值 1） | `backend/server/src/test/java/com/erp/tenant/TenantInvariantsIT.java` |
+| `TC-TNT-048` | ★ 定时任务逐租户执行：两个租户各有一条到期预占，调度后各自只释放自己的 | `backend/server/src/test/java/com/erp/tenant/TenantInvariantsIT.java` |
+| `TC-TNT-038` | 矩阵 · 按 id 直查：异租户 id → 404；同租户 → 200 且真有该行 | `backend/server/src/test/java/com/erp/tenant/TenantIsolationMatrixIT.java` |
+| `TC-TNT-039` | 矩阵 · 列表：异租户过滤条件 → 200 空；同租户 → 200 有本租户行 | `backend/server/src/test/java/com/erp/tenant/TenantIsolationMatrixIT.java` |
+| `TC-TNT-040` | 矩阵 · 导出：export=csv 与列表同一查询，不得到别租户的行 | `backend/server/src/test/java/com/erp/tenant/TenantIsolationMatrixIT.java` |
+| `TC-TNT-041` | 矩阵 · 关联查询：从本租户资源反查时看不到别租户的关联行 | `backend/server/src/test/java/com/erp/tenant/TenantIsolationMatrixIT.java` |
+| `TC-TNT-042` | 矩阵 · 聚合：合计数里不得混入别租户的数据 | `backend/server/src/test/java/com/erp/tenant/TenantIsolationMatrixIT.java` |
+| `TC-TNT-043` | ★ 矩阵规模自检：9 × 5 × 3 = 135 格，一格都不能少 | `backend/server/src/test/java/com/erp/tenant/TenantIsolationMatrixIT.java` |
+| `TC-API-129` | ★ 接口层：三张单据 + 商品/SKU/审计的跨租户详情一律 404（不是 403） | `backend/server/src/test/java/com/erp/tenant/TenantIsolationMatrixIT.java` |
+| `TC-API-130` | ★ 接口层：审计按 id / 按单据 / 按 traceId 三条读路径都看不到别租户 | `backend/server/src/test/java/com/erp/tenant/TenantIsolationMatrixIT.java` |
+| `TC-API-131` | ★ 接口层：列表/导出响应里不得出现别租户的 id（不是靠前端隐藏） | `backend/server/src/test/java/com/erp/tenant/TenantIsolationMatrixIT.java` |
+| `TC-API-132` | ★ 接口层：租户 2 看自己的数据必须 200 且有内容（证明 404 来自隔离而非接口坏） | `backend/server/src/test/java/com/erp/tenant/TenantIsolationMatrixIT.java` |
+| `TC-TNT-031` | ★ 表清单与库里真实列双向相等：少一张=漏过滤，多一张=改写器写不存在的列 | `backend/server/src/test/java/com/erp/tenant/TenantSchemaIT.java` |
+| `TC-TNT-032` | ★ V16 之后所有业务表都没有 tenant_id 为 NULL 的行（回填完整） | `backend/server/src/test/java/com/erp/tenant/TenantSchemaIT.java` |
+| `TC-TNT-033` | ★ ON CONFLICT 白名单里的表，都存在以 tenant_id 开头的唯一索引 | `backend/server/src/test/java/com/erp/tenant/TenantSchemaIT.java` |
+| `TC-TNT-034` | ★ 审计表的 tenant_id 仍是 V13 的 NOT NULL DEFAULT 1（已知坑），演示租户已种角色 | `backend/server/src/test/java/com/erp/tenant/TenantSchemaIT.java` |
+| `TC-TNT-035` | ★ 容器里的 JdbcTemplate 必须是租户感知实现，且强制开关默认开启 | `backend/server/src/test/java/com/erp/tenant/TenantWiringIT.java` |
+| `TC-TNT-036` | ★ 没有租户绑定时拒绝执行，而不是回落到默认租户 | `backend/server/src/test/java/com/erp/tenant/TenantWiringIT.java` |
+| `TC-TNT-037` | 上下文成对开闭：嵌套切换后精确回退到上一层，异常也不泄漏 | `backend/server/src/test/java/com/erp/tenant/TenantWiringIT.java` |
 
-共 669 条用例。
+共 787 条用例。

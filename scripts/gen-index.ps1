@@ -82,7 +82,9 @@ function Gen-Modules {
                 'rpt'    { '统计报表（只读）' }
                 'nl'     { '自然语言解析与意图调度（不承载业务规则）' }
                 'sys'    { '幂等、审计、测试钩子' }
-                'shared' { '通用：时间、金额、错误码' }
+                'aps'    { '审批流定义与实例流转（会签/或签、金额阈值）' }
+                'cst'    { '移动加权成本、月结转、毛利分析' }
+                'shared' { '通用：时间、金额、错误码、租户上下文' }
                 default  { '（未登记，请补充 docs/03 模块表）' }
             }
             $lines += "| ``$mod`` | $duty | $fileCount | $lineCount | $testCount |"
