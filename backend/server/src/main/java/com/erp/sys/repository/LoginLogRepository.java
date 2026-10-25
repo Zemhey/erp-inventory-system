@@ -4,7 +4,6 @@ import com.erp.sys.domain.LoginLog;
 import java.util.List;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
-import org.springframework.jdbc.core.simple.SimpleJdbcInsert;
 import org.springframework.stereotype.Repository;
 
 /** 登录日志仓储（FR-V3-29）。只追加（insert）与只读查询，无改删方法。 */
@@ -29,17 +28,20 @@ public class LoginLogRepository {
 
     public void insert(long userId, String username, String ip, String userAgent,
                        boolean success, String failReason) {
-        SimpleJdbcInsert insert = new SimpleJdbcInsert(jdbc)
-                .withTableName("sys_login_log")
-                .usingGeneratedKeyColumns("id");
-        java.util.Map<String, Object> params = new java.util.LinkedHashMap<>();
-        params.put("user_id", userId);
-        params.put("username", username);
-        params.put("ip", ip);
-        params.put("user_agent", userAgent);
-        params.put("success", success);
-        params.put("fail_reason", failReason);
-        insert.execute(params);
+        // ★ 不用 SimpleJdbcInsert：它会按表结构把**所有列**都写进 INSERT 的列清单，
+        //   没赋值的列（login_at / created_at / tenant_id）一律绑成 null，
+        //   反而顶掉了列上的 DEFAULT now()，导致登录日志写入直接违反 not-null 约束，
+        //   把整个 /auth/login 打成 500。这里显式写列清单，时间交给数据库 now()。
+        //
+        //   tenant_id 由 TenantAwareJdbcTemplate 自动追加（登录阶段可能为空，
+        //   V19.1 已把该列改成可空 —— 未知租户的失败登录本身也值得记录）。
+        jdbc.update(
+                """
+                        INSERT INTO sys_login_log
+                            (user_id, username, ip, user_agent, success, fail_reason, login_at, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, now(), now())
+                        """,
+                userId, username, ip, userAgent, success, failReason);
     }
 
     public List<LoginLog> list(int limit) {

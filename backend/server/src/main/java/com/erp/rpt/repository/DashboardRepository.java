@@ -108,20 +108,50 @@ public class DashboardRepository {
     }
 
     /**
-     * 最近单据（跨类型聚合）。一次取各类型最近 limit 条，Java 侧合并排序。
+     * 一张单据来源表的列名映射。
+     *
+     * 为什么不用一套通用列名：各单据表字段并不统一 ——
+     * 进货/出货/退货是 {@code order_no + total_qty + total_amount}，
+     * 调拨是 {@code transfer_no} 且没有数量金额列（明细在 transfer_lines）。
+     * 通用列名会在调拨单上直接 SQL 报错，把整个工作台打成 500。
      *
      * @param table     业务表名
      * @param type      单据类型标签
-     * @param partyCol  往来单位列名（supplier_id / customer_id），无则 null
-     * @param limit     每种取最近条数
+     * @param noCol     单号列
+     * @param partyCol  往来单位列（supplier_id / customer_id），无则 null
+     * @param qtyCol    数量列，无则 null（返回 0）
+     * @param amountCol 金额列，无则 null（返回 0）
      */
-    public List<Map<String, Object>> recentDocuments(String table, String type, String partyCol,
-                                                    int limit) {
+    public record DocSource(String table, String type, String noCol, String partyCol,
+                            String qtyCol, String amountCol) {
+    }
+
+    /** 只有订单类单据有单一 warehouse_id 列；调拨单是 from/to 两列，不能直接当仓库列用。 */
+    private static boolean hasWarehouse(String table) {
+        return "purchase_orders".equals(table)
+                || "sales_orders".equals(table)
+                || "return_orders".equals(table);
+    }
+
+    /**
+     * 最近单据（跨类型聚合）。一次取各类型最近 limit 条，Java 侧合并排序。
+     */
+    public List<Map<String, Object>> recentDocuments(DocSource src, int limit) {
         String sql = """
-                SELECT id, order_no AS no, status, biz_date, total_qty, total_amount,
-                       %s AS party_id, warehouse_id AS warehouse_id
+                SELECT id, %s AS no, status, biz_date,
+                       %s AS party_id,
+                       %s AS warehouse_id,
+                       COALESCE(%s, 0) AS total_qty,
+                       COALESCE(%s, 0) AS total_amount
                   FROM %s ORDER BY created_at DESC LIMIT ?
-                """.formatted(partyCol == null ? "NULL" : partyCol, table);
+                """.formatted(
+                src.noCol(),
+                src.partyCol() == null ? "NULL" : src.partyCol(),
+                hasWarehouse(src.table()) ? "warehouse_id" : "NULL",
+                src.qtyCol() == null ? "NULL" : src.qtyCol(),
+                src.amountCol() == null ? "NULL" : src.amountCol(),
+                src.table());
+        String type = src.type();
         return jdbc.query(sql, (rs, i) -> {
             Map<String, Object> m = new java.util.LinkedHashMap<>();
             m.put("type", type);

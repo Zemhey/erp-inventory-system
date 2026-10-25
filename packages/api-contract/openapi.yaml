@@ -5724,6 +5724,12 @@ paths:
       tags: [skeleton]
       summary: 预览下一张单号（不消费流水，FR-V3-25）
       operationId: previewNumberRule
+      description: |
+        - 只读推演，**不消费**流水号：反复预览返回同一个号
+        - 约定：写操作统一带 `X-Request-Id`（幂等键），预览虽只读也保持同一约定，
+          便于前端复用同一个请求封装
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
       requestBody:
         required: true
         content:

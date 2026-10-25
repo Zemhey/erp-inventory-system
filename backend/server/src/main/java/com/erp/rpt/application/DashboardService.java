@@ -60,11 +60,20 @@ public class DashboardService {
         todos.put("items", repository.recentPendingApprovals(5));
         result.put("todos", todos);
 
+        // ★ 各单据表的"单号 / 数量 / 金额 / 往来单位"列名并不统一：
+        //   进货单、出货单、退货单是 order_no + total_qty + total_amount，
+        //   调拨单是 transfer_no，而且没有数量金额列（它的明细在 transfer_lines）。
+        //   所以这里按单据类型显式声明真实列名，不再用一套通用列名套所有表 ——
+        //   通用列名会让"最近单据"整块 500，进而把整个工作台打成错误页。
         List<Map<String, Object>> recent = new ArrayList<>();
-        recent.addAll(repository.recentDocuments("purchase_orders", "purchase", "supplier_id", 5));
-        recent.addAll(repository.recentDocuments("sales_orders", "sales", "customer_id", 5));
-        recent.addAll(repository.recentDocuments("return_orders", "return", "customer_id", 5));
-        recent.addAll(repository.recentDocuments("inventory_transfers", "transfer", null, 5));
+        recent.addAll(repository.recentDocuments(new DashboardRepository.DocSource(
+                "purchase_orders", "purchase", "order_no", "supplier_id", "total_qty", "total_amount"), 5));
+        recent.addAll(repository.recentDocuments(new DashboardRepository.DocSource(
+                "sales_orders", "sales", "order_no", "customer_id", "total_qty", "total_amount"), 5));
+        recent.addAll(repository.recentDocuments(new DashboardRepository.DocSource(
+                "return_orders", "return", "order_no", "customer_id", "total_qty", "total_amount"), 5));
+        recent.addAll(repository.recentDocuments(new DashboardRepository.DocSource(
+                "inventory_transfers", "transfer", "transfer_no", null, null, null), 5));
         recent.sort(Comparator.comparing((Map<String, Object> m) -> (String) m.get("bizDate"))
                 .reversed());
         if (recent.size() > 8) {
