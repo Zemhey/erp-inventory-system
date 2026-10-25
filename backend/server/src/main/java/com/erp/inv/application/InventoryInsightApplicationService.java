@@ -3,6 +3,7 @@ package com.erp.inv.application;
 import com.erp.inv.domain.AlertType;
 import com.erp.inv.domain.InventoryAlert;
 import com.erp.inv.domain.Ownership;
+import com.erp.inv.domain.ReplenishmentFormula;
 import com.erp.inv.domain.ReplenishmentSuggestion;
 import com.erp.inv.domain.StockStatus;
 import com.erp.inv.repository.InventoryInsightRepository;
@@ -156,11 +157,9 @@ public class InventoryInsightApplicationService {
     public List<ReplenishmentSuggestion> replenishment(Long warehouseId) {
         List<ReplenishmentSuggestion> result = new ArrayList<>();
         for (var row : insights.replenishmentCandidates(warehouseId)) {
-            if (row.pendingPurchaseQty() > 0) {
-                continue;
-            }
-            int suggested = row.maxLevel() - row.availableQty();
-            if (suggested <= 0) {
+            Integer suggested = ReplenishmentFormula.suggest(row.availableQty(), row.minLevel(),
+                    row.maxLevel(), row.pendingPurchaseQty());
+            if (suggested == null) {
                 continue;
             }
             result.add(new ReplenishmentSuggestion(row.skuId(), row.warehouseId(),

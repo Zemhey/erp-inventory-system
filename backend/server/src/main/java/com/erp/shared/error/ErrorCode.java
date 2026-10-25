@@ -251,7 +251,19 @@ public enum ErrorCode {
     /** 财务报表查询期间非法（格式非 yyyy-MM 或区间倒置）。 */
     FIN_REPORT_PERIOD_INVALID(400),
     /** 财务域写入的账期已被月结锁定（与 SET_PERIOD_CLOSED 分码：前端按模块提示）。 */
-    FIN_PERIOD_CLOSED(409);
+    FIN_PERIOD_CLOSED(409),
+
+    // ── V3-3 供应链补口：PRM 价格与促销（纯追加）──
+    /** 价格方案按 id 不存在。 */
+    PRM_PLAN_NOT_FOUND(404),
+    /** 价格方案编码重复。 */
+    PRM_PLAN_CODE_DUPLICATED(409),
+    /** 价格方案内容校验失败（明细为空、日期倒挂、类型必填项缺失、价格/折扣越界）。 */
+    PRM_PRICE_PLAN_INVALID(400),
+    /** 促销活动按 id 不存在。 */
+    PRM_PROMOTION_NOT_FOUND(404),
+    /** 促销活动编码重复。 */
+    PRM_PROMOTION_CODE_DUPLICATED(409);
 
     private final int httpStatus;
 

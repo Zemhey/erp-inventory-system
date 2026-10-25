@@ -90,7 +90,7 @@ public class InventoryInsightRepository {
                   FROM inventory_balances b
                   JOIN skus s ON s.id = b.sku_id AND s.enabled AND s.min_level > 0
                   JOIN warehouses w ON w.id = b.warehouse_id AND w.enabled
-                 WHERE (? IS NULL OR b.warehouse_id = ?)
+                 WHERE (?::bigint IS NULL OR b.warehouse_id = ?)
                  GROUP BY b.sku_id, b.warehouse_id, s.min_level, w.priority
                 HAVING SUM(b.available_qty) < s.min_level
                  ORDER BY w.priority DESC, b.sku_id
@@ -113,7 +113,7 @@ public class InventoryInsightRepository {
                  WHERE b.on_hand_qty > 0
                    AND b.expiry_date IS NOT NULL
                    AND b.expiry_date <= ?
-                   AND (? IS NULL OR b.warehouse_id = ?)
+                   AND (?::bigint IS NULL OR b.warehouse_id = ?)
                  ORDER BY b.expiry_date, w.priority DESC, b.sku_id
                 """, (rs, i) -> new ExpiringRow(
                         rs.getLong("sku_id"), rs.getLong("warehouse_id"), rs.getString("batch_no"),
@@ -150,7 +150,7 @@ public class InventoryInsightRepository {
                         FROM inventory_ledger
                        GROUP BY sku_id, warehouse_id
                   ) l ON l.sku_id = b.sku_id AND l.warehouse_id = b.warehouse_id
-                 WHERE (? IS NULL OR b.warehouse_id = ?)
+                 WHERE (?::bigint IS NULL OR b.warehouse_id = ?)
                  GROUP BY b.sku_id, b.warehouse_id, w.priority,
                           l.last_outbound_at, l.first_movement_at
                 HAVING SUM(b.on_hand_qty) > 0
@@ -186,7 +186,7 @@ public class InventoryInsightRepository {
                   FROM inventory_balances b
                   JOIN skus s ON s.id = b.sku_id AND s.enabled AND s.max_level > 0
                   JOIN warehouses w ON w.id = b.warehouse_id AND w.enabled
-                 WHERE (? IS NULL OR b.warehouse_id = ?)
+                 WHERE (?::bigint IS NULL OR b.warehouse_id = ?)
                  GROUP BY b.sku_id, b.warehouse_id, s.min_level, s.max_level, w.priority
                 HAVING SUM(b.available_qty) < s.min_level
                  ORDER BY w.priority DESC, b.sku_id
