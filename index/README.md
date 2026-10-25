@@ -7,11 +7,11 @@
 
 | 文件 | 内容 | 数据来源 | 生成脚本 | 状态 |
 |---|---|---|---|---|
-| `modules.md` | 模块清单：包名、职责、文件数、代码行数、依赖 | `backend/server/src/main/java/com/erp/` 目录扫描 | `scripts/gen-index.sh` | ⬜ 待 M0 骨架 |
-| `api-map.md` | 接口清单：路径、方法、请求/响应 schema、错误码 | `packages/api-contract/openapi.yaml` | `scripts/gen-openapi.sh` | ⬜ 待契约 |
-| `deps.json` | 模块与第三方依赖图（机器可读） | `gradle dependencies` / `npm ls` | `scripts/gen-index.sh` | ⬜ 待骨架 |
-| `coverage-map.md` | 按模块的测试覆盖率 | JaCoCo / c8 报告（CI 产物） | CI | ⬜ 待测试地基 |
-| `test-map.md` | 需求 FR ↔ 测试用例 TC 的映射与状态 | [追踪矩阵](../docs/00-索引与追踪矩阵.md#3-追踪矩阵--本文件的核心) + Allure 结果 | `scripts/gen-index.sh` | ⬜ 待测试地基 |
+| `modules.md` | 模块清单：包名、职责、文件数、代码行数、依赖 | `backend/server/src/main/java/com/erp/` 目录扫描 | `scripts/gen-index.sh` | ✅ 13 模块（含 `aps` / `cst`） |
+| `api-map.md` | 接口清单：路径、方法、请求/响应 schema、错误码 | `packages/api-contract/openapi.yaml` | `scripts/gen-index.sh` | ✅ 172 操作 / 141 路径 |
+| `deps.json` | 模块与第三方依赖图（机器可读） | `gradle dependencies` / `npm ls` | `scripts/gen-index.sh` | ✅ 本地按需生成（含 `generatedAt`，不参与 CI 漂移判定） |
+| `coverage-map.md` | 按模块的测试覆盖率 | JaCoCo 报告（CI / 本地构建产物） | `scripts/gen-index.sh` | ✅ 行 87.5% / 分支 68.6%（1204 条用例） |
+| `test-map.md` | 需求 FR ↔ 测试用例 TC 的映射与状态 | `@CaseId` + `@DisplayName` 扫描 | `scripts/gen-index.sh` | ✅ 787 行（源码 793 条 `@CaseId`） |
 
 ## 刷新命令
 
@@ -27,8 +27,11 @@
 3. **单一来源** —— 接口相关的一切都从 `openapi.yaml` 派生（[ADR-0008](../docs/07-决策记录ADR/ADR-0008-OpenAPI为单一事实源.md)）；
 4. **机器可读优先** —— 先产出 `deps.json` 等结构化数据，再渲染 Markdown。
 
-## 为什么现在还没有内容
+## 当前产物
 
-代码和契约尚未落地，索引无内容可生成。这一阶段要做的是**定义生成方式与产物模板**（已完成），骨架跑通后一条命令即可刷新。
+索引已随 V2 收口刷新：`modules.md`（13 模块）、`api-map.md`（172 操作 / 141 路径）、
+`coverage-map.md`（行 87.5% / 分支 68.6%）、`test-map.md`（787 行）。
+`deps.json` 含生成时间戳，本地按需生成，不参与 `--check` 漂移判定；
+其余三份确定性产物在提交后跑 `./scripts/gen-index.sh --check` 必须通过。
 
 > 简历价值点："代码索引与接口清单由脚本从源码与 OpenAPI 自动生成，并纳入 CI 校验以保证文档与代码零漂移。"
