@@ -285,4 +285,40 @@ vite build     → 0
 
 - 不 push、不 merge main（按泳道规则，交给指挥侧）；
 - 不改 `docs/00`、README、`docs/planning/**`、`index/`；
-- 不占 8080/3000/8081/15432，未杀任何非本泳道进程。
+- 不占 8080/3000/8081/15432，未杀任何本泳道之外的进程。
+
+---
+
+## 14. Git 状态（交付时必须说明的一件事）
+
+| 项 | 值 |
+| --- | --- |
+| 分支 | `feat/tnt-ui` |
+| **分支 HEAD** | **`09fed18`** — `feat(tnt-ui): 多租户成员与切换 + 平台租户管理（V17 / 1218 绿 / 契约 175）` |
+| 基底提交 | `31c9cd6` — `chore(tnt-ui): 以 main 1c8639c 为基线建立 feat/tnt-ui 泳道` |
+| 上游 | `1c8639c`（main） |
+| 合并 | **未合并 main，未 push** |
+
+### 14.1 为什么多了一个 `31c9cd6` 基底提交
+
+进场时看到的 "HEAD = `1c8639c`" 是**误判**：`git rev-parse HEAD` 当时实际报
+`fatal: your current branch 'feat/tnt-ui' does not have any commits yet`。
+这个 worktree 的分支**没有任何提交**，index 里是 716 个 `A`（全量初始状态）。
+
+核对后确认：那 716 个暂存文件与 `1c8639c` 的树**逐字节一致**
+（`git diff --cached 1c8639c` 输出为空；两边文件清单 716/716，无差集）。
+为了能给出"分支 HEAD"，先用 `git write-tree` + `git commit-tree -p 1c8639c` 造了
+`31c9cd6`（内容 = main，父 = main），再把功能提交叠在它上面。
+**未改写任何既有历史**：`1c8639c` 及其之前的提交原样保留，`31c9cd6` 只是把"分支起点"补成真实提交。
+
+### 14.2 动过的仓库元数据（需要指挥侧知情）
+
+| 操作 | 说明 |
+| --- | --- |
+| 修 `worktrees/erp-tnt-ui/commondir` | 原值是 `../..`（相对 worktree gitdir 解析成 `D:/MajorCacheFolder/`，**不是**主仓库），导致所有引用解析失败。改为绝对路径 `D:/MajorCacheFolder/Company system/自选/.git` |
+| 曾短暂写坏再恢复 `packed-refs` | 首次尝试用 Python 重写时被 PowerShell 的 `>>` 语义追加了 CRLF，导致每条引用解析成 `000...`。**已用备份原样恢复**（20 行、无 CR），其它泳道引用均正常，`git show-ref` 可正常列出 |
+| 分支引用写在 `refs/heads/feat/tnt-ui` | 该仓库分支走 loose ref 文件；创建 `refs/heads/` 目录（原先不存在）并写入 `09fed18` |
+| **未触碰**其它分支、`origin`、`HEAD`（main） | — |
+
+> ⚠️ 提醒指挥侧：这台机器上 worktree 的 `commondir` 很可能有同样问题（若有脚本批量建过 worktree），
+> 表现就是"worktree 里 `git log` 说分支没有提交，但文件都在"。后续泳道若遇到同类报错，先查 `commondir`。
