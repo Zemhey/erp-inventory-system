@@ -45,6 +45,11 @@ tags:
     description: 认证与权限（登录 / 改密 / 账号 / 角色 / 数据权限，FR-IAM-04~06）
   - name: aps
     description: 审批流（提交 / 同意 / 驳回 / 撤回 / 转办，FR-APS-01~02；只输出可否，不改单据状态）
+  - name: skeleton
+    description: |
+      V3-1 骨架组门面（FR-V3-02~05, 23~25, 29）：工作台聚合 / 待办中心 / 全局搜索 /
+      单据详情 / 组织架构 / 系统参数 / 单号规则 / 登录日志。facade 端点统一用
+      dashboard:read，系统页用 sys:org / sys:config / sys:numberrule / sys:loginlog（ADMIN 直通）。
 
 paths:
   # ─────────────────────────── MDM ───────────────────────────
@@ -5258,6 +5263,537 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ApiError' }
 
+  # ─────────────────────────── V3-1 骨架组门面（FR-V3-02~05, 23~25, 29） ───────────────────────────
+  /dashboard/summary:
+    get:
+      tags: [skeleton]
+      summary: 工作台聚合数据（FR-V3-02）
+      description: |
+        单一聚合端点：8 个 KPI、4 个图表数据集（近 7 日进/出货趋势、出货单状态分布、各仓库 SKU 覆盖）、
+        待办计数与最近待审批、最近单据。只读，权限 dashboard:read。
+      operationId: dashboardSummary
+      responses:
+        '200':
+          description: 工作台聚合结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /todos:
+    get:
+      tags: [skeleton]
+      summary: 待办中心列表（FR-V3-03）
+      operationId: listTodos
+      parameters:
+        - name: type
+          in: query
+          description: approval=待审批 / purchase-receipt=待收货 / sales-ship=待发货 / low-stock=库存预警
+          schema: { type: string, enum: [approval, purchase-receipt, sales-ship, low-stock], default: approval }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50 }
+      responses:
+        '200':
+          description: 待办列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /search:
+    get:
+      tags: [skeleton]
+      summary: 全局搜索（FR-V3-05）
+      operationId: globalSearch
+      parameters:
+        - name: keyword
+          in: query
+          description: 模糊关键词（商品/客户/供应商的名称或编码、单据号）
+          schema: { type: string }
+      responses:
+        '200':
+          description: 分组命中结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /documents/{type}/{id}:
+    get:
+      tags: [skeleton]
+      summary: 单据详情（FR-V3-04）
+      operationId: documentDetail
+      parameters:
+        - name: type
+          in: path
+          required: true
+          description: purchase / sales / return / transfer
+          schema: { type: string, enum: [purchase, sales, return, transfer] }
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: 单据头 + 明细行
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404':
+          description: '`SYS_DOCUMENT_NOT_FOUND` —— 单据不存在'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+  /org/departments:
+    get:
+      tags: [skeleton]
+      summary: 部门树（FR-V3-23）
+      operationId: departmentTree
+      parameters:
+        - name: includeDisabled
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: 嵌套部门树
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { type: object, additionalProperties: true }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [skeleton]
+      summary: 新建部门（FR-V3-23）
+      operationId: createDepartment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code, name]
+              properties:
+                code: { type: string }
+                name: { type: string }
+                parentId: { type: integer, nullable: true }
+                sortNo: { type: integer }
+      responses:
+        '200':
+          description: 新建后的部门
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { type: object, additionalProperties: true }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409':
+          description: '`SYS_DEPARTMENT_CODE_DUPLICATED` —— 部门编码已存在'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    put:
+      tags: [skeleton]
+      summary: 更新部门（FR-V3-23）
+      operationId: updateDepartment
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                parentId: { type: integer, nullable: true }
+                sortNo: { type: integer }
+                enabled: { type: boolean }
+      responses:
+        '200':
+          description: 更新后的部门
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { type: object, additionalProperties: true }
+        '404':
+          description: '`SYS_DEPARTMENT_NOT_FOUND`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    delete:
+      tags: [skeleton]
+      summary: 删除部门（FR-V3-23）
+      operationId: deleteDepartment
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { type: object, additionalProperties: true }
+        '409':
+          description: '`SYS_VALIDATION_ERROR` —— 有子部门或员工，无法删除'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /org/positions:
+    get:
+      tags: [skeleton]
+      summary: 岗位列表（FR-V3-23）
+      operationId: listPositions
+      parameters:
+        - name: departmentId
+          in: query
+          schema: { type: integer, nullable: true }
+      responses:
+        '200':
+          description: 岗位列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { type: object, additionalProperties: true }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [skeleton]
+      summary: 新建岗位（FR-V3-23）
+      operationId: createPosition
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [departmentId, code, name]
+              properties:
+                departmentId: { type: integer }
+                code: { type: string }
+                name: { type: string }
+                level: { type: integer }
+      responses:
+        '200':
+          description: 新建后的岗位
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { type: object, additionalProperties: true }
+        '409':
+          description: '`SYS_POSITION_CODE_DUPLICATED`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    put:
+      tags: [skeleton]
+      summary: 更新岗位（FR-V3-23）
+      operationId: updatePosition
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                departmentId: { type: integer }
+                name: { type: string }
+                level: { type: integer }
+                enabled: { type: boolean }
+      responses:
+        '200':
+          description: 更新后的岗位
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { type: object, additionalProperties: true }
+        '404':
+          description: '`SYS_POSITION_NOT_FOUND`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    delete:
+      tags: [skeleton]
+      summary: 删除岗位（FR-V3-23）
+      operationId: deletePosition
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { type: object, additionalProperties: true }
+        '409':
+          description: '`SYS_VALIDATION_ERROR` —— 岗位下还有员工'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /sys-config:
+    get:
+      tags: [skeleton]
+      summary: 系统参数列表（FR-V3-24）
+      operationId: listSystemConfig
+      parameters:
+        - name: group
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: 系统参数列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { type: object, additionalProperties: true }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    put:
+      tags: [skeleton]
+      summary: 修改系统参数值（FR-V3-24）
+      operationId: updateSystemConfig
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [value]
+              properties:
+                value: { type: string }
+      responses:
+        '200':
+          description: 更新后的参数
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { type: object, additionalProperties: true }
+        '404':
+          description: '`SYS_CONFIG_NOT_FOUND`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /number-rules:
+    get:
+      tags: [skeleton]
+      summary: 单号规则列表（FR-V3-25）
+      operationId: listNumberRules
+      responses:
+        '200':
+          description: 单号规则列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { type: object, additionalProperties: true }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    put:
+      tags: [skeleton]
+      summary: 更新单号规则（FR-V3-25）
+      operationId: updateNumberRule
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [prefix]
+              properties:
+                prefix: { type: string }
+                seqLength: { type: integer }
+                enabled: { type: boolean }
+      responses:
+        '200':
+          description: 更新后的规则
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { type: object, additionalProperties: true }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404':
+          description: '`SYS_NUMBER_RULE_NOT_FOUND`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [skeleton]
+      summary: 预览下一张单号（不消费流水，FR-V3-25）
+      operationId: previewNumberRule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [docType]
+              properties:
+                docType: { type: string }
+      responses:
+        '200':
+          description: 预览示例号
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { type: object, additionalProperties: true }
+        '404':
+          description: '`SYS_NUMBER_RULE_NOT_FOUND`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /login-logs:
+    get:
+      tags: [skeleton]
+      summary: 登录日志列表（FR-V3-29）
+      operationId: listLoginLogs
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 100 }
+      responses:
+        '200':
+          description: 登录日志列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { type: object, additionalProperties: true }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /login-logs/online:
+    get:
+      tags: [skeleton]
+      summary: 当前在线用户（最近 N 分钟成功登录，FR-V3-29）
+      operationId: onlineLoginLogs
+      parameters:
+        - name: minutes
+          in: query
+          schema: { type: integer, default: 30 }
+      responses:
+        '200':
+          description: 在线用户登录日志
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { type: object, additionalProperties: true }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
 components:
   parameters:
