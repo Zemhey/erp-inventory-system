@@ -33,15 +33,19 @@ public class ReceiptService {
     private final DocumentNumberGenerator numberGenerator;
     private final PeriodGuard periodGuard;
     private final ClockProvider clock;
+    /** 凭证触发出口（V3-2 FR-V3-08）：收款核销 → 借 1002 / 贷 1122 + 银行日记账。 */
+    private final com.erp.shared.finance.VoucherTrigger vouchers;
 
     public ReceiptService(ReceivableRepository receivables, CustomerRepository customers,
                           DocumentNumberGenerator numberGenerator, PeriodGuard periodGuard,
-                          ClockProvider clock) {
+                          ClockProvider clock,
+                          com.erp.shared.finance.VoucherTrigger vouchers) {
         this.receivables = receivables;
         this.customers = customers;
         this.numberGenerator = numberGenerator;
         this.periodGuard = periodGuard;
         this.clock = clock;
+        this.vouchers = vouchers;
     }
 
     public record AllocationCommand(long receivableId, long amount) {
@@ -144,6 +148,8 @@ public class ReceiptService {
             }
             receivables.insertAllocation(receiptId, receivable.id(), allocation.amount());
         }
+        // V3-2 FR-V3-08：收款核销 → 自动生成凭证（幂等键 (SAL_RCV, receiptId)）。
+        vouchers.generateForSource("SAL_RCV", receiptId);
         return receivables.findReceiptById(receiptId).orElseThrow();
     }
 

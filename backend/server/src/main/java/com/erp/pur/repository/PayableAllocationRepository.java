@@ -36,14 +36,22 @@ public class PayableAllocationRepository {
         this.jdbc = jdbc;
     }
 
-    public void insert(String paymentNo, long supplierId, long payableId, long amount,
+    /**
+     * 插入一条核销明细并返回其 id。
+     *
+     * <p>★ V3-2 钩子点（纯追加式改造：签名 void→long，调用方不受影响）：
+     * 付款凭证的来源 id 约定为"该笔付款的第一条核销明细 id"，
+     * 财务域顺着它反查整笔付款（见 FinSourceRepository.payment）。
+     */
+    public long insert(String paymentNo, long supplierId, long payableId, long amount,
                        long paymentAmount, LocalDate bizDate, String period, String remark,
                        String requestId) {
-        jdbc.update("""
+        return com.erp.shared.tenant.TenantJdbc.insertReturningId(jdbc, """
                 INSERT INTO payable_allocations
                     (payment_no, supplier_id, payable_id, amount, payment_amount,
                      biz_date, period, remark, request_id)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                RETURNING id
                 """, paymentNo, supplierId, payableId, amount, paymentAmount,
                 bizDate, period, remark, requestId);
     }

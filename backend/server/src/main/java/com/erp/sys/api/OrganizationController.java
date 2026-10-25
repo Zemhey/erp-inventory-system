@@ -3,6 +3,9 @@ package com.erp.sys.api;
 import com.erp.iam.security.RequirePermission;
 import com.erp.shared.web.ApiResponses;
 import com.erp.sys.application.OrganizationService;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import java.util.List;
 import java.util.Map;
 import org.springframework.http.ResponseEntity;
@@ -38,13 +41,14 @@ public class OrganizationController {
         return ResponseEntity.ok(ApiResponses.ok(data));
     }
 
-    public record CreateDepartment(String code, String name, Long parentId, Integer sortNo) {
+    public record CreateDepartment(@NotBlank String code, @NotBlank String name,
+                                   Long parentId, Integer sortNo) {
     }
 
     @PostMapping("/departments")
     @RequirePermission("sys:org")
     public ResponseEntity<Map<String, Object>> createDepartment(
-            @RequestBody CreateDepartment body) {
+            @Valid @RequestBody CreateDepartment body) {
         var d = service.createDepartment(body.code(), body.name(),
                 body.parentId(), body.sortNo() == null ? 0 : body.sortNo());
         return ResponseEntity.ok(ApiResponses.ok(toMap(d)));
@@ -81,13 +85,14 @@ public class OrganizationController {
         return ResponseEntity.ok(ApiResponses.ok(data));
     }
 
-    public record CreatePosition(Long departmentId, String code, String name, Integer level) {
+    public record CreatePosition(@NotNull Long departmentId, @NotBlank String code,
+                                 @NotBlank String name, Integer level) {
     }
 
     @PostMapping("/positions")
     @RequirePermission("sys:org")
     public ResponseEntity<Map<String, Object>> createPosition(
-            @RequestBody CreatePosition body) {
+            @Valid @RequestBody CreatePosition body) {
         var p = service.createPosition(body.departmentId(), body.code(), body.name(),
                 body.level() == null ? 1 : body.level());
         return ResponseEntity.ok(ApiResponses.ok(toPositionMap(p)));

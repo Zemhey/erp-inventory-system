@@ -29,7 +29,7 @@ public class DashboardService {
     }
 
     @Transactional(readOnly = true)
-    public Map<String, Object> summary() {
+    public Map<String, Object> buildSummary() {
         Map<String, Object> result = new LinkedHashMap<>();
 
         Map<String, Object> kpis = new LinkedHashMap<>();

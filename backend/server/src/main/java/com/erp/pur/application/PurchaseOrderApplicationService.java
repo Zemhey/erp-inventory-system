@@ -70,6 +70,12 @@ public class PurchaseOrderApplicationService {
     private final ApprovalGate approvalGate;
     /** 当前操作人（数据权限"按本人"与审批发起人）。 */
     private final ActorContext actors;
+    /**
+     * 凭证触发出口（V3-2 FR-V3-08）。只依赖 {@code shared.finance} 的接口，
+     * 实现由 FIN 提供 —— 与 {@code PeriodGuard}/{@code ApprovalGate} 同一依赖倒置，
+     * PUR 不需要认识凭证长什么样。
+     */
+    private final com.erp.shared.finance.VoucherTrigger vouchers;
 
     public PurchaseOrderApplicationService(PurchaseOrderRepository orders,
                                            PurchaseReceiptRepository receipts,
@@ -82,7 +88,8 @@ public class PurchaseOrderApplicationService {
                                            ClockProvider clock,
                                            PeriodGuard periodGuard,
                                            ApprovalGate approvalGate,
-                                           ActorContext actors) {
+                                           ActorContext actors,
+                                           com.erp.shared.finance.VoucherTrigger vouchers) {
         this.orders = orders;
         this.receipts = receipts;
         this.payables = payables;
@@ -95,6 +102,7 @@ public class PurchaseOrderApplicationService {
         this.periodGuard = periodGuard;
         this.approvalGate = approvalGate;
         this.actors = actors;
+        this.vouchers = vouchers;
     }
 
     // ─────────────────────────── 命令 / 结果 ───────────────────────────
@@ -473,6 +481,10 @@ public class PurchaseOrderApplicationService {
             payables.createForReceipt(receiptId, o.supplierId(), o.id(), o.bizDate(),
                     periodOf(o.bizDate()), acceptedAmount);
         }
+
+        // ④' 凭证自动生成（V3-2 FR-V3-08）：借 1405 库存商品 / 贷 2202 应付账款。
+        //     幂等由 (PUR_IN, receiptId) 唯一键兜底；0 金额（全不合格）不出凭证。
+        vouchers.generateForSource("PUR_IN", receiptId);
 
         // ⑤ 状态推进以"到货量"为准：不合格数量同样关闭未到货量，避免永远无法完成
         PurchaseOrder refreshed = require(id);

@@ -23,6 +23,6 @@ public class DashboardController {
     @GetMapping("/summary")
     @RequirePermission("dashboard:read")
     public ResponseEntity<Map<String, Object>> summary() {
-        return ResponseEntity.ok(ApiResponses.ok(service.summary()));
+        return ResponseEntity.ok(ApiResponses.ok(service.buildSummary()));
     }
 }
