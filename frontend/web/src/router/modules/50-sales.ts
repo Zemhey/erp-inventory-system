@@ -16,6 +16,8 @@ const group: NavGroup = {
     // V3-3 追加：组合商品/信用控制的独立入口 + PRM 价格与促销
     { path: '/product-bundles-page', title: '组合商品', icon: Tickets, permission: 'sal:read' },
     { path: '/customer-credit', title: '信用控制', icon: Money, permission: 'mdm:read' },
+    { path: '/price-plans', title: '价格方案', icon: Sell },
+    { path: '/promotions', title: '促销活动', icon: RefreshLeft },
   ],
   routes: [
     {
@@ -59,6 +61,18 @@ const group: NavGroup = {
       name: 'customer-credit',
       component: () => import('@/views/sal/CreditView.vue'),
       meta: { title: '信用控制', permission: 'mdm:read' },
+    },
+    {
+      path: 'price-plans',
+      name: 'price-plans',
+      component: () => import('@/views/prm/PricePlanView.vue'),
+      meta: { title: '价格方案' },
+    },
+    {
+      path: 'promotions',
+      name: 'promotions',
+      component: () => import('@/views/prm/PromotionView.vue'),
+      meta: { title: '促销活动' },
     },
   ],
 }

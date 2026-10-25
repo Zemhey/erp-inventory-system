@@ -70,7 +70,9 @@ public final class TenantTables {
             // 审批
             "approval_flows", "approval_instances", "approval_steps",
             // 审计（V13 已有列；V16 只追加索引，不改列）
-            "audit_logs"));
+            "audit_logs",
+            // V3-3（V21）：PRM 价格方案与促销
+            "prm_price_plan", "prm_price_plan_item", "prm_promotion", "prm_promotion_rule"));
 
     /**
      * 在查询里**可能出现但不需要改写**的表。

@@ -193,7 +193,19 @@ public enum ErrorCode {
     /** 启用库位容量合计将超过仓库容量。 */
     MDM_LOCATION_CAPACITY_EXCEEDED(409),
     /** 商品规格属性请求非法（键重复、键/值超长、条数超限）。 */
-    MDM_PRODUCT_ATTRIBUTE_INVALID(400);
+    MDM_PRODUCT_ATTRIBUTE_INVALID(400),
+
+    // ── V3-3 供应链补口：PRM 价格与促销（纯追加）──
+    /** 价格方案按 id 不存在。 */
+    PRM_PLAN_NOT_FOUND(404),
+    /** 价格方案编码重复。 */
+    PRM_PLAN_CODE_DUPLICATED(409),
+    /** 价格方案内容校验失败（明细为空、日期倒挂、类型必填项缺失、价格/折扣越界）。 */
+    PRM_PRICE_PLAN_INVALID(400),
+    /** 促销活动按 id 不存在。 */
+    PRM_PROMOTION_NOT_FOUND(404),
+    /** 促销活动编码重复。 */
+    PRM_PROMOTION_CODE_DUPLICATED(409);
 
     private final int httpStatus;
 

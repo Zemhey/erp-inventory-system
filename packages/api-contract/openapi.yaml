@@ -45,6 +45,8 @@ tags:
     description: 认证与权限（登录 / 改密 / 账号 / 角色 / 数据权限，FR-IAM-04~06）
   - name: aps
     description: 审批流（提交 / 同意 / 驳回 / 撤回 / 转办，FR-APS-01~02；只输出可否，不改单据状态）
+  - name: prm
+    description: 价格与促销（FR-V3-20~21；金额口径=分、折扣=万分比，与 sal 一致）
 
 paths:
   # ─────────────────────────── MDM ───────────────────────────
@@ -5258,6 +5260,82 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ApiError' }
 
+
+  # ═════════ V3-3 追加（prm，只增不改） ═════════
+  /prm/price-plans:
+    get:
+      tags: [prm]
+      summary: 价格方案列表（含明细行）
+      parameters:
+        - { name: keyword, in: query, schema: { type: string } }
+      responses:
+        '200': { description: 'items/total；金额字段 priceAmount 单位=分，discountBp=万分比' }
+    post:
+      tags: [prm]
+      summary: 新建价格方案（AGREEMENT/CUSTOMER/CUSTOMER_LEVEL）
+      responses:
+        '201': { description: 创建成功 }
+        '409': { description: 'PRM_PLAN_CODE_DUPLICATED' }
+  /prm/price-plans/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+    get:
+      tags: [prm]
+      summary: 价格方案详情
+      responses:
+        '200': { description: OK }
+        '404': { description: 'PRM_PLAN_NOT_FOUND' }
+    put:
+      tags: [prm]
+      summary: 全量替换方案头与明细
+      responses:
+        '200': { description: OK }
+  /prm/price-plans/{id}/disable:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+    post:
+      tags: [prm]
+      summary: 停用方案
+      responses:
+        '200': { description: OK }
+  /prm/price:
+    get:
+      tags: [prm]
+      summary: 取价试算（协议价>专属价>等级价>标准售价；纯查询幂等）
+      parameters:
+        - { name: skuId, in: query, required: true, schema: { type: integer, format: int64 } }
+        - { name: customerId, in: query, schema: { type: integer, format: int64 } }
+        - { name: qty, in: query, schema: { type: integer, format: int64, default: 1 } }
+      responses:
+        '200': { description: 'source=AGREEMENT_PRICE/CUSTOMER_PRICE/CUSTOMER_LEVEL_PRICE/STANDARD_PRICE' }
+  /prm/promotions:
+    get:
+      tags: [prm]
+      summary: 促销活动列表（台账；规则 JSON 原样回显，不参与算价）
+      responses:
+        '200': { description: OK }
+    post:
+      tags: [prm]
+      summary: 新建促销活动（初始 DRAFT）
+      responses:
+        '201': { description: 创建成功 }
+        '409': { description: 'PRM_PROMOTION_CODE_DUPLICATED' }
+  /prm/promotions/{id}/activate:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+    post:
+      tags: [prm]
+      summary: DRAFT/STOPPED → ACTIVE
+      responses:
+        '200': { description: OK }
+  /prm/promotions/{id}/stop:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+    post:
+      tags: [prm]
+      summary: ACTIVE → STOPPED
+      responses:
+        '200': { description: OK }
 
 components:
   parameters:
