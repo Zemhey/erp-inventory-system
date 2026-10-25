@@ -1667,6 +1667,330 @@ export const approvalApi = {
     }),
 }
 
+// ═══════════════════════ 财务中心（V3-2 · W2，纯追加） ═══════════════════════
+
+/**
+ * ★★ 单位分界线：财务域（/fin/**）金额一律「元」两位小数（简报 §5：numeric(18,2)），
+ * 与业务域的「整数分」（ADR-0005）不同。分→元的精确换算发生在**后端**生成凭证处。
+ * 因此 fin 页面直接 `money(v)` 显示，**绝不再过一遍 fenToYuan** ——
+ * 两处各除一次 100 是最典型的"看起来对、实际差两个数量级"。
+ */
+export const finApi = {
+  // ── 科目（FR-V3-06）──
+  accounts: () => http.get<never, { items: FinAccountView[] }>('/fin/accounts'),
+  accountTree: () => http.get<never, { items: FinAccountView[] }>('/fin/accounts/tree'),
+  createAccount: (body: FinAccountCreatePayload) =>
+    http.post<never, FinAccountView>('/fin/accounts', body),
+  updateAccount: (id: number, body: FinAccountUpdatePayload) =>
+    http.put<never, FinAccountView>(`/fin/accounts/${id}`, body),
+  deleteAccount: (id: number) => http.delete<never, { deleted: number }>(`/fin/accounts/${id}`),
+
+  // ── 凭证（FR-V3-07/08）──
+  vouchers: (params: {
+    status?: string
+    sourceType?: string
+    period?: string
+    from?: string
+    to?: string
+    keyword?: string
+    page?: number
+    size?: number
+  }) => http.get<never, PageData<FinVoucherRow>>('/fin/vouchers', { params }),
+  voucher: (id: number) => http.get<never, FinVoucherDetail>(`/fin/vouchers/${id}`),
+  createVoucher: (body: FinVoucherCreatePayload) =>
+    http.post<never, FinVoucherDetail>('/fin/vouchers', body),
+  updateVoucher: (id: number, body: FinVoucherCreatePayload) =>
+    http.put<never, FinVoucherDetail>(`/fin/vouchers/${id}`, body),
+  auditVoucher: (id: number) => http.post<never, FinVoucherDetail>(`/fin/vouchers/${id}/audit`),
+  postVoucher: (id: number) => http.post<never, FinVoucherDetail>(`/fin/vouchers/${id}/post`),
+
+  // ── 银行账户 + 日记账（FR-V3-09）──
+  bankAccounts: () => http.get<never, { items: BankAccountView[] }>('/fin/bank-accounts'),
+  createBankAccount: (body: BankAccountPayload) =>
+    http.post<never, BankAccountView>('/fin/bank-accounts', body),
+  updateBankAccount: (id: number, body: BankAccountPayload) =>
+    http.put<never, BankAccountView>(`/fin/bank-accounts/${id}`, body),
+  deleteBankAccount: (id: number) =>
+    http.delete<never, { deleted: number }>(`/fin/bank-accounts/${id}`),
+  setDefaultBankAccount: (id: number) =>
+    http.post<never, BankAccountView>(`/fin/bank-accounts/${id}/default`),
+  cashJournal: (params: { accountId?: number; from?: string; to?: string }) =>
+    http.get<never, { items: CashJournalRow[] }>('/fin/cash-journal', { params }),
+  addCashJournal: (body: CashJournalCreatePayload) =>
+    http.post<never, CashJournalRow>('/fin/cash-journal', body),
+
+  // ── 费用报销（FR-V3-10）──
+  expenses: (params: { status?: string; keyword?: string; page?: number; size?: number }) =>
+    http.get<never, PageData<FinExpenseRow>>('/fin/expenses', { params }),
+  expense: (id: number) => http.get<never, FinExpenseDetail>(`/fin/expenses/${id}`),
+  createExpense: (body: FinExpenseCreatePayload) =>
+    http.post<never, FinExpenseDetail>('/fin/expenses', body),
+  updateExpense: (id: number, body: FinExpenseCreatePayload) =>
+    http.put<never, FinExpenseDetail>(`/fin/expenses/${id}`, body),
+  deleteExpense: (id: number) => http.delete<never, { deleted: number }>(`/fin/expenses/${id}`),
+  submitExpense: (id: number) => http.post<never, FinExpenseDetail>(`/fin/expenses/${id}/submit`),
+  approveExpense: (id: number) =>
+    http.post<never, FinExpenseDetail>(`/fin/expenses/${id}/approve`),
+  rejectExpense: (id: number, reason: string) =>
+    http.post<never, FinExpenseDetail>(`/fin/expenses/${id}/reject`, { reason }),
+  payExpense: (id: number) => http.post<never, FinExpenseDetail>(`/fin/expenses/${id}/pay`),
+
+  // ── 发票台账（FR-V3-11）──
+  invoices: (params: {
+    type?: 'OUTPUT' | 'INPUT'
+    status?: string
+    keyword?: string
+    from?: string
+    to?: string
+    page?: number
+    size?: number
+  }) => http.get<never, PageData<FinInvoiceRow>>('/fin/invoices', { params }),
+  createInvoice: (body: FinInvoiceCreatePayload) =>
+    http.post<never, FinInvoiceRow>('/fin/invoices', body),
+  updateInvoice: (id: number, body: FinInvoiceCreatePayload) =>
+    http.put<never, FinInvoiceRow>(`/fin/invoices/${id}`, body),
+  voidInvoice: (id: number) => http.post<never, FinInvoiceRow>(`/fin/invoices/${id}/void`),
+  deleteInvoice: (id: number) =>
+    http.delete<never, { deleted: number }>(`/fin/invoices/${id}`),
+
+  // ── 报表 + 总览（FR-V3-12/13）──
+  balanceSheet: (period: string) =>
+    http.get<never, BalanceSheetView>('/fin/reports/balance-sheet', { params: { period } }),
+  incomeStatement: (period: string) =>
+    http.get<never, IncomeStatementView>('/fin/reports/income-statement', { params: { period } }),
+  overview: () => http.get<never, FinanceOverviewView>('/fin/overview'),
+}
+
+/** 科目金额字段展示：元口径，直接两位小数（见上方分界线说明）。 */
+export function money(yuan: number | string | null | undefined): string {
+  if (yuan == null || yuan === '') return '-'
+  const n = typeof yuan === 'string' ? Number.parseFloat(yuan) : yuan
+  return Number.isNaN(n) ? '-' : n.toFixed(2)
+}
+
+export interface FinAccountView {
+  id: number
+  code: string
+  name: string
+  parentId: number | null
+  category: string
+  categoryLabel: string
+  direction: string
+  directionLabel: string
+  leaf: boolean
+  initBalance: number
+  enabled: boolean
+  remark?: string | null
+  children?: FinAccountView[]
+}
+
+export interface FinAccountCreatePayload {
+  code: string
+  name: string
+  parentId?: number | null
+  category: string
+  direction: string
+  initBalance?: number
+  enabled?: boolean
+  remark?: string
+}
+
+export interface FinAccountUpdatePayload {
+  name?: string
+  direction?: string
+  initBalance?: number
+  enabled?: boolean
+  remark?: string
+}
+
+export interface FinVoucherLineRow {
+  id: number
+  lineNo: number
+  accountId: number
+  accountCode: string
+  summary: string
+  debit: number
+  credit: number
+}
+
+export interface FinVoucherRow {
+  id: number
+  voucherNo: string
+  voucherDate: string
+  period: string
+  sourceType: string
+  sourceTypeLabel: string
+  sourceId: number | null
+  sourceNo: string | null
+  status: string
+  statusLabel: string
+  totalDebit: number
+  totalCredit: number
+  summary?: string | null
+  lineCount: number
+  remark?: string | null
+}
+
+export interface FinVoucherDetail extends FinVoucherRow {
+  createdBy: number | null
+  auditedBy: number | null
+  postedAt: string | null
+  lines: FinVoucherLineRow[]
+}
+
+export interface FinVoucherCreatePayload {
+  voucherDate?: string
+  remark?: string
+  lines: { accountId: number; summary?: string; debit?: number; credit?: number }[]
+}
+
+export interface BankAccountView {
+  id: number
+  code: string
+  name: string
+  bankName?: string | null
+  accountNo?: string | null
+  currency: string
+  balance: number
+  isDefault: boolean
+  enabled: boolean
+  remark?: string | null
+}
+
+export interface BankAccountPayload {
+  code?: string
+  name: string
+  bankName?: string
+  accountNo?: string
+  currency?: string
+  initBalance?: number
+  isDefault?: boolean
+  enabled?: boolean
+  remark?: string
+}
+
+export interface CashJournalRow {
+  id: number
+  accountId: number
+  bizDate: string
+  direction: 'DEBIT' | 'CREDIT'
+  directionLabel: string
+  amount: number
+  balance: number
+  sourceType: string
+  sourceId: number | null
+  summary: string
+}
+
+export interface CashJournalCreatePayload {
+  accountId: number
+  bizDate?: string
+  direction: 'DEBIT' | 'CREDIT'
+  amount: number
+  summary?: string
+}
+
+export interface FinExpenseRow {
+  id: number
+  expenseNo: string
+  applicantId: number | null
+  applicantName: string
+  departmentId: number | null
+  departmentName?: string | null
+  expenseType: string
+  amount: number
+  status: string
+  statusLabel: string
+  applyDate: string
+  rejectReason?: string | null
+  paidAt?: string | null
+  remark?: string | null
+}
+
+export interface FinExpenseDetail extends FinExpenseRow {
+  lines: { id: number; lineNo: number; expenseItem: string; amount: number; invoiceNo?: string | null; remark?: string | null }[]
+}
+
+export interface FinExpenseCreatePayload {
+  expenseType: string
+  departmentId?: number | null
+  departmentName?: string
+  applyDate?: string
+  remark?: string
+  lines: { expenseItem: string; amount: number; invoiceNo?: string; remark?: string }[]
+}
+
+export interface FinInvoiceRow {
+  id: number
+  invoiceNo: string
+  type: 'OUTPUT' | 'INPUT'
+  typeLabel: string
+  partnerId: number | null
+  partnerName: string
+  amount: number
+  taxAmount: number
+  totalAmount: number
+  invoiceDate: string
+  sourceType?: 'PURCHASE_ORDER' | 'SALES_ORDER' | null
+  sourceId?: number | null
+  status: string
+  statusLabel: string
+  remark?: string | null
+}
+
+export interface FinInvoiceCreatePayload {
+  invoiceNo: string
+  type: 'OUTPUT' | 'INPUT'
+  partnerId?: number | null
+  partnerName: string
+  amount: number
+  taxAmount?: number
+  invoiceDate?: string
+  sourceType?: 'PURCHASE_ORDER' | 'SALES_ORDER'
+  sourceId?: number
+  remark?: string
+}
+
+export interface BalanceSheetView {
+  period: string
+  assets: { code: string; name: string; amount: number }[]
+  liabilities: { code: string; name: string; amount: number }[]
+  equity: { code: string; name: string; amount: number }[]
+  assetTotal: number
+  liabilityTotal: number
+  equityTotal: number
+  accumulatedProfit: number
+  liabilityEquityTotal: number
+  diff: number
+  balanced: boolean
+}
+
+export interface IncomeStatementView {
+  period: string
+  revenue: { code: string; name: string; amount: number }[]
+  cost: { code: string; name: string; amount: number }[]
+  expense: { code: string; name: string; amount: number }[]
+  revenueTotal: number
+  costTotal: number
+  expenseTotal: number
+  grossProfit: number
+  netProfit: number
+}
+
+export interface FinanceOverviewView {
+  period: string
+  cards: {
+    fundsBalance: number
+    receivableTotal: number
+    payableTotal: number
+    monthInflow: number
+    monthOutflow: number
+  }
+  cashFlow: { period: string; inflow: number; outflow: number }[]
+  postedVoucherCount: number
+  periodVoucherCount: number
+}
+
 // ═══════════════════════ 金额工具（ADR-0005） ═══════════════════════
 
 /**
