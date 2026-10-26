@@ -55,8 +55,11 @@ public class SkuController {
             @Size(max = 32) String seasonCode,
             @Size(max = 32) String bandCode,
             LocalDate launchDate,
-            @Min(0) Integer minLevel,
-            @Min(0) Integer maxLevel) {
+            // 阈值故意不加 @Min：加了就让负数先被 bean validation 翻成 SYS_VALIDATION_ERROR，
+            // 用户拿不到"这是阈值字段的问题"这个具体码。三种非法（负下限、负上限、上限<下限）
+            // 统一由应用层报 MDM_SKU_LEVEL_INVALID(400)。
+            Integer minLevel,
+            Integer maxLevel) {
     }
 
     public record MatrixRequest(
@@ -88,8 +91,8 @@ public class SkuController {
             @Size(max = 32) String seasonCode,
             @Size(max = 32) String bandCode,
             LocalDate launchDate,
-            @Min(0) Integer minLevel,
-            @Min(0) Integer maxLevel) {
+            Integer minLevel,
+            Integer maxLevel) {
     }
 
     @GetMapping
