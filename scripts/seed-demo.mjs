@@ -168,6 +168,12 @@ async function main() {
       .then(() => console.log(`启用审批流 ${f.code}`))
       .catch((e) => note(`启用审批流 ${f.code}`, e))
   }
+  // 回读一次，记录每种单据的审批是否真的生效：生效之后单据侧的 /approve
+  // 要求"先有已通过的审批实例"，seeder 的建单链必须跟着走审批。
+  for (const f of unwrap(await call('GET', '/approvals/flows'))) {
+    flowsOn.set(f.bizType, Boolean(f.enabled) && (f.steps ?? []).length > 0)
+  }
+  console.log(`审批生效的业务类型：${[...flowsOn].filter(([, v]) => v).map(([k]) => k).join(', ') || '无'}`)
 
   let purchaseCount = 0
   let salesCount = 0
@@ -281,6 +287,37 @@ function periods(n) {
   return out
 }
 
+/** bizType → 该业务的审批是否真的生效（流已启用且有节点）。 */
+const flowsOn = new Map()
+
+/**
+ * 把单据送进审批，返回实例（不签）。
+ *
+ * 单据自己的 submit 只动单据状态机、不建实例 —— 建实例的唯一入口是 POST /approvals。
+ * 留它 PENDING 就是待办中心「待审批」和审批工作台的内容来源。
+ */
+async function openApproval(bizType, doc) {
+  return call('POST', '/approvals', {
+    bizType, bizId: doc.id, bizRefNo: doc.orderNo, amount: doc.totalAmount,
+  })
+}
+
+/**
+ * 建实例并按<b>实际生成的 PENDING 节点</b>逐级签掉，返回实例终态。
+ *
+ * 不能硬写"签两次"：第二级节点带金额阈值（50 万分 = 5000 元），
+ * 小额单的这一级是 SKIPPED，对它调 approve 会撞节点状态非法。
+ */
+async function approveViaFlow(bizType, doc) {
+  const inst = await openApproval(bizType, doc)
+  let cur = inst
+  for (let guard = 0; guard < 6 && cur.status === 'PENDING'; guard++) {
+    await call('POST', `/approvals/${inst.id}/approve`, { remark: '演示审批通过' })
+    cur = await call('GET', `/approvals/${inst.id}`)
+  }
+  return cur.status
+}
+
 async function stockIn(line, qty, bizDate) {
   let order = await call('POST', '/purchase-orders', {
     supplierId: line.supplier.id,
@@ -290,6 +327,8 @@ async function stockIn(line, qty, bizDate) {
     lines: [{ skuId: line.sku.id, qty, unitPriceAmount: line.cost }],
   })
   order = await call('POST', `/purchase-orders/${order.id}/submit`)
+  if (flowsOn.get('PURCHASE_ORDER')) await approveViaFlow('PURCHASE_ORDER', order)
+  // 审批通过不会替单据改状态，必须再打一次单据侧的 approve
   order = await call('POST', `/purchase-orders/${order.id}/approve`)
   // 入库是独立动作：审核通过只代表"可收货"，实收才写库存流水并生成 PUR_IN 凭证
   return call('POST', `/purchase-orders/${order.id}/receive`, {
@@ -306,11 +345,12 @@ async function shipOut(line, customer, qty, bizDate) {
     lines: [{ skuId: line.sku.id, qty, unitPriceAmount: line.retail, discountRate: 9000 }],
   })
   order = await call('POST', `/sales-orders/${order.id}/submit`)
+  if (flowsOn.get('SALES_ORDER')) await approveViaFlow('SALES_ORDER', order)
   order = await call('POST', `/sales-orders/${order.id}/approve`)
   return call('POST', `/sales-orders/${order.id}/ship`)
 }
 
-/** 造一张停在指定状态的进货单：submit=待审批，approve=已审待收。 */
+/** 造一张停在指定状态的进货单：submit=待审批（实例留 PENDING），approve=已审待收。 */
 async function stockPending(line, qty, bizDate, until) {
   let order = await call('POST', '/purchase-orders', {
     supplierId: line.supplier.id,
@@ -320,8 +360,12 @@ async function stockPending(line, qty, bizDate, until) {
     lines: [{ skuId: line.sku.id, qty, unitPriceAmount: line.cost }],
   })
   order = await call('POST', `/purchase-orders/${order.id}/submit`)
-  if (until === 'approve') order = await call('POST', `/purchase-orders/${order.id}/approve`)
-  return order
+  if (until === 'submit') {
+    if (flowsOn.get('PURCHASE_ORDER')) await openApproval('PURCHASE_ORDER', order)
+    return order
+  }
+  if (flowsOn.get('PURCHASE_ORDER')) await approveViaFlow('PURCHASE_ORDER', order)
+  return call('POST', `/purchase-orders/${order.id}/approve`)
 }
 
 /** 造一张已审核待发货的出货单（预占已经产生，所以补货/发货台都有东西可点）。 */
@@ -334,6 +378,7 @@ async function salesPending(line, customer, qty, bizDate) {
     lines: [{ skuId: line.sku.id, qty, unitPriceAmount: line.retail, discountRate: 9000 }],
   })
   order = await call('POST', `/sales-orders/${order.id}/submit`)
+  if (flowsOn.get('SALES_ORDER')) await approveViaFlow('SALES_ORDER', order)
   return call('POST', `/sales-orders/${order.id}/approve`)
 }
 
