@@ -36,12 +36,24 @@ interface SessionState {
   tenantName: string
   /** 该账号的全部租户成员关系；长度 > 1 才显示切换器 */
   tenants: TenantView[]
+  /**
+   * FR-IAM-06 三件套（后端 /auth/login 与 /auth/me 都下发）。
+   *
+   * `mustChangePassword` 为真时，后端 PasswordExpiryFilter 会把**除改密以外**的
+   * 所有业务接口拦成 403 IAM_PASSWORD_EXPIRED —— 所以界面必须据此把用户锁在
+   * 改密对话框上，不给跳过；否则用户到处点都是 403。
+   * `passwordRules` 是校验与提示的唯一来源，前端不再自己编一套规则。
+   */
+  mustChangePassword: boolean
+  passwordExpiresAt: string | null
+  passwordRules: string[]
 }
 
 const PERM_KEY = 'erp.permissions'
 const USER_KEY = 'erp.user'
 const TENANT_KEY = 'erp.tenant'
 const TENANTS_KEY = 'erp.tenants'
+const PWD_KEY = 'erp.password'
 
 function loadPermissions(): string[] {
   const raw = localStorage.getItem(PERM_KEY)
@@ -85,6 +97,36 @@ function loadTenants(): TenantView[] {
   }
 }
 
+/**
+ * 改密状态的可本地恢复字段。
+ *
+ * 存 localStorage 的目的只有一个：密码过期/被重置后刷新页面，首屏要**立刻**是强制
+ * 改密界面，而不是等 /auth/me 往返的那几百毫秒里显示一个能到处点的正常工作台
+ * —— 那段时间里点任何业务接口都只会撞 403。真实判定仍在服务端（过滤器每次请求都查库）。
+ */
+function loadPasswordState(): {
+  mustChangePassword: boolean
+  passwordExpiresAt: string | null
+  passwordRules: string[]
+} {
+  const raw = localStorage.getItem(PWD_KEY)
+  if (!raw) return { mustChangePassword: false, passwordExpiresAt: null, passwordRules: [] }
+  try {
+    const parsed = JSON.parse(raw) as {
+      mustChangePassword?: boolean
+      passwordExpiresAt?: string | null
+      passwordRules?: string[]
+    }
+    return {
+      mustChangePassword: Boolean(parsed.mustChangePassword),
+      passwordExpiresAt: parsed.passwordExpiresAt ?? null,
+      passwordRules: Array.isArray(parsed.passwordRules) ? parsed.passwordRules : [],
+    }
+  } catch {
+    return { mustChangePassword: false, passwordExpiresAt: null, passwordRules: [] }
+  }
+}
+
 export const useSessionStore = defineStore('session', {
   state: (): SessionState => ({
     token: getToken(),
@@ -92,6 +134,7 @@ export const useSessionStore = defineStore('session', {
     permissions: loadPermissions(),
     ...loadTenant(),
     tenants: loadTenants(),
+    ...loadPasswordState(),
   }),
 
   getters: {
@@ -153,6 +196,9 @@ export const useSessionStore = defineStore('session', {
       this.tenantCode = snapshot.tenantCode
       this.tenantName = snapshot.tenantName
       this.tenants = snapshot.tenants
+      this.mustChangePassword = Boolean(snapshot.mustChangePassword)
+      this.passwordExpiresAt = snapshot.passwordExpiresAt ?? null
+      this.passwordRules = Array.isArray(snapshot.passwordRules) ? snapshot.passwordRules : []
 
       localStorage.setItem(PERM_KEY, JSON.stringify(snapshot.permissions))
       localStorage.setItem(
@@ -172,6 +218,14 @@ export const useSessionStore = defineStore('session', {
         }),
       )
       localStorage.setItem(TENANTS_KEY, JSON.stringify(snapshot.tenants))
+      localStorage.setItem(
+        PWD_KEY,
+        JSON.stringify({
+          mustChangePassword: this.mustChangePassword,
+          passwordExpiresAt: this.passwordExpiresAt,
+          passwordRules: this.passwordRules,
+        }),
+      )
     },
 
     logout() {
@@ -184,11 +238,15 @@ export const useSessionStore = defineStore('session', {
       this.tenantCode = ''
       this.tenantName = ''
       this.tenants = []
+      this.mustChangePassword = false
+      this.passwordExpiresAt = null
+      this.passwordRules = []
       clearToken()
       localStorage.removeItem(PERM_KEY)
       localStorage.removeItem(USER_KEY)
       localStorage.removeItem(TENANT_KEY)
       localStorage.removeItem(TENANTS_KEY)
+      localStorage.removeItem(PWD_KEY)
     },
 
     /** 是否拥有某权限（支持 "模块:*" 通配），用于按钮级显隐。 */
