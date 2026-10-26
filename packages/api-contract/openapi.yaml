@@ -5275,6 +5275,15 @@ paths:
       description: |
         单一聚合端点：8 个 KPI、4 个图表数据集（近 7 日进/出货趋势、出货单状态分布、各仓库 SKU 覆盖）、
         待办计数与最近待审批、最近单据。只读，权限 dashboard:read。
+
+        `charts` 各数据集的字段口径（响应体本身是 `additionalProperties: true` 的松散对象，
+        所以把形状写在这里，而不是新造一个 schema 节点）：
+        - `purchaseTrend[]` / `salesTrend[]`：`{ label: 业务日期 yyyy-MM-dd, value: 单数 }`
+        - `docStatusPie[]`：`{ label: 出货单状态枚举名, value: 单数 }`
+        - `inventoryByWarehouse[]`：`{ id: 仓库 id, name: 仓库名, value: 去重 SKU 数 }`
+          —— `name` 自 V4-2 起由后端 `LEFT JOIN warehouses` 给出
+          （此前只有 `id`，工作台只能渲染成"仓 #421"这种读不懂的兜底）；
+          仓库行被物理删掉时 `name` 为 null，前端按 `id` 兜底。
       operationId: dashboardSummary
       responses:
         '200':
@@ -6783,6 +6792,25 @@ components:
         seasonCode: { type: string, maxLength: 32, description: FR-MDM-08 季节编码（`SkuController.java:55` `@Size(max = 32)`） }
         bandCode: { type: string, maxLength: 32, description: FR-MDM-08 波段编码（`SkuController.java:56` `@Size(max = 32)`） }
         launchDate: { type: string, format: date, description: 上市日期；`seasonYear` 由它派生（`SkuController.java:57`） }
+        minLevel:
+          type: integer
+          minimum: 0
+          default: 0
+          description: |
+            安全库存下限（**整数件，不是分**，V4-2 起接口可写）。省略 = 0 = 未设，
+            该 SKU 不进 `GET /inventory/alerts` 的 SAFETY 结果
+            （`InventoryInsightRepository.safetyAlerts` 的 `AND s.min_level > 0`）。
+            为负 → 400 `MDM_SKU_LEVEL_INVALID`。
+        maxLevel:
+          type: integer
+          minimum: 0
+          default: 0
+          description: |
+            补货目标上限（**整数件，不是分**）。省略 = 0 = 未设，
+            该 SKU 不进 `GET /inventory/replenishment`
+            （`replenishmentCandidates` 的 `AND s.max_level > 0`）。
+            顺序约束与库里 CHECK `ck_sku_level_order` 一致：`max = 0` 或 `max >= min`；
+            违反 → 400 `MDM_SKU_LEVEL_INVALID`（所以"只设下限、上限留 0"是合法组合）。
 
     ReserveRequest:
       type: object
@@ -8418,12 +8446,22 @@ components:
           type: integer
           nullable: true
           description: 上市年份，由 `launchDate` 派生（`SkuController.toMap:165`）；无上市日期时为 null
+        minLevel:
+          type: integer
+          minimum: 0
+          description: 安全库存下限（整数件，非分）；0 = 未设，不进安全库存预警（V4-2）
+        maxLevel:
+          type: integer
+          minimum: 0
+          description: 补货上限（整数件，非分）；0 = 未设，不进补货建议（V4-2）
 
     SkuUpdate:
       type: object
       description: |
         `productId`/`color`/`size` 构成业务唯一键，**不可改**；只改这三个字段。
         省略 `retailPriceAmount` 表示保持原值（不是置 0）。
+        V4-2 起可带 `minLevel`/`maxLevel`（安全库存阈值，单位是件），
+        省略同样表示保持原值。
       properties:
         barcode: { type: string, maxLength: 64 }
         retailPriceAmount: { type: integer, format: int64, minimum: 0 }
@@ -8431,6 +8469,19 @@ components:
         seasonCode: { type: string, maxLength: 32 }
         bandCode: { type: string, maxLength: 32 }
         launchDate: { type: string, format: date }
+        minLevel:
+          type: integer
+          minimum: 0
+          description: |
+            安全库存下限（整数件，非分）。**省略 = 保持原值**，显式 0 = 清除阈值（V4-2）。
+            注意同一条 PUT 里 `barcode` 省略即清空、`enabled` 省略即 true
+            （V1 起的全量覆盖语义，本期未改）——只想改阈值的前端要把这两列原值带上。
+        maxLevel:
+          type: integer
+          minimum: 0
+          description: |
+            补货上限（整数件，非分）。省略 = 保持原值，0 = 清除。
+            校验同 `SkuCreate.maxLevel`：`max = 0` 或 `max >= min`，否则 400 `MDM_SKU_LEVEL_INVALID`。
 
     SkuMatrixCreate:
       type: object

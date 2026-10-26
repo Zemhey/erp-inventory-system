@@ -42,7 +42,9 @@ public class SkuRepository {
             rs.getBoolean("enabled"),
             rs.getString("season_code"),
             rs.getString("band_code"),
-            rs.getObject("launch_date", java.time.LocalDate.class));
+            rs.getObject("launch_date", java.time.LocalDate.class),
+            rs.getInt("min_level"),
+            rs.getInt("max_level"));
 
     private final JdbcTemplate jdbc;
 
@@ -53,7 +55,16 @@ public class SkuRepository {
     public long insert(long productId, String color, String size, String barcode,
                        long retailPriceAmount, boolean enabled) {
         return insert(productId, color, size, barcode, retailPriceAmount, enabled,
-                null, null, null, null);
+                null, null, null, 0, 0, null);
+    }
+
+    /** 兼容既有调用方（含 MdmIdempotencyIT）：不写阈值即 0 = 未设。 */
+    public long insert(long productId, String color, String size, String barcode,
+                       long retailPriceAmount, boolean enabled,
+                       String seasonCode, String bandCode, java.time.LocalDate launchDate,
+                       String requestId) {
+        return insert(productId, color, size, barcode, retailPriceAmount, enabled,
+                seasonCode, bandCode, launchDate, 0, 0, requestId);
     }
 
     /**
@@ -62,21 +73,26 @@ public class SkuRepository {
      * <p>与 {@code uq_sku_variant}（商品下颜色×尺码唯一）是两层互不相干的保护：
      * 变体冲突翻成 {@code MDM_SKU_DUPLICATED}，幂等键冲突翻成 {@code SYS_DUPLICATE_REQUEST}。
      * 分工与冲突翻译理由见 {@code WarehouseRepository.insert}。
+     *
+     * <p>{@code minLevel}/{@code maxLevel} 是<b>件数</b>阈值（不是分），0 表示未设；
+     * 库里 {@code ck_sku_level_order} 等三条 CHECK 兜底，越界翻成
+     * {@code MDM_SKU_LEVEL_INVALID}（应用层已先校验，这里是并发/绕过场景的兜底）。
      */
     public long insert(long productId, String color, String size, String barcode,
                        long retailPriceAmount, boolean enabled,
                        String seasonCode, String bandCode, java.time.LocalDate launchDate,
-                       String requestId) {
+                       int minLevel, int maxLevel, String requestId) {
         try {
             return com.erp.shared.tenant.TenantJdbc.insertReturningId(jdbc,
                     """
                         INSERT INTO skus (product_id, color, size, barcode, retail_price_amount,
                                           enabled, season_code, band_code, launch_date,
-                                          create_request_id)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                          min_level, max_level, create_request_id)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         RETURNING id
                         """,
-                    new Object[]{productId, color, size, barcode, retailPriceAmount, enabled, seasonCode, bandCode, launchDate, requestId});
+                    new Object[]{productId, color, size, barcode, retailPriceAmount, enabled,
+                            seasonCode, bandCode, launchDate, minLevel, maxLevel, requestId});
         } catch (DataIntegrityViolationException ex) {
             BusinessException duplicatedVariant = DbErrors.translate(ex, "uq_sku_variant",
                     ErrorCode.MDM_SKU_DUPLICATED,
@@ -95,6 +111,10 @@ public class SkuRepository {
                 throw new BusinessException(ErrorCode.SYS_NOT_FOUND,
                         "商品不存在：productId=%d".formatted(productId));
             }
+            if (DbErrors.isSqlState(ex, DbErrors.CHECK_VIOLATION)) {
+                throw new BusinessException(ErrorCode.MDM_SKU_LEVEL_INVALID,
+                        "安全库存阈值非法：minLevel=%d、maxLevel=%d".formatted(minLevel, maxLevel));
+            }
             throw ex;
         }
     }
@@ -102,7 +122,8 @@ public class SkuRepository {
     public Optional<Sku> findById(long id) {
         return jdbc.query("""
                 SELECT id, product_id, color, size, barcode, retail_price_amount, enabled,
-                       season_code, band_code, launch_date
+                       season_code, band_code, launch_date,
+                       min_level, max_level
                   FROM skus WHERE id = ?
                 """, MAPPER, id).stream().findFirst();
     }
@@ -110,7 +131,8 @@ public class SkuRepository {
     public Optional<Sku> findByVariant(long productId, String color, String size) {
         return jdbc.query("""
                 SELECT id, product_id, color, size, barcode, retail_price_amount, enabled,
-                       season_code, band_code, launch_date
+                       season_code, band_code, launch_date,
+                       min_level, max_level
                   FROM skus WHERE product_id = ? AND color = ? AND size = ?
                 """, MAPPER, productId, color, size).stream().findFirst();
     }
@@ -118,7 +140,8 @@ public class SkuRepository {
     public List<Sku> findByProduct(long productId) {
         return jdbc.query("""
                 SELECT id, product_id, color, size, barcode, retail_price_amount, enabled,
-                       season_code, band_code, launch_date
+                       season_code, band_code, launch_date,
+                       min_level, max_level
                   FROM skus WHERE product_id = ?
                  ORDER BY color, size
                 """, MAPPER, productId);
@@ -201,7 +224,8 @@ public class SkuRepository {
         pageArgs.add(PageResult.offset(p, s));
         List<Sku> items = jdbc.query("""
                 SELECT id, product_id, color, size, barcode, retail_price_amount, enabled,
-                       season_code, band_code, launch_date
+                       season_code, band_code, launch_date,
+                       min_level, max_level
                   FROM skus
                 """ + where + " ORDER BY product_id, color, size LIMIT ? OFFSET ?",
                 MAPPER, pageArgs.toArray());
@@ -224,6 +248,18 @@ public class SkuRepository {
                    SET season_code = ?, band_code = ?, launch_date = ?, updated_at = now()
                  WHERE id = ?
                 """, seasonCode, bandCode, launchDate, id) == 1;
+    }
+
+    /**
+     * 更新安全库存阈值（件数，0 = 未设）。
+     *
+     * <p>单独一条 UPDATE，与 {@link #updateDimensions} 同一理由：
+     * {@link #update} 只覆盖基础三列，把阈值塞进那条语句会让"改价"顺手把阈值清零。
+     */
+    public boolean updateLevels(long id, int minLevel, int maxLevel) {
+        return jdbc.update("""
+                UPDATE skus SET min_level = ?, max_level = ?, updated_at = now() WHERE id = ?
+                """, minLevel, maxLevel, id) == 1;
     }
 
     /** 停用（软删）。停用的 SKU 不允许再建单，但历史单据仍可查阅。 */
@@ -250,7 +286,8 @@ public class SkuRepository {
     public Optional<Sku> findByRequestId(String requestId) {
         return jdbc.query("""
                 SELECT id, product_id, color, size, barcode, retail_price_amount, enabled,
-                       season_code, band_code, launch_date
+                       season_code, band_code, launch_date,
+                       min_level, max_level
                   FROM skus WHERE create_request_id = ?
                 """, MAPPER, requestId).stream().findFirst();
     }
