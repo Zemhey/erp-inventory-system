@@ -50,12 +50,18 @@
 ## 3. 目录
 
 ```
-frontend/miniapp/
+app/uniapp/                      （原 frontend/miniapp，2026-10-26 迁入）
 ├── index.html                 # H5 入口
 ├── vite.config.ts             # uni() + 3002 + /api → 8082（端口与目标可用环境变量覆盖）
 ├── playwright.config.ts       # 移动端 E2E：3005 + 8085 + 自有 PG 15441
 ├── tsconfig.json
 ├── .env.example               # VITE_API_BASE_URL 示例（小程序/Android 必填绝对地址）
+├── .env.production.local.example  # 真机联调（内网 http）/ 发布（备案 https）两种填法的模板
+├── scripts/                   # 出包工具（只用 Node 内置模块，见 §4.6）
+│   ├── preflight.mjs          # 出包前置检查：✖ 会拦住 build:mp-weixin / build:app
+│   ├── set-appid.mjs          # 写 appid / DCloud appid / 包名，保留 JSONC 注释与键序
+│   ├── make-icons.mjs         # 主图 → 各尺寸图标（没主图直接报错，不凑数）
+│   └── jsonc.mjs              # 上面三个共用的 JSONC 定点读写
 ├── e2e/                       # 移动端 E2E（Playwright 打 H5）
 │   ├── start-db.mjs           # 起/复用自有 PostgreSQL 容器（pree2e 钩子）
 │   ├── start-backend.mjs      # 经 ASCII 联接构建并启动后端 8085
@@ -66,20 +72,15 @@ frontend/miniapp/
 │   └── helpers/               # api / db / seed / paths / shot
 └── src/
     ├── main.ts / App.vue      # createSSRApp；启动时装配路由守卫 + 全局样式
-    ├── pages.json             # 8 页注册 + 5 个文字 tabBar + 下拉刷新
-    ├── manifest.json          # appid / mp-weixin / app-plus；uniStatistics 已关闭
+    ├── pages.json             # 页面注册 + 5 个文字 tabBar + 下拉刷新
+    ├── manifest.json          # JSONC：appid / 包名 / 权限 / 版本 —— 出包三道门都在这（带注释说明占位值）
+    ├── uni-app-icons/         # 应用图标：source/master.png（主图，待提供）+ 产出的各尺寸
     ├── config.ts              # API base、H5 判断、非 H5 相对地址的就绪校验
     ├── api/client.ts          # uni.request 封装 + 全部接口与类型
     ├── stores/session.ts      # token / 角色 / 权限持久化（uni storage）
     ├── composables/useDictionary.ts  # sku/warehouse/supplier/customer/product → 名称
     ├── utils/                 # 路由守卫、分→元、日期/类型文案、错误收敛、单据状态镜像
-    └── pages/
-        ├── login/login.vue
-        ├── dashboard/dashboard.vue
-        ├── inventory/inventory.vue
-        ├── sales/{sales,detail}.vue          # 列表 / 详情 / 确认出货
-        ├── purchase/{purchase,detail}.vue    # 列表 / 详情 / 确认入库
-        └── products/{products,product-detail,sku-detail}.vue   # 只读
+    └── pages/                 # 21 页（含 PDA 三页：shipments/detail 扫码拣货、purchase/scan-receive、stocktakes/scan）
 ```
 
 ### API 客户端三条纪律（与 Web 对齐）
@@ -201,12 +202,41 @@ npm run e2e:db:stop         # 收尾：删掉自有容器与数据卷
 
 ---
 
+### 4.6 出包前置检查与三个出包脚本（2026-10-26 新增）
+
+`build:mp-weixin` / `build:app` 早就通过了，**卡的是出包，不是构建**。所以把"到设备上一定坏"的
+配置项前移成一条命令的检查：
+
+| 脚本 | 干什么 | 常用命令 |
+|---|---|---|
+| `scripts/preflight.mjs` | 读完 manifest + `.env*` 后，按平台列出 ✖阻塞 / ⚠提醒 / ℹ信息，每条给"缺什么 + 在哪改 + 示例" | `npm run preflight`（三端全查）、`node scripts/preflight.mjs app --verbose` |
+| `scripts/set-appid.mjs` | 一条命令写正式 appid，**保留 manifest 里的注释与键顺序**（JSONC 定点替换，不整文件重写） | `node scripts/set-appid.mjs wx1234567890abcdef`、`--show`、`--target dcloud\|packagename` |
+| `scripts/make-icons.mjs` | 有主图 → 产出安卓/iOS 各尺寸并可写回 `distribute.icons`；**没主图直接报错**，不生成纯色方块凑数 | `node scripts/make-icons.mjs --master 路径.png --write-manifest` |
+
+**preflight 默认是拦构建的**（`prebuild:mp-weixin` / `prebuild:app` 会先跑它，有 ✖ 就 exit 1，
+`npm run build:*` 直接失败）。要强行出包（内网真机联调 / CI 演示）用逃生口，检查照样全跑、照样打印：
+
+```bash
+npm run build:mp-weixin:force       # = preflight --warn-only --allow-http && uni build
+PREFLIGHT_MODE=warn npm run build:app   # POSIX shell 等价写法
+ERP_SKIP_PREFLIGHT=1 npm run build:app  # 完全跳过（不建议）
+```
+
+退出码：`0` 无阻塞（`node scripts/preflight.mjs h5` 现在就是 0）｜`1` 有 ✖｜`2` 参数或 manifest 读不了。
+只用 Node 内置模块（`node_modules` 是指向主构建区的 junction，装不了 jsonc-parser/commander）。
+
+---
+
 ## 5. 微信开发者工具导入步骤（S8）
 
 ### 5.1 先配置接口地址
 
 微信小程序**没有 Vite 代理**，相对路径 `/api/v1` 不可用。构建前在项目根建
-`.env.production.local`（该文件不入库）：
+`.env.production.local`（该文件不入库；模板已备好）：
+
+```bash
+cp .env.production.local.example .env.production.local   # 然后按下面的三种场景改一行
+```
 
 ```dotenv
 # 开发者工具模拟器：可以用 127.0.0.1（与后端在同一台电脑）
@@ -232,17 +262,25 @@ npm run build:mp-weixin
 1. 打开**微信开发者工具** → 「+」→ 导入项目；
 2. 目录选 `dist/build/mp-weixin`（**不是** `frontend/miniapp` 根目录）；
 3. AppID：本地预览可用 `touristappid`（`manifest.json → mp-weixin.appid` 当前值）；
-   上传/真机完整能力需换成已注册小程序的真实 AppID；
+   拿到真实 AppID 后**别手改文件**，一条命令写进去（保留注释与键序）：
+   `node scripts/set-appid.mjs <后台复制的 AppID>`（校验格式，`--show` 看当前三个标识）；
 4. 详情 → 本地设置 → 勾选「不校验合法域名、web-view（业务域名）、TLS 版本以及 HTTPS 证书」
    （**仅本地联调**；发布前必须取消并配置正式域名）；
 5. 编译后应看到：登录页 → 登录 → 工作台 → 库存余额 → 库存流水（触底/按钮加载第 2 页）。
 
 ### 5.3 发布前检查
 
-- `manifest.json → mp-weixin.appid` 换真实 AppID；
-- 小程序后台配置 **request 合法域名**（HTTPS、已备案、不能带端口/路径）；
-- 服务器域名需完成 **ICP 备案**（M6）；
-- 隐私协议/用户信息相关声明按微信平台要求补齐；
+能机器查的都交给 preflight（**✖ 清零**才算过）：`node scripts/preflight.mjs mp-weixin`
+—— appid 是否还是 `touristappid`、格式是否合法、后端地址是否绝对/是否 HTTPS、
+`urlCheck` 是否还关着，都会逐条报出来并给改法。
+
+preflight 查不了、只能在**微信平台侧**做的（本地永远查不出真值）：
+
+- 小程序后台「开发管理 → 服务器域名」配 **request 合法域名**（HTTPS、已备案、不能带端口/路径）；
+- 服务器域名完成 **ICP 备案**（M6）—— 这是本项目唯一"做得再快也绕不过去"的行政周期；
+- 《用户隐私保护指引》里申报扫码相关能力：3 个页面用 `uni.scanCode`（发货拣货 / 扫码收货 / 库存盘点），
+  未申报时线上会提示接口未授权；
+- 小程序本身也要备案（2023 起微信平台要求）；
 - tabBar 目前是纯文字（无图标），如需图标补 81×81 PNG 后放 `src/static/` 并改 `pages.json`。
 
 ---
@@ -259,16 +297,19 @@ npm run build:app
 
 ### 6.2 路线 A：HBuilderX 云打包（最省事）
 
-前置：
-- HBuilderX（本机未安装，真实出包留 S9）；
-- DCloud 账号，并在 `manifest.json` 配置 DCloud AppID（当前 `__UNI__M4ERP0` 仅为占位，需在 DCloud 后台申请）；
-- Android 包名（如 `com.yunshang.erp`）、版本号 `versionName/versionCode`；
-- **签名证书**：`.jks` / `.keystore` 放仓库外，口令单独保管；
-  `.gitignore` 已排除 `*.jks`、`*.keystore`，**禁止提交**；
-- 应用图标（1024×1024 源图）与启动图。
+配置项现状（2026-10-26 补齐，`node scripts/preflight.mjs app --verbose` 可逐条核对）：
 
-步骤：HBuilderX 导入项目 → 发行 → 原生 App-云打包 → 选择 Android → 填包名/证书/别名 →
-等待云端产出 APK → 安装到模拟器/真机验证三页。
+| 项 | 现状 | 还差什么 |
+|---|---|---|
+| `app-plus.distribute.android.packagename` | ✅ 已填 `com.yunshang.erp`（**占位值**，注释里写明了） | 按实际主体定稿：`node scripts/set-appid.mjs com.<主体>.erp --target packagename --force`；上架后改不了 |
+| `versionName` / `versionCode` | ✅ `0.1.0` / `100`（整数递增） | 每次发布递增 versionCode |
+| `app-plus.distribute.icons` | ⚠ 未配置 —— **能出包**，HBuilderX 会拿它的默认图标顶上，只是图标不是我们的 | 一张 ≥1024×1024 方形主图 → `node scripts/make-icons.mjs --write-manifest` |
+| 启动图 splashscreen | ⚠ 只有默认配置（`alwaysShowBeforeRender` 等），没有自定义启动图 | 设计给图后手工填 `app-plus.splashscreen`（脚本暂不代劳） |
+| DCloud AppID（顶层 `appid`） | ⚠ `__UNI__M4ERP0` 格式合法，但**归属哪个 DCloud 账号本地查不了** | HBuilderX 登录拥有该 appid 的账号，或在 HBuilderX 里重新生成 |
+| 签名证书 `.jks` | ❌ 外部资源 | 自建 keystore（口令另存，**禁止入库**，`.gitignore` 已排除 `*.jks`/`*.keystore`） |
+
+步骤：`npm run build:app:force` 出资源包 → HBuilderX 导入项目 → 发行 → 原生 App-云打包 →
+选 Android → 填包名/证书/别名 → 云端产出 APK → 真机装一次验登录 + 一个写操作 + 一次扫码。
 
 ### 6.3 路线 B：离线 SDK + Android Studio（可控，工作量大）
 
@@ -278,8 +319,13 @@ npm run build:app
 
 ### 6.4 网络与合规
 
-- 开发期允许明文 HTTP（仅调试）；**正式包必须 HTTPS**；
-- `manifest.json → app-plus.distribute.android.permissions` 已声明 `INTERNET` 与网络状态权限；
+- 开发期允许明文 HTTP（仅调试）；**正式包必须 HTTPS**（微信小程序的合法域名更是硬性要求）；
+- `manifest.json → app-plus.distribute.android.permissions` 现有三条：`INTERNET`、
+  `ACCESS_NETWORK_STATE`、**`CAMERA`**。CAMERA 是读代码定的，不是照页面名字猜的：
+  `pages/shipments/detail.vue`、`pages/purchase/scan-receive.vue`、`pages/stocktakes/scan.vue`
+  三处都走 `uni.scanCode({ scanType: ['barCode','qrCode'] })`，页面上的条码输入框只是
+  **扫码调不起来时的降级手录路径**（H5 与开发者工具里必走降级）；真机要摄像头权限才有点「扫码」的意义。
+  preflight 会自己 grep 页面源码，把这条权限与 `uni.scanCode` 的用量对账；
 - 上架应用商店还需要：隐私政策、ICP 备案、软著/资质（按商店要求）、隐私权限清单；
 - 本地调试若用 HTTP，需在打包配置中允许 cleartext（不同 HBuilderX 版本入口不同，按实际版本设置）。
 
