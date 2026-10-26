@@ -101,6 +101,38 @@ public class ApprovalApplicationService {
                         "单据类型 %s 没有启用中的审批流，无法提交审批"
                                 .formatted(cmd.bizType())));
 
+        // ★ V4-3 修复：启用态流程的节点必须在**建实例之前**检查完，且不合格要响亮失败。
+        //
+        //   原来的写法是"取 flow → 插实例 → 遍历 flow.steps() 快照节点"。
+        //   节点为空时（V14 只种了流程头、approval_steps 实际 0 行）循环跑 0 次，
+        //   firstActive 停在 null，才在末尾抛 APS_FLOW_INVALID —— 实例随事务回滚，
+        //   GET /approvals 恒为 total=0，看起来像"提交成功了但没生成审批"。
+        //   紧接着单据侧 approve 的闸门只判断"这张单有没有实例"，于是报
+        //   APS_APPROVAL_REQUIRED「需要审批但尚未提交」：一句语义误导的话，
+        //   把"流程配置缺节点"说成了"用户忘了提交"，单据永久卡在 SUBMITTED，
+        //   进货 → 入库 → 自动生成凭证整条链停摆。
+        //
+        //   为什么宁可让 submit 直接失败：静默跳过（或报一个误导性的 4xx）
+        //   会让用户以为审批已经通过，带着一个永远不会动的单据去干别的事 ——
+        //   这类"看起来成功"的失败比一个明确的 500 更危险，因为它不可自愈、
+        //   且没有任何一层会把它报出来。配置缺陷必须由离它最近的那一次调用喊出来。
+        List<ApprovalStep> definitions = flow.steps();
+        if (definitions.isEmpty()) {
+            throw new BusinessException(ErrorCode.APS_FLOW_NO_STEPS,
+                    "审批流 %s（单据类型 %s）已启用但没有任何审批节点，无法提交审批。"
+                            .formatted(flow.code(), cmd.bizType())
+                    + "请在迁移里补齐该流程的 approval_steps 定义节点，"
+                    + "或把这条流程关掉（POST /approvals/flows/%d/enabled?enabled=false）。"
+                            .formatted(flow.id()));
+        }
+        // 其它配置缺陷（序号不连续、首节点阈值 > 0 导致小额单无节点可走）同样在提交前拒掉。
+        // ApprovalFlow#validate() 早就写好了这些规则，但从来没有调用方 —— 一并接上。
+        flow.validate().ifPresent(problem -> {
+            throw new BusinessException(ErrorCode.APS_FLOW_INVALID,
+                    "审批流 %s 配置非法：%s，请先修正流程定义再提交审批"
+                            .formatted(flow.code(), problem));
+        });
+
         long initiatorId = requireActor().id();
         long instanceId;
         try {
@@ -118,7 +150,7 @@ public class ApprovalApplicationService {
 
         // ③ 快照节点：阈值跳过的节点留 SKIPPED 行（可追溯"这次为什么没走财务"），
         //    但当前节点只落在真正要走的第一个节点上。
-        List<ApprovalStep> definitions = flow.steps();
+        //    definitions 已在上面（建实例之前）取过并校验过，这里直接复用。
         Integer firstActive = null;
         for (ApprovalStep def : definitions) {
             boolean applies = def.appliesTo(cmd.amount());
