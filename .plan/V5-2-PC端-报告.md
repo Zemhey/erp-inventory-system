@@ -10,7 +10,8 @@
 | `6771a19` | 骨架：package.json / 本目录 .gitignore / 配置模板 |
 | `07a2dce` | 本地静态服务 + `/api` 反代（方案支点）+ smoke 12 项 |
 | `e8c3a14` | 窗口 / 托盘 / 打印 / 最小 preload + 主进程自测钩子 |
-| （本文件与 README 同批） | 文档：README 重写 + 本报告 |
+| `9c417d6` | fix：没构建产物时回 `WEB_DIST_MISSING` + 下一步命令，而不是含糊 404 |
+| `d397312` | 文档：README 重写 + 本报告 |
 
 ## 二、架构决策与理由
 
@@ -137,10 +138,11 @@ $ curl            http://127.0.0.1:8788/__desktop__/status       → {"desktop":
 
 ## 四、`frontend/web` 是否真的零改动
 
-`git diff --name-only a4356d9 HEAD` 全量输出只有 12 个文件，**全部在 `app/desktop/` 下**：
+`git diff --name-only a4356d9 HEAD` 全量输出 14 个文件 = **13 个 `app/desktop/` + 本报告的 `.plan/` 一份**：
 
 ```
 app/desktop/.gitignore                         |  13 +
+app/desktop/README.md                          | 203 +++++++++++++----  （原为占位说明，重写）
 app/desktop/config/desktop.config.example.json |  10 +
 app/desktop/package-lock.json                  | 871 +++++++++
 app/desktop/package.json                       |  17 +
@@ -151,8 +153,9 @@ app/desktop/src/dev-launcher.js                |  65 +
 app/desktop/src/main.js                        | 472 +
 app/desktop/src/preload.js                     |  63 +
 app/desktop/src/server-cli.js                  |  29 +
-app/desktop/src/server.js                      | 268 +
-12 files changed, 2199 insertions(+)
+app/desktop/src/server.js                      | 270 +
+.plan/V5-2-PC端-报告.md                        | 205 +   ← 只有这一份在 app/desktop 之外
+14 files changed, 2593 insertions(+), 16 deletions(-)
 ```
 
 对禁改区再点一次名（输出为空即 0 处改动）：
