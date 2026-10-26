@@ -166,9 +166,16 @@ function openPasswordDialog() {
   pwdVisible.value = true
 }
 
-watch(pwdForced, (forced) => {
-  if (forced) pwdVisible.value = true
-})
+watch(
+  pwdForced,
+  (forced) => {
+    if (forced) pwdVisible.value = true
+  },
+  // ★ immediate 不能省：mustChangePassword 是从 localStorage 直接恢复的，
+  //   过期用户刷新页面时它在 setup 阶段就已经是 true —— 不加 immediate 就
+  //   "永远不变所以永远不触发"，界面停在正常工作台上，点哪儿都是 403。
+  { immediate: true },
+)
 
 // 改密成功后 mustChangePassword 转假，清掉事件来源的兜底标记，避免对话框被反复顶开。
 watch(

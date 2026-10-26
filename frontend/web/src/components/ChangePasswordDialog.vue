@@ -100,6 +100,17 @@ function requestClose() {
   emit('update:modelValue', false)
 }
 
+/**
+ * el-dialog 自己的关闭动作（右上角 X / 遮罩 / ESC）。
+ *
+ * 这里刻意用 `:model-value` 单向绑定 + 接管 update，而不是 v-model：
+ * 强制态下必须能"拒绝被关闭"。若直接 v-model，对话框一被置 false 就真关了，
+ * 用户就绕过了改密 —— 而后端在这状态下把其它接口全拦着，界面等于白屏。
+ */
+function onVisibilityChange(value: boolean) {
+  if (!value) requestClose()
+}
+
 async function submit() {
   if (!formRef.value) return
   const valid = await formRef.value.validate().catch(() => false)
@@ -145,7 +156,7 @@ watch(
     :close-on-click-modal="false"
     :close-on-press-escape="!props.forced"
     :show-close="!props.forced"
-    @close="requestClose"
+    @update:model-value="onVisibilityChange"
   >
     <el-alert
       v-if="props.forced"
