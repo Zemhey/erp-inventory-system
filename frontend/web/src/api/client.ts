@@ -157,6 +157,15 @@ http.interceptors.response.use(
     const message = payload?.message || error.message || '请求失败'
 
     if (status === 401) {
+      // ★ 必须按错误码分两种 401，否则会自毁刚接上的改密流程：
+      //   - IAM_UNAUTHENTICATED（token 失效/过期）→ 清 token 回登录页；
+      //   - IAM_BAD_CREDENTIALS（旧密码打错，见 AuthController.changePassword）
+      //     → 会话本身是**有效**的，清 token 跳登录等于"输错一次旧密码就被登出"。
+      //   只按 status 判断就是这里出的错：状态码表达类别，具体原因在业务码里。
+      if (payload?.code === 'IAM_BAD_CREDENTIALS') {
+        ElMessage.error(message)
+        return Promise.reject(new Error(message))
+      }
       // token 无效 / 过期：清掉本地 token 并回登录页。
       // 但在登录页本身，401 是“用户名或密码错误”的业务结果，必须原样展示 ——
       // 否则用户点了登录毫无反馈（M3-S8 E2E-02 实测发现的缺陷）。
