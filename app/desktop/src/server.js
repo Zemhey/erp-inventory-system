@@ -168,9 +168,18 @@ function createServer(config) {
     //   归一成反斜杠，而配置/环境变量传进来的常常是 "D:/xxx/dist" —— 实测会让
     //   所有子路径误判成穿越（403），首页反而正常，非常难猜。
     const root = path.resolve(config.webDist)
-    const abs = rel === '' ? path.join(root, 'index.html') : path.resolve(root, rel)
-    if (abs !== path.join(root, 'index.html') && !abs.startsWith(root + path.sep)) {
+    const index = path.join(root, 'index.html')
+    const abs = rel === '' ? index : path.resolve(root, rel)
+    if (abs !== index && !abs.startsWith(root + path.sep)) {
       return send(res, 403, JSON.stringify({ code: 'PATH_ESCAPE' }))
+    }
+
+    // 产物根本不存在时先给这条可执行的提示，而不是让人对着一个含糊的 404 猜
+    if (!fs.existsSync(index)) {
+      return send(res, 500, JSON.stringify({
+        code: 'WEB_DIST_MISSING',
+        message: `找不到 SPA 构建产物 ${index}。先跑 npm run build:web，或用 DESKTOP_WEB_DIST 指到已有产物。`,
+      }))
     }
 
     const isFileLike = path.extname(abs) !== ''
@@ -181,13 +190,6 @@ function createServer(config) {
       return send(res, 404, JSON.stringify({ code: 'NOT_FOUND', path: pathname }))
     }
     // createWebHistory 的子路径 / F5 刷新：一律回落 index.html，由前端路由决定看哪个页面
-    const index = path.join(root, 'index.html')
-    if (!fs.existsSync(index)) {
-      return send(res, 500, JSON.stringify({
-        code: 'WEB_DIST_MISSING',
-        message: `找不到 SPA 构建产物 ${index}。先跑 npm run build:web，或用 DESKTOP_WEB_DIST 指到已有产物。`,
-      }))
-    }
     return sendFile(req, res, index, { immutable: false })
   }
 
