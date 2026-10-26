@@ -60,13 +60,24 @@
 --
 -- 【节点设计与其权限码依据】
 --   选型原则：**只用 @RequirePermission 已经在用的真实权限码**，不发明新码。
---   依据（实测 app_role_permissions，列名是 permission，不是 permission_code）：
---     ADMIN      持 mdm:* pur:* sal:* inv:* fin:* set:* cst:* rma:* prm:* rpt:*
---                sys:* iam:* aps:*                    ← ActorContext.hasPermission() 支持
---                                                          "模块:*" 前缀通配，所以 admin 一定能签
---     FINANCE    持 pur:pay pur:payable sal:receipt set:* cst:* fin:* aps:approve aps:read
---     PURCHASER  持 pur:create/submit/approve/receive/void + aps:submit aps:read
---     SALESPERSON持 sal:create/submit/ship/void + aps:submit aps:read
+--   依据（实测 app_role_permissions，列名是 permission，不是 permission_code；
+--   下面是 tenant_id=1 的完整授权串，别再凭印象改写）：
+--     ADMIN = aps:* cst:* fin:* iam:* inv:* mdm:* prm:* pur:* rma:* rpt:* sal:*
+--             set:* sys:*  + dashboard:read sal:bundle sal:pick sal:quote sal:receipt
+--             sys:config sys:loginlog sys:numberrule sys:org sys:read tenant:manage
+--             ← ActorContext.Actor#hasPermission() 支持"模块:*"前缀通配，
+--               所以本迁移用到的每一个码 admin 都签得动
+--     FINANCE    = aps:approve aps:read + cst:monthly cst:read cst:recalc
+--                  fin:account:write fin:bank:write fin:expense:approve fin:expense:write
+--                  fin:invoice:write fin:read fin:report fin:voucher:write
+--                  iam:read mdm:read pur:pay pur:payable rma:read rpt:read sal:read
+--                  sal:receipt set:daily set:monthly set:read set:reconcile sys:read
+--                  ★ 注意 FINANCE **没有** set:*/fin:* 这种通配，是逐条授予的
+--     PURCHASER  = aps:read aps:submit + inv:read mdm:read iam:read
+--                  pur:approve pur:create pur:payable pur:receive pur:submit pur:void
+--     SALESPERSON= aps:read aps:submit + inv:read mdm:read iam:read prm:read
+--                  sal:create sal:pick sal:quote sal:receipt sal:ship sal:submit sal:void
+--                  rma:create rma:read rma:submit
 --   每条节点都满足"admin 签得动"（这是本项目踩过的坑：码选错了没人能签）：
 --     pur:approve ⊂ ADMIN 的 pur:*      且显式授予 PURCHASER
 --     sal:approve ⊂ ADMIN 的 sal:*      —— 与 SalesOrderController 自己的
