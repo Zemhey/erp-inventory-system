@@ -263,7 +263,18 @@ public enum ErrorCode {
     /** 促销活动按 id 不存在。 */
     PRM_PROMOTION_NOT_FOUND(404),
     /** 促销活动编码重复。 */
-    PRM_PROMOTION_CODE_DUPLICATED(409);
+    PRM_PROMOTION_CODE_DUPLICATED(409),
+
+    // ── V4-1 接驳：凭证删除（纯追加，勿在此前任何条目上改动 —— Flyway 之外的 checksum 依赖）──
+    /**
+     * 凭证不是草稿，不允许删除（FR-V3-07）。
+     *
+     * <p>与 {@code FIN_VOUCHER_STATUS_ILLEGAL} 分码：那个码同时覆盖"非草稿不可改/不可重复审核"
+     * 等多种非法转移，前端要按它做通用提示；而"删除被拒"必须给出<b>另一套</b>指引 ——
+     * AUDITED/POSTED 的正解不是"改成草稿再删"，而是走既有的作废/红冲语义
+     * （已进报表的凭证删掉会让期初与流水对不上，那是数据事故而不是便利功能）。
+     */
+    FIN_VOUCHER_DELETE_FORBIDDEN(409);
 
     private final int httpStatus;
 

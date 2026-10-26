@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -118,6 +119,23 @@ public class FinVoucherController {
             @RequestHeader("X-Request-Id") @NotBlank String requestId,
             @PathVariable long id) {
         return ResponseEntity.ok(ApiResponses.ok(toMap(vouchers.post(id))));
+    }
+
+    /**
+     * 删除凭证（V4-1：{@code DELETE /api/v1/fin/vouchers/{id}}）。
+     *
+     * <p>此前这个方法是 405 —— 凭证录错了删不掉。语义与约束见
+     * {@link FinVoucherApplicationService#delete(long)}：<b>只删 DRAFT</b>，
+     * AUDITED/POSTED 返回 409 {@code FIN_VOUCHER_DELETE_FORBIDDEN}（走作废/红冲），
+     * 分录连带清除，租户隔离由仓储层的租户感知模板保证。
+     */
+    @DeleteMapping("/{id}")
+    @RequirePermission("fin:voucher:write")
+    public ResponseEntity<Map<String, Object>> delete(
+            @RequestHeader("X-Request-Id") @NotBlank String requestId,
+            @PathVariable long id) {
+        vouchers.delete(id);
+        return ResponseEntity.ok(ApiResponses.ok(Map.of("deleted", true, "id", id)));
     }
 
     private static FinVoucherApplicationService.VoucherCommand toCommand(VoucherRequest req) {

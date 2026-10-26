@@ -1744,6 +1744,14 @@ export const finApi = {
     http.put<never, FinVoucherDetail>(`/fin/vouchers/${id}`, body),
   auditVoucher: (id: number) => http.post<never, FinVoucherDetail>(`/fin/vouchers/${id}/audit`),
   postVoucher: (id: number) => http.post<never, FinVoucherDetail>(`/fin/vouchers/${id}/post`),
+  /**
+   * 删除凭证（V4-1 接驳：此前该路径无 DELETE，返回 405，录错的草稿删不掉）。
+   *
+   * 后端只允许 DRAFT；AUDITED/POSTED 返回 409 FIN_VOUCHER_DELETE_FORBIDDEN，
+   * 已月结的账期同样拒绝。分录由后端连带清除，前端不需要单独调。
+   */
+  deleteVoucher: (id: number) =>
+    http.delete<never, { deleted: boolean; id: number }>(`/fin/vouchers/${id}`),
 
   // ── 银行账户 + 日记账（FR-V3-09）──
   bankAccounts: () => http.get<never, { items: BankAccountView[] }>('/fin/bank-accounts'),

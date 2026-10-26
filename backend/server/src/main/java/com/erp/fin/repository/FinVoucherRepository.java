@@ -176,6 +176,27 @@ public class FinVoucherRepository {
                 """, voucherDate, period, totalDebit, totalCredit, remark, id) == 1;
     }
 
+    /**
+     * 删除草稿凭证（V4-1 接驳：录错了的凭证得有退路）。
+     *
+     * <p>状态闸门（{@code AND status = 'DRAFT'}）写进 SQL 而不是只在外层判断：
+     * "读到 DRAFT → 别人刚好审核 → 我删除"这个竞态，只有让条件更新自己原子地
+     * 失败才防得住；返回 0 行时应用层回查就能给出准确的并发错误。
+     *
+     * <p>先显式删分录再删头。{@code fin_voucher_line.voucher_id} 的 FK 虽然是
+     * {@code ON DELETE CASCADE}，但这里不靠它：① 不必依赖某一句迁移里的 cascade
+     * 长期存在；② 与 {@link #replaceLines} 的"先删后插"口径一致。
+     *
+     * <p>两条 SQL 都经 {@link TenantJdbc} → 租户感知模板改写，自动追加
+     * {@code tenant_id} 谓词：拿着别的租户的凭证 id 来删，结果只会是"0 行"，
+     * 不会删掉别人的凭证。
+     */
+    public boolean deleteDraft(long voucherId) {
+        TenantJdbc.update(jdbc, "DELETE FROM fin_voucher_line WHERE voucher_id = ?", voucherId);
+        return TenantJdbc.update(jdbc,
+                "DELETE FROM fin_voucher WHERE id = ? AND status = 'DRAFT'", voucherId) == 1;
+    }
+
     public PageResult<Voucher> page(VoucherStatus status, VoucherSourceType sourceType,
                                     String period, LocalDate from, LocalDate to, String keyword,
                                     int pageNo, int size) {
