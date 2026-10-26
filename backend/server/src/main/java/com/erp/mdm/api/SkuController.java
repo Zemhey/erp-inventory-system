@@ -54,7 +54,12 @@ public class SkuController {
             Boolean enabled,
             @Size(max = 32) String seasonCode,
             @Size(max = 32) String bandCode,
-            LocalDate launchDate) {
+            LocalDate launchDate,
+            // 阈值故意不加 @Min：加了就让负数先被 bean validation 翻成 SYS_VALIDATION_ERROR，
+            // 用户拿不到"这是阈值字段的问题"这个具体码。三种非法（负下限、负上限、上限<下限）
+            // 统一由应用层报 MDM_SKU_LEVEL_INVALID(400)。
+            Integer minLevel,
+            Integer maxLevel) {
     }
 
     public record MatrixRequest(
@@ -65,13 +70,29 @@ public class SkuController {
             Boolean enabled) {
     }
 
+    /**
+     * 更新请求。
+     *
+     * <p><b>字段缺省语义不统一，是有意为之</b>：{@code retailPriceAmount}、
+     * 三个维度列和两个阈值列省略即<b>保持原值</b>；而 {@code barcode} 省略即清空、
+     * {@code enabled} 省略即 {@code true}（沿用 V1 的 PUT 全量覆盖语义，本期不改，
+     * 否则会静默重新启用已停用的 SKU）。因此前端"只调阈值"的抽屉会先把整行读回来、
+     * 再带着原值提交，避免顺手改掉别的列。
+     *
+     * <p>{@code minLevel}/{@code maxLevel} 单位是<b>件</b>（不是分），0 = 未设：
+     * 下限为 0 时不进安全库存预警，上限为 0 时不进补货建议。
+     * 顺序约束与库里 {@code ck_sku_level_order} 一致：
+     * {@code max = 0} 或 {@code max >= min}，违反时 400 {@code MDM_SKU_LEVEL_INVALID}。
+     */
     public record UpdateRequest(
             @Size(max = 64) String barcode,
             @Min(0) Long retailPriceAmount,
             Boolean enabled,
             @Size(max = 32) String seasonCode,
             @Size(max = 32) String bandCode,
-            LocalDate launchDate) {
+            LocalDate launchDate,
+            Integer minLevel,
+            Integer maxLevel) {
     }
 
     @GetMapping
@@ -110,7 +131,8 @@ public class SkuController {
                 req.productId(), req.color(), req.size(), req.barcode(),
                 req.retailPriceAmount() == null ? 0L : req.retailPriceAmount(),
                 req.enabled() == null || req.enabled(),
-                req.seasonCode(), req.bandCode(), req.launchDate(), requestId));
+                req.seasonCode(), req.bandCode(), req.launchDate(),
+                req.minLevel(), req.maxLevel(), requestId));
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.ok(toMap(s)));
     }
 
@@ -139,7 +161,8 @@ public class SkuController {
                                                       @Valid @RequestBody UpdateRequest req) {
         Sku s = skus.update(id, new SkuApplicationService.UpdateCommand(
                 req.barcode(), req.retailPriceAmount(), req.enabled(),
-                req.seasonCode(), req.bandCode(), req.launchDate()));
+                req.seasonCode(), req.bandCode(), req.launchDate(),
+                req.minLevel(), req.maxLevel()));
         return ResponseEntity.ok(ApiResponses.ok(toMap(s)));
     }
 
@@ -163,6 +186,8 @@ public class SkuController {
         m.put("bandCode", s.bandCode());
         m.put("launchDate", s.launchDate() == null ? null : s.launchDate().toString());
         m.put("seasonYear", s.seasonYear());
+        m.put("minLevel", s.minLevel());
+        m.put("maxLevel", s.maxLevel());
         return m;
     }
 }

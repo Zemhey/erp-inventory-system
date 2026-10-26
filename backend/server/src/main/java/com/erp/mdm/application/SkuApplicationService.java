@@ -47,18 +47,29 @@ public class SkuApplicationService {
     public record CreateCommand(long productId, String color, String size, String barcode,
                                 long retailPriceAmount, boolean enabled,
                                 String seasonCode, String bandCode,
-                                java.time.LocalDate launchDate, String requestId) {
+                                java.time.LocalDate launchDate,
+                                Integer minLevel, Integer maxLevel, String requestId) {
 
         public CreateCommand(long productId, String color, String size, String barcode,
                              long retailPriceAmount, boolean enabled) {
-            this(productId, color, size, barcode, retailPriceAmount, enabled, null, null, null, null);
+            this(productId, color, size, barcode, retailPriceAmount, enabled,
+                    null, null, null, null, null, null);
         }
 
         public CreateCommand(long productId, String color, String size, String barcode,
                              long retailPriceAmount, boolean enabled,
                              String seasonCode, String bandCode, java.time.LocalDate launchDate) {
             this(productId, color, size, barcode, retailPriceAmount, enabled,
-                    seasonCode, bandCode, launchDate, null);
+                    seasonCode, bandCode, launchDate, null, null, null);
+        }
+
+        /** 兼容 V2-C1 刚落地时的 10 参数调用（阈值未填 = 未设）。 */
+        public CreateCommand(long productId, String color, String size, String barcode,
+                             long retailPriceAmount, boolean enabled,
+                             String seasonCode, String bandCode, java.time.LocalDate launchDate,
+                             String requestId) {
+            this(productId, color, size, barcode, retailPriceAmount, enabled,
+                    seasonCode, bandCode, launchDate, null, null, requestId);
         }
     }
 
@@ -67,10 +78,17 @@ public class SkuApplicationService {
                                     java.time.LocalDate launchDate) {
     }
 
-    /** 全量更新：基础字段 + 季节/年份/波段；维度为 null 表示保持原值。 */
+    /**
+     * 全量更新：基础字段 + 季节/年份/波段 + 安全库存阈值；维度与阈值省略（null）表示保持原值。
+     *
+     * <p>{@code minLevel}/{@code maxLevel} 用包装类型而非基本类型，是为了区分
+     * "没传这个字段"（保持原值）和"传了 0"（显式清除阈值）——
+     * 界面上调阈值时不该被要求每次都填回另一个字段。
+     */
     public record UpdateCommand(String barcode, Long retailPriceAmount, Boolean enabled,
                                 String seasonCode, String bandCode,
-                                java.time.LocalDate launchDate) {
+                                java.time.LocalDate launchDate,
+                                Integer minLevel, Integer maxLevel) {
     }
 
     /**
@@ -97,6 +115,9 @@ public class SkuApplicationService {
             return replay.get();
         }
         requireProduct(cmd.productId());
+        int minLevel = requireLevel(cmd.minLevel(), "安全库存下限", 0);
+        int maxLevel = requireLevel(cmd.maxLevel(), "补货上限", 0);
+        requireLevelOrder(minLevel, maxLevel);
         long id = skus.insert(cmd.productId(),
                 requireText(cmd.color(), "颜色"),
                 requireText(cmd.size(), "尺码"),
@@ -106,6 +127,7 @@ public class SkuApplicationService {
                 trimToNull(cmd.seasonCode()),
                 trimToNull(cmd.bandCode()),
                 cmd.launchDate(),
+                minLevel, maxLevel,
                 cmd.requestId());
         return skus.findById(id).orElseThrow();
     }
@@ -182,13 +204,17 @@ public class SkuApplicationService {
         return require(id);
     }
 
-    /** 基础字段 + 维度一次性更新，避免控制器里两次事务造成半更新。 */
+    /** 基础字段 + 维度 + 阈值一次性更新，避免控制器里两次事务造成半更新。 */
     @Transactional
     public Sku update(long id, UpdateCommand cmd) {
         Sku current = require(id);
         long retail = cmd.retailPriceAmount() == null
                 ? current.retailPriceAmount() : cmd.retailPriceAmount();
         requireNonNegative(retail, "零售价");
+        // 阈值：省略 = 保持原值；显式 0 = 清除阈值（预警/补货建议不再覆盖该 SKU）。
+        int minLevel = requireLevel(cmd.minLevel(), "安全库存下限", current.minLevel());
+        int maxLevel = requireLevel(cmd.maxLevel(), "补货上限", current.maxLevel());
+        requireLevelOrder(minLevel, maxLevel);
         boolean ok = skus.update(id, trimToNull(cmd.barcode()), retail,
                 cmd.enabled() == null || cmd.enabled());
         if (!ok) {
@@ -199,6 +225,7 @@ public class SkuApplicationService {
                 cmd.seasonCode() == null ? current.seasonCode() : trimToNull(cmd.seasonCode()),
                 cmd.bandCode() == null ? current.bandCode() : trimToNull(cmd.bandCode()),
                 cmd.launchDate() == null ? current.launchDate() : cmd.launchDate());
+        skus.updateLevels(id, minLevel, maxLevel);
         return require(id);
     }
 
@@ -280,6 +307,40 @@ public class SkuApplicationService {
                     "%s不能为负：%d".formatted(fieldName, value));
         }
         return value;
+    }
+
+    /**
+     * 阈值归一：{@code null}（请求没带这个字段）取 {@code fallback}，带值则必须非负。
+     *
+     * <p>阈值是<b>件数</b>（整数），单位与 {@code retailPriceAmount} 的"分"无关。
+     */
+    private static int requireLevel(Integer value, String fieldName, int fallback) {
+        if (value == null) {
+            return fallback;
+        }
+        if (value < 0) {
+            throw new BusinessException(ErrorCode.MDM_SKU_LEVEL_INVALID,
+                    "%s不能为负：%d（单位是件，0 表示未设）".formatted(fieldName, value));
+        }
+        return value;
+    }
+
+    /**
+     * 阈值顺序校验，口径与库里的 CHECK 约束 {@code ck_sku_level_order} <b>完全一致</b>：
+     * {@code max_level = 0 OR max_level >= min_level}。
+     *
+     * <p>为什么不是无条件 {@code min <= max}：{@code max = 0} 在项目里是"未设上限"的哨兵值
+     * （{@code InventoryInsightRepository.replenishmentCandidates} 就靠
+     * {@code AND s.max_level > 0} 过滤），若在这里禁止 {@code min=50, max=0}，
+     * 用户将无法只设预警下限。前端与后端都按同一条规则给提示，
+     * 免得界面放行、库里翻 CHECK 变成 500。
+     */
+    private static void requireLevelOrder(int minLevel, int maxLevel) {
+        if (maxLevel != 0 && maxLevel < minLevel) {
+            throw new BusinessException(ErrorCode.MDM_SKU_LEVEL_INVALID,
+                    "补货上限不能小于安全库存下限：minLevel=%d、maxLevel=%d（上限留空/0 表示只预警）"
+                            .formatted(minLevel, maxLevel));
+        }
     }
 
     private static String requireText(String value, String fieldName) {

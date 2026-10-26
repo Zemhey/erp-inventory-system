@@ -301,6 +301,9 @@ const skuForm = reactive({
   barcode: '',
   priceYuan: '',
   enabled: true,
+  /** 安全库存阈值，单位是件（不是分）；0 = 未设 */
+  minLevel: 0,
+  maxLevel: 0,
 })
 
 function validatePrice(
@@ -320,6 +323,48 @@ function validatePrice(
 const skuRules: FormRules = {
   barcode: [{ max: 64, message: '条码最多 64 个字符', trigger: 'blur' }],
   priceYuan: [{ validator: validatePrice, trigger: 'blur' }],
+  minLevel: [{ validator: validateMinLevel, trigger: 'blur' }],
+  maxLevel: [{ validator: validateMaxLevel, trigger: 'blur' }],
+}
+
+/** 阈值输入归一：清空/非法一律按 0（未设）处理，与库里 default 0 同口径。 */
+function toLevel(value: unknown): number {
+  const n = Number(value ?? 0)
+  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : 0
+}
+
+function validateMinLevel(
+  _rule: unknown,
+  value: unknown,
+  callback: (error?: string | Error) => void,
+) {
+  const n = Number(value ?? 0)
+  if (!Number.isFinite(n) || n < 0) {
+    callback(new Error('安全库存下限必须是非负整数（件）'))
+    return
+  }
+  callback()
+}
+
+/**
+ * 上限校验与后端 {@code MDM_SKU_LEVEL_INVALID} / 库里 {@code ck_sku_level_order} 同一口径：
+ * {@code 0 = 未设上限}（只预警、不建议补货），是合法值，不能按"上限低于下限"拦掉。
+ */
+function validateMaxLevel(
+  _rule: unknown,
+  value: unknown,
+  callback: (error?: string | Error) => void,
+) {
+  const n = Number(value ?? 0)
+  if (!Number.isFinite(n) || n < 0) {
+    callback(new Error('补货上限必须是非负整数（件）'))
+    return
+  }
+  if (n !== 0 && n < toLevel(skuForm.minLevel)) {
+    callback(new Error('补货上限要不小于安全库存下限；留空(0)表示只预警、不生成补货建议'))
+    return
+  }
+  callback()
 }
 
 function openEditSku(row: Sku) {
@@ -329,6 +374,8 @@ function openEditSku(row: Sku) {
     barcode: row.barcode ?? '',
     priceYuan: fenToYuan(row.retailPriceAmount),
     enabled: row.enabled,
+    minLevel: toLevel(row.minLevel),
+    maxLevel: toLevel(row.maxLevel),
   })
   skuDialog.value = true
 }
@@ -345,6 +392,8 @@ async function saveSku() {
       barcode: skuForm.barcode.trim() || undefined,
       retailPriceAmount: yuanToFen(skuForm.priceYuan),
       enabled: skuForm.enabled,
+      minLevel: toLevel(skuForm.minLevel),
+      maxLevel: toLevel(skuForm.maxLevel),
     })
     ElMessage.success('SKU 已更新')
     skuDialog.value = false
@@ -650,6 +699,15 @@ async function saveAttributes() {
             <span class="amount">¥ {{ fenToYuan(row.retailPriceAmount) }}</span>
           </template>
         </el-table-column>
+        <el-table-column label="安全库存" width="120" align="right">
+          <template #default="{ row }">
+            <span v-if="toLevel(row.minLevel) > 0">
+              {{ toLevel(row.minLevel) }}
+              <span class="level-unit">件</span>
+            </span>
+            <span v-else class="level-unset">未设</span>
+          </template>
+        </el-table-column>
         <el-table-column label="状态" width="90">
           <template #default="{ row }">
             <el-tag :type="row.enabled ? 'success' : 'info'" size="small">
@@ -673,8 +731,8 @@ async function saveAttributes() {
     />
 
     <!-- SKU 编辑 -->
-    <el-dialog v-model="skuDialog" title="编辑 SKU" width="460px" :close-on-click-modal="false">
-      <el-form ref="skuFormRef" :model="skuForm" :rules="skuRules" label-width="100px">
+    <el-dialog v-model="skuDialog" title="编辑 SKU" width="560px" :close-on-click-modal="false">
+      <el-form ref="skuFormRef" :model="skuForm" :rules="skuRules" label-width="110px">
         <el-form-item label="颜色 / 尺码">
           <span>{{ editingSku?.color }} / {{ editingSku?.size }}</span>
         </el-form-item>
@@ -688,6 +746,14 @@ async function saveAttributes() {
         </el-form-item>
         <el-form-item label="启用">
           <el-switch v-model="skuForm.enabled" />
+        </el-form-item>
+        <el-form-item label="安全库存下限" prop="minLevel">
+          <el-input-number v-model="skuForm.minLevel" :min="0" :step="10" :precision="0" />
+          <span class="unit-hint">件 · 可用量低于它就会出现在「库存预警」；0 = 不预警</span>
+        </el-form-item>
+        <el-form-item label="补货上限" prop="maxLevel">
+          <el-input-number v-model="skuForm.maxLevel" :min="0" :step="10" :precision="0" />
+          <span class="unit-hint">件 · 补货建议按"补到这个数"算；0 = 只预警不建议</span>
         </el-form-item>
       </el-form>
       <el-alert v-if="skuFormError" type="error" show-icon :closable="false" :title="skuFormError" />
@@ -794,6 +860,23 @@ async function saveAttributes() {
 
 .add-attribute {
   margin-top: 4px;
+}
+
+/* 阈值输入右侧的口径提示：阈值是"件"，与零售价的"元"必须一眼分得开 */
+.unit-hint {
+  margin-left: 10px;
+  color: #909399;
+  font-size: 12px;
+}
+
+.level-unit {
+  margin-left: 2px;
+  color: #909399;
+  font-size: 12px;
+}
+
+.level-unset {
+  color: #c0c4cc;
 }
 
 @media (max-width: 768px) {

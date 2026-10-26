@@ -274,7 +274,21 @@ public enum ErrorCode {
      * AUDITED/POSTED 的正解不是"改成草稿再删"，而是走既有的作废/红冲语义
      * （已进报表的凭证删掉会让期初与流水对不上，那是数据事故而不是便利功能）。
      */
-    FIN_VOUCHER_DELETE_FORBIDDEN(409);
+    FIN_VOUCHER_DELETE_FORBIDDEN(409),
+
+    // ── V4-2 接驳：SKU 安全库存阈值可编辑（纯追加，勿在此前任何条目上改动 —— Flyway 之外的 checksum 依赖）──
+    /**
+     * 安全库存阈值非法（FR-MDM-01 / FR-INV-12 / FR-INV-13）。
+     *
+     * <p>覆盖三种输入：下限为负、上限为负、上限小于下限。
+     * 口径与库里的 CHECK 约束 {@code ck_sku_level_order}
+     * （{@code max_level = 0 OR max_level >= min_level}）保持一致 ——
+     * {@code max = 0} 是"未设上限、只预警不补货"的合法哨兵值，不能一概当成"上限低于下限"。
+     *
+     * <p>不复用 {@code SYS_VALIDATION_ERROR}：前端要按码把错误定位到阈值那两个输入框，
+     * 通用码做不到。
+     */
+    MDM_SKU_LEVEL_INVALID(400);
 
     private final int httpStatus;
 

@@ -25,6 +25,8 @@ export interface PiePoint {
 
 export interface WarehousePoint {
   id: number
+  /** 仓库名（V4-2 起后端 LEFT JOIN warehouses 取回）；极端情况下可能为 null，前端按 id 兜底 */
+  name?: string | null
   value: number
 }
 
