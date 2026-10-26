@@ -25,7 +25,7 @@
 | Web 端 | 必做 | 25% 内 | ✅ 9 组 / 62 条路由，演示数据已灌 |
 | 微信小程序 | **必做** | 25% 内 | ⚠️ **配置齐了，卡在外部资源**：21 页，`build:mp-weixin` 通过；`manifest.json` 里 `appid` 仍是 `touristappid`（游客号）→ 传不上去、真机预览开不了。`npm run preflight` 会把这条连同"后端地址没配 HTTPS"一起报出来 |
 | 安卓 APP | **必做** | 25% 内 | ⚠️ **资源包能出、APK 差账号与证书**：`build:app` 通过；`packagename`（占位值，待按主体定稿）、`versionCode`、CAMERA 权限已补齐；图标缺主图（缺了会用 HBuilderX 默认图标，不阻塞）；云打包要 DCloud 账号 + `.jks` 证书 |
-| PC 端 | 可选 +5% | +5% | ❌ 尚无任何代码，本目录只放了占位说明 |
+| PC 端 | 可选 +5% | +5% | ✅ **壳能跑，业务界面零重复建设**：`app/desktop/` Electron 33 本地静态服务 + `/api` 反代，`npm run smoke` 12/12 通过，其中"壳→真实 8080 后端"一项实测拿到后端自己的 401 `IAM_BAD_CREDENTIALS`（说明转发生效）；窗口/托盘/`printToPDF` 实机自测通过。**未验**：物理打印机套打、深链系统注册、electron-builder 安装包、断网数据缓存 |
 | 自然语言操作 | 可选 +5% | +5% | ⚠️ 后端 `POST /api/v1/nl/command` 实测可跑，工作台已挂上入口卡片（V4-1 合并）；**只支持查询与建草稿两类意图**，不要当"什么都能干"讲 |
 | MCP 让 Agent 操作 | 加分 | 加分 | ✅ `packages/mcp-server`（`erp-inventory-mcp`，6 工具） |
 | 单机版 | 必做 | 10% | ⚠️ `infra/standalone/` 15 文件齐全，**从未真实离线环境验证过** |
@@ -38,7 +38,9 @@
 - 微信小程序的**request 合法域名必须是 HTTPS 且已备案**的域名，在小程序后台白名单里配。
   没有它，`build:mp-weixin` 的产物只能在开发者工具里勾"不校验合法域名"跑，**真机上必然全接口失败**。
 - 安卓 App 走同样的后端域名，也要求备案。
-- `app/uniapp/` 目前只有 `.env.example`，没有 `.env.production.local` —— 也就是**现在连"后端地址填哪儿"都没定**。
+- `app/uniapp/` 有 `.env.example`（联调）与 `.env.production.local.example`（出包模板，入库的是模板；
+  复制成 `.env.production.local` 才是真值，那个文件被 `.gitignore` 挡住）——
+  **还没人填过真值**，也就是"后端地址填哪儿"这件事仍悬着。
   非 H5 端没有代理，构建时必须注入绝对地址（见 `src/config.ts` 与 `vite.config.ts` 的注释）。
 
 备案是**以周计的行政周期，不能并行压缩**。所以它必须排在最前面启动，而不是等代码写完。
@@ -91,9 +93,15 @@
 
 ### P4 · PC 端（可选加分，排在必做之后）
 
-- [ ] `app/desktop/` 用 Electron 包装 `frontend/web` 的构建产物
-- [ ] 只做桌面才有的增量：离线缓存、本地打印、系统托盘、深链
-- [ ] 明确不做：不重写业务界面、不单独维护一套 API 层
+- [x] `app/desktop/` 用 Electron 包装 `frontend/web` 的构建产物（`npm run build:web` 出 dist，壳按固定端口托管，`/api` 反代到后端）
+- [x] 桌面增量已做：窗口/托盘/打印（`printToPDF` 与 `getPrintersAsync`）、最小 preload 白名单（8 个方法，`window.require` 实测拿不到）
+- [ ] 桌面增量未做：断网数据缓存（"离线可查"要和 `infra/standalone` 口径合流，不在这儿冒充）、深链 `erp-desktop://` 的系统注册、electron-builder 安装包
+- [x] 明确不做：不重写业务界面、不单独维护一套 API 层（`git diff a4356d9..HEAD -- frontend/web` 为空）
+
+⚠️ 本机装 Electron 走的是 `registry.npmmirror.com` + `ELECTRON_MIRROR`（官方源直连 ETIMEDOUT），
+`app/desktop/package-lock.json` 里 70 处 `resolved` 指向镜像；换回官方源请删 lock 重装。
+另有三个会咬人的环境坑（`固定端口`、`ELECTRON_RUN_AS_NODE`、`path.join` 归一）记在
+`.plan/V5-2-PC端-报告.md` 第五节。
 
 ## 五、目录约定
 
@@ -107,7 +115,7 @@ app/
 │   ├── src/uni-app-icons/ 应用图标主图与各尺寸产出
 │   ├── e2e/               H5 端联调用例
 │   └── dist/build/        构建产物（不入库）
-└── desktop/               PC 端（Electron 包装 web 产物），当前只有占位说明
+└── desktop/               PC 端（Electron 包装 web 产物）：src/main·preload·server + scripts/{build-web,smoke}
 ```
 
 `.env.*` 模板放 `uniapp/` 里，不在这个目录上再造一层；构建产物一律进 `dist/`，
