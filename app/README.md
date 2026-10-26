@@ -23,8 +23,8 @@
 |---|---|---|---|
 | 服务端 | 必做 | 25% 内 | ✅ 44+ 控制器，Flyway V23，契约 250 操作 |
 | Web 端 | 必做 | 25% 内 | ✅ 9 组 / 62 条路由，演示数据已灌 |
-| 微信小程序 | **必做** | 25% 内 | ⚠️ **能构建，不能发布**：18 页，`build:mp-weixin` 通过；但 `manifest.json` 里 `appid = "touristappid"`（游客号），传不上去也开不了真机预览 |
-| 安卓 APP | **必做** | 25% 内 | ⚠️ **能出资源包，出不了安装包**：`build:app` 通过；但 `app-plus.distribute.android.packagename` 为空、无图标配置 —— 这两项是 HBuilderX 云打包的必填，缺了就打不出 APK |
+| 微信小程序 | **必做** | 25% 内 | ⚠️ **配置齐了，卡在外部资源**：21 页，`build:mp-weixin` 通过；`manifest.json` 里 `appid` 仍是 `touristappid`（游客号）→ 传不上去、真机预览开不了。`npm run preflight` 会把这条连同"后端地址没配 HTTPS"一起报出来 |
+| 安卓 APP | **必做** | 25% 内 | ⚠️ **资源包能出、APK 差账号与证书**：`build:app` 通过；`packagename`（占位值，待按主体定稿）、`versionCode`、CAMERA 权限已补齐；图标缺主图（缺了会用 HBuilderX 默认图标，不阻塞）；云打包要 DCloud 账号 + `.jks` 证书 |
 | PC 端 | 可选 +5% | +5% | ❌ 尚无任何代码，本目录只放了占位说明 |
 | 自然语言操作 | 可选 +5% | +5% | ⚠️ 后端 `POST /api/v1/nl/command` 实测可跑，工作台已挂上入口卡片（V4-1 合并）；**只支持查询与建草稿两类意图**，不要当"什么都能干"讲 |
 | MCP 让 Agent 操作 | 加分 | 加分 | ✅ `packages/mcp-server`（`erp-inventory-mcp`，6 工具） |
@@ -60,9 +60,21 @@
 
 ### P1 · 出包三道门（不依赖备案，可以并行推进）
 
-- [ ] 注册/取得正式小程序 `appid`，替换 `touristappid`
-- [ ] 安卓补 `packagename` + 应用图标 + 启动图（HBuilderX 云打包必填三件）
-- [ ] 建 `app/uniapp/.env.production.local`，把后端基址显式化（含本地调试用的内网地址方案）
+2026-10-26 更新：**配置侧能补齐的都补齐了，剩下的全部是外部资源**（appid / 备案 / 证书 / HBuilderX 账号）。
+新增 `app/uniapp/scripts/`：`preflight.mjs`（出包前置检查，默认拦构建）、`set-appid.mjs`（一条命令写
+正式 appid，保留 JSONC 注释）、`make-icons.mjs`（主图 → 各尺寸图标，没主图直接报错）。详见
+`app/uniapp/README.md` §4.6。
+
+- [x] 安卓补 `packagename`（`com.yunshang.erp`，**占位值**，manifest 注释里写明要按实际主体改）
+      + `versionName/versionCode` 合法性 + **CAMERA 权限**（读代码确认三页走 `uni.scanCode`，不是手输）
+- [x] 建 `.env.production.local.example`：内网调试填局域网 http、发布填备案 https，两种写法都在模板里
+- [x] 出包前置检查 `npm run preflight`：把"到设备上一定坏"的事（游客 appid、相对/明文后端地址、
+      包名缺失、扫码缺权限）在**构建前**报出来；逃生口 `--warn-only` / `npm run build:*:force`
+- [ ] 图标：脚本与目录已就绪，**缺一张 ≥1024×1024 的主图**（设计资产）。没图标不阻塞出包 ——
+      HBuilderX 会用它的默认图标，只是图标不是我们的
+- [ ] 注册/取得正式小程序 `appid`，替换 `touristappid` → 拿到就跑 `node scripts/set-appid.mjs <AppID>`
+      （脚本已用格式合法的假号验过：写入 → `build:mp-weixin` 通过 → 产物 `project.config.json` 带上新号）
+- [ ] HBuilderX 云打包出 APK（要 DCloud 账号 + `.jks` 签名证书，都是外部资源）
 
 ### P2 · 联调与验收（依赖 P1，不依赖公网）
 
@@ -90,7 +102,9 @@ app/
 ├── README.md              本文（端矩阵 + 计划）
 ├── uniapp/                一份代码出 微信小程序 / 安卓 / 移动H5（原 frontend/miniapp，2026-10-26 迁入）
 │   ├── src/               业务页面（唯一一份）
-│   ├── src/manifest.json  appid、包名、图标 —— 出包三道门都在这
+│   ├── src/manifest.json  appid、包名、权限、图标 —— 出包三道门都在这（JSONC，带"这是占位值"的注释）
+│   ├── scripts/           出包工具：preflight（前置检查）/ set-appid / make-icons
+│   ├── src/uni-app-icons/ 应用图标主图与各尺寸产出
 │   ├── e2e/               H5 端联调用例
 │   └── dist/build/        构建产物（不入库）
 └── desktop/               PC 端（Electron 包装 web 产物），当前只有占位说明
