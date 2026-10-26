@@ -67,16 +67,34 @@
 --     FINANCE    持 pur:pay pur:payable sal:receipt set:* cst:* fin:* aps:approve aps:read
 --     PURCHASER  持 pur:create/submit/approve/receive/void + aps:submit aps:read
 --     SALESPERSON持 sal:create/submit/ship/void + aps:submit aps:read
---   每条节点都满足"admin 拿得到"：pur:receive ⊂ pur:*，sal:approve ⊂ sal:*，
---   sal:receipt 显式授予 FINANCE，pur:pay 显式授予 FINANCE，rma:approve ⊂ rma:*。
---   （反面教训：V14 原本想用 set:monthly 当财务节点，能签，但它和"月结"绑定，
---     语义上是"关账权"而不是"复核这笔金额"，这里换成 pur:pay / sal:receipt。）
+--   每条节点都满足"admin 签得动"（这是本项目踩过的坑：码选错了没人能签）：
+--     pur:approve ⊂ ADMIN 的 pur:*      且显式授予 PURCHASER
+--     sal:approve ⊂ ADMIN 的 sal:*      —— 与 SalesOrderController 自己的
+--                                          @RequirePermission("sal:approve") 同一个码
+--     rma:approve ⊂ ADMIN 的 rma:*      —— 同上，ReturnOrderController:159
+--     set:monthly  ⊂ ADMIN 的 set:*      且**只**授予 FINANCE（月结权限，
+--                                          语义就是"这笔金额可以进财务账了"）
+--   实测确认：admin 登录后 permissions 里有 pur:*/sal:*/rma:*/set:*/aps:*，
+--   ActorContext.Actor#hasPermission() 支持"模块:*"前缀通配，所以每一级都签得动；
+--   运行期验证里两级节点的 decisionBy 都是 1（admin id），已证。
+--   ★ 另一个必须知道的约束：POST /approvals/{id}/approve 的接口级权限是 aps:approve，
+--     V14 只把它给了 FINANCE（PURCHASER/SALESPERSON 刻意不给，见 V14:213 注释）。
+--     于是"节点权限码给了 PURCHASER 但 PURCHASER 连接口都进不来"——
+--     当前库里只有 admin 一个账号（app_users 实测 1 行），所以链路能跑通；
+--     真要让采购员自己签第一级，得另外处理 aps:approve 的授予，不在本次范围。
 --
---   threshold_amount 全部取 0 = 必经。刻意不用阈值：
---     · ApprovalStep.appliesTo() 是 amount >= threshold，首节点必须为 0（ApprovalFlow.validate()）；
---     · 若第二节点带阈值，小额单会把它置 SKIPPED，调用方就要先读实例再决定签几次，
---       seeder 与运行期验证都需要分支。0 让 PO/SO 恒为 2 签、RO 恒为 1 签，链路可预期。
---     · 阈值能力没有被删，只是本流不用；要演示"超阈值追加审批"另开一条流即可。
+--   threshold_amount：首节点必须 0（必经，ApprovalFlow.validate() 的要求）；
+--     第二节点取 50 万分 = 5000 元，即 V14 注释里"金额超阈值追加财务"的那条规则。
+--     ★ 这个取值不是审美选择，是被测试钉住的：
+--       {@code ApprovalIT#TC-APS-012}（FR-IAM-07 的核心用例）断言
+--       "5 万分的小额单只实例化 1 个 PENDING 节点 + 1 个 SKIPPED 快照"，
+--       而 {@code TestDataFactory#ensureApprovalSeed} 的补种守卫是
+--       WHERE NOT EXISTS (flow_id, step_no) —— 迁移一旦种上，测试夹具就不会再插自己那份。
+--       所以本迁移的 (step_no, 名称, 权限码, 阈值) 必须与夹具**逐字一致**，
+--       否则 TC-APS-012/013 会静默改测另一套流程。
+--     副作用与对策：金额 < 5000 元的单据只走 1 级。seeder 因此不能硬写"签两次"，
+--     必须读 GET /approvals/{id} 的 steps，对 status=PENDING 的节点逐个签
+--     （见报告《给 seeder 的操作序列》）。
 -- ============================================================================
 
 -- ────────────── 三条流的节点定义（按 flow 逐租户展开，幂等） ──────────────
@@ -100,14 +118,15 @@ SELECT f.id,
        f.tenant_id
   FROM approval_flows f
   JOIN (VALUES
-        -- 进货单：先确认"到的货对不对"，再确认"付的钱对不对"
-        ('PO-STD', 1, '仓管确认数量',     'pur:receive', 'SINGLE', 1, 0),
-        ('PO-STD', 2, '财务复核金额',     'pur:pay',     'SINGLE', 1, 0),
-        -- 出货单：先确认"能不能发"，再确认"信用额度还够不够"
-        ('SO-STD', 1, '销售主管审核发货', 'sal:approve', 'SINGLE', 1, 0),
-        ('SO-STD', 2, '财务复核信用额度', 'sal:receipt', 'SINGLE', 1, 0),
-        -- 退货单：一级。退货金额小、且入库即回补库存，两级纯属拖累
-        ('RO-STD', 1, '客服主管审核退货', 'rma:approve', 'SINGLE', 1, 0)
+        -- 进货单：采购主管先批（数量/供应商对不对），超 5000 元追加财务复核金额
+        ('PO-STD', 1, '采购主管审批',           'pur:approve',  'SINGLE', 1, 0),
+        ('PO-STD', 2, '财务审批（金额超阈值）', 'set:monthly',  'SINGLE', 1, 500000),
+        -- 出货单：销售主管先批（能不能发），超 5000 元追加财务复核（信用额度/回款）
+        ('SO-STD', 1, '销售主管审批',           'sal:approve',  'SINGLE', 1, 0),
+        ('SO-STD', 2, '财务审批（金额超阈值）', 'set:monthly',  'SINGLE', 1, 500000),
+        -- 退货单：客服主管先批，超 5000 元退款追加财务
+        ('RO-STD', 1, '客服主管审批',           'rma:approve',  'SINGLE', 1, 0),
+        ('RO-STD', 2, '财务审批（金额超阈值）', 'set:monthly',  'SINGLE', 1, 500000)
       ) AS s(flow_code, step_no, step_name, approver_permission,
              approve_mode, required_approvals, threshold_amount)
     ON f.code = s.flow_code
