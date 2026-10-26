@@ -20,6 +20,8 @@ const BASE = (process.env.ERP_API ?? 'http://127.0.0.1:8080/api/v1').replace(/\/
 const USER = process.env.ERP_USER ?? 'admin'
 const PASS = process.env.ERP_PASS ?? 'Admin@12345'
 const FORCE = process.argv.includes('--force')
+/** 只补主数据 + 审批流 + 中间态单据，不再灌一整波进出货。 */
+const PENDING_ONLY = process.argv.includes('--pending')
 
 /** 演示规模：商品线数 × 每线的进货单数与销售单数。改这里就能放大/缩小。 */
 const PLAN = {
@@ -104,7 +106,7 @@ async function main() {
   console.log(`登录 ${login.username}（租户 ${login.tenantCode}），权限 ${login.permissions.length} 项`)
 
   // 幂等闸门：主数据 code 前缀 DM- 已存在就说明造过了。
-  if (!FORCE) {
+  if (!FORCE && !PENDING_ONLY) {
     const probe = await call('GET', '/products?page=1&size=200').catch(() => ({ items: [] }))
     const hits = (probe.items ?? probe ?? []).filter((p) => String(p.code).startsWith('DM-'))
     if (hits.length > 0) {
@@ -152,8 +154,25 @@ async function main() {
     console.log(`商品 ${name}（${color}/${size}）零售 ${yuan(retail)} 元 / 成本 ${yuan(cost)} 元`)
   }
 
-  // 先备货再出货：每个 SKU 在其仓里必须有足够实存，否则后端按可用量拦截。
+  // 审批流：V14 种子建的三条流**都没有节点**（steps=0）。实测打开后 submit 不生成审批
+  // 实例、approve 又被闸门拦成 APS_APPROVAL_REQUIRED，单据永久卡在 SUBMITTED —— 整条
+  // 进货→入库→凭证链停摆。所以这里只启用真有节点的流，没节点就跳过并说明原因。
+  const flows = unwrap(await call('GET', '/approvals/flows'))
+  for (const f of flows) {
+    if (f.enabled) continue
+    if ((f.steps ?? []).length === 0) {
+      console.log(`跳过审批流 ${f.code}：没有审批节点，启用会让单据卡在 SUBMITTED（需先补节点）`)
+      continue
+    }
+    await call('POST', `/approvals/flows/${f.id}/enabled?enabled=true`)
+      .then(() => console.log(`启用审批流 ${f.code}`))
+      .catch((e) => note(`启用审批流 ${f.code}`, e))
+  }
+
   let purchaseCount = 0
+  let salesCount = 0
+  if (!PENDING_ONLY) {
+  // 先备货再出货：每个 SKU 在其仓里必须有足够实存，否则后端按可用量拦截。
   for (const line of lines) {
     for (let r = 0; r < PLAN.stockRounds; r++) {
       const offset = 84 - r * 14 - rnd(4)
@@ -165,7 +184,6 @@ async function main() {
     }
   }
 
-  let salesCount = 0
   for (const line of lines) {
     for (let r = 0; r < PLAN.salesRounds; r++) {
       const offset = 56 - r * 9 - rnd(5)
@@ -177,6 +195,8 @@ async function main() {
         (e) => note(`出货 ${line.name} @${day(offset)}`, e),
       )
     }
+  }
+
   }
 
   // 留几张停在中间态的单：待办中心、审批工作台、消息通知才有内容可看。
