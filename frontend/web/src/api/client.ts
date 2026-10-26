@@ -1921,6 +1921,7 @@ export interface BankAccountView {
   bankName?: string | null
   accountNo?: string | null
   currency: string
+  initBalance: number
   balance: number
   isDefault: boolean
   enabled: boolean

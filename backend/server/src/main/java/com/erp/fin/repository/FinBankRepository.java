@@ -24,8 +24,8 @@ public class FinBankRepository {
     private static final RowMapper<BankAccount> ACCOUNT_MAPPER = (rs, i) -> new BankAccount(
             rs.getLong("id"), rs.getString("code"), rs.getString("name"),
             rs.getString("bank_name"), rs.getString("account_no"), rs.getString("currency"),
-            rs.getBigDecimal("balance"), rs.getBoolean("is_default"), rs.getBoolean("enabled"),
-            rs.getString("remark"));
+            rs.getBigDecimal("init_balance"), rs.getBigDecimal("balance"),
+            rs.getBoolean("is_default"), rs.getBoolean("enabled"), rs.getString("remark"));
 
     private static final RowMapper<CashJournalEntry> JOURNAL_MAPPER = (rs, i) -> new CashJournalEntry(
             rs.getLong("id"), rs.getLong("account_id"),
@@ -37,7 +37,8 @@ public class FinBankRepository {
             rs.getString("summary"));
 
     private static final String ACCOUNT_COLUMNS =
-            "id, code, name, bank_name, account_no, currency, balance, is_default, enabled, remark";
+            "id, code, name, bank_name, account_no, currency, init_balance, balance,"
+                    + " is_default, enabled, remark";
 
     private final JdbcTemplate jdbc;
 
@@ -68,17 +69,20 @@ public class FinBankRepository {
     }
 
     public long insertAccount(String code, String name, String bankName, String accountNo,
-                              String currency, BigDecimal balance, boolean isDefault,
+                              String currency, BigDecimal initBalance, boolean isDefault,
                               boolean enabled, String remark) {
+        BigDecimal init = initBalance == null ? BigDecimal.ZERO : initBalance;
         try {
+            // balance 与 init_balance 建户时相同：此刻还没有流水，现余额就等于期初。
+            // 之后 balance 只由 recomputeChainAndBalance 派生，任何外部写入都不认。
             return TenantJdbc.insertReturningId(jdbc, """
                     INSERT INTO fin_bank_account (code, name, bank_name, account_no, currency,
-                                                  balance, is_default, enabled, remark)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                                  balance, init_balance, is_default, enabled, remark)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     RETURNING id
                     """,
                     code, name, bankName, accountNo, currency == null ? "CNY" : currency,
-                    balance == null ? BigDecimal.ZERO : balance, isDefault, enabled, remark);
+                    init, init, isDefault, enabled, remark);
         } catch (DataIntegrityViolationException ex) {
             BusinessException dup = DbErrors.translate(ex, "uq_fin_bank_account_code",
                     ErrorCode.MDM_CODE_DUPLICATED, "银行账户编码已存在：code=" + code);
@@ -95,15 +99,31 @@ public class FinBankRepository {
         }
     }
 
+    /**
+     * 改账户资料与期初。传 null 的期初表示"不动期初"。
+     *
+     * <p>★ 这里<b>不接受</b>直接设置现余额：现余额是 期初 + 流水净额 的派生值，
+     * 老写法把它当普通字段覆盖，于是"编辑一次账户"就能把已发生的流水抹平（V24）。
+     */
     public boolean updateAccount(long id, String name, String bankName, String accountNo,
-                                 BigDecimal balance, boolean isDefault, boolean enabled,
+                                 BigDecimal initBalance, boolean isDefault, boolean enabled,
                                  String remark) {
-        return TenantJdbc.update(jdbc, """
+        boolean updated = TenantJdbc.update(jdbc, """
                 UPDATE fin_bank_account
-                   SET name = ?, bank_name = ?, account_no = ?, balance = ?,
+                   SET name = ?, bank_name = ?, account_no = ?,
+                       init_balance = COALESCE(?::numeric, init_balance),
                        is_default = ?, enabled = ?, remark = ?, updated_at = now()
                  WHERE id = ?
-                """, name, bankName, accountNo, balance, isDefault, enabled, remark, id) == 1;
+                """, name, bankName, accountNo, initBalance, isDefault, enabled, remark, id) == 1;
+        recomputeChainAndBalance(id);
+        return updated;
+    }
+
+    /** 只翻"默认账户"标志，不碰金额（老写法要绕 updateAccount 的八个参数）。 */
+    public boolean setAccountDefault(long id, boolean isDefault) {
+        return TenantJdbc.update(jdbc, """
+                UPDATE fin_bank_account SET is_default = ?, updated_at = now() WHERE id = ?
+                """, isDefault, id) == 1;
     }
 
     public boolean deleteAccount(long id) {
@@ -116,30 +136,67 @@ public class FinBankRepository {
         return TenantJdbc.update(jdbc, "DELETE FROM fin_bank_account WHERE id = ?", id) == 1;
     }
 
-    /** 上一笔的余额（按记账顺序，非业务日期 —— 日记账余额必须逐笔连续）。 */
-    public BigDecimal lastBalance(long accountId) {
-        return jdbc.query("""
-                SELECT balance FROM fin_cash_journal
-                 WHERE account_id = ? ORDER BY biz_date DESC, id DESC LIMIT 1
-                """, (rs, i) -> rs.getBigDecimal("balance"), accountId)
-                .stream().findFirst().orElse(BigDecimal.ZERO);
-    }
-
-    public long insertJournal(long accountId, LocalDate bizDate, AccountDirection direction,
-                              BigDecimal amount, BigDecimal balance,
-                              String sourceType, Long sourceId, String summary) {
-        return TenantJdbc.insertReturningId(jdbc, """
+    /**
+     * 追加一笔日记账，然后<b>整链重算</b>该账户的逐笔余额与账户现余额。
+     *
+     * <p>★ 为什么不在插入时算：老写法用"按 biz_date 取最新那一笔的 balance ± 本笔金额"
+     * 同时填新行和账户余额。补录一笔过去日期的分录时，链尾根本不是那一笔，
+     * 于是新行余额、账户余额、以及它后面所有行的余额<b>三处一起错位</b>
+     * （实测：演示库招行户 500,000 期初在第一笔收款后就被刷成 1,240.92）。
+     * 现在插入只管落行，余额一律由 {@link #recomputeChainAndBalance} 派生。
+     */
+    public long appendJournal(long accountId, LocalDate bizDate, AccountDirection direction,
+                              BigDecimal amount, String sourceType, Long sourceId, String summary) {
+        long id = TenantJdbc.insertReturningId(jdbc, """
                 INSERT INTO fin_cash_journal (account_id, biz_date, direction, amount, balance,
                                               source_type, source_id, summary)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, 0, ?, ?, ?)
                 RETURNING id
                 """,
-                accountId, bizDate, direction.name(), amount, balance,
-                sourceType, sourceId, summary);
+                accountId, bizDate, direction.name(), amount, sourceType, sourceId, summary);
+        recomputeChainAndBalance(accountId);
+        return id;
     }
 
-    public List<CashJournalEntry> journal(Long accountId, LocalDate from, LocalDate to, int limit) {
-        List<Object> args = new ArrayList<>();
+    /**
+     * 期初 + 累计净额，按 (biz_date, id) 逐笔重算；再把账户现余额刷成链尾值。
+     *
+     * <p>单账户的流水是百量级，全量重算比"猜插入点"更便宜也更稳。
+     */
+    public void recomputeChainAndBalance(long accountId) {
+        jdbc.update("""
+                UPDATE fin_cash_journal j
+                   SET balance = a.init_balance + c.signed_run
+                  FROM (SELECT id,
+                               account_id,
+                               SUM(CASE WHEN direction = 'DEBIT' THEN amount ELSE -amount END)
+                                   OVER (PARTITION BY account_id ORDER BY biz_date, id
+                                         ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+                                   AS signed_run
+                          FROM fin_cash_journal
+                         WHERE account_id = ?) c
+                  JOIN fin_bank_account a ON a.id = c.account_id
+                 WHERE j.id = c.id
+                """, accountId);
+        jdbc.update("""
+                UPDATE fin_bank_account
+                   SET balance = init_balance + COALESCE(
+                           (SELECT SUM(CASE WHEN direction = 'DEBIT' THEN amount ELSE -amount END)
+                              FROM fin_cash_journal
+                             WHERE fin_cash_journal.account_id = fin_bank_account.id), 0),
+                       updated_at = now()
+                 WHERE id = ?
+                """, accountId);
+    }
+
+    /** 刚写入的那一行（余额是整链重算后的值，回读比推算可靠）。 */
+    public Optional<CashJournalEntry> findJournal(long id) {
+        return jdbc.query("SELECT id, account_id, biz_date, direction, amount, balance,"
+                        + " source_type, source_id, summary FROM fin_cash_journal WHERE id = ?",
+                JOURNAL_MAPPER, id).stream().findFirst();
+    }
+
+    public List<CashJournalEntry> journal(Long accountId, LocalDate from, LocalDate to, int limit) {        List<Object> args = new ArrayList<>();
         StringBuilder where = new StringBuilder(" WHERE 1 = 1");
         if (accountId != null) {
             where.append(" AND account_id = ?");

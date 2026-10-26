@@ -67,8 +67,8 @@ function startEdit(a: BankAccountView) {
   form.name = a.name
   form.bankName = a.bankName ?? ''
   form.accountNo = a.accountNo ?? ''
-  // 编辑态展示的是当前账面余额（后端 update 里 balance 字段即账面余额）
-  form.initBalance = Number(a.balance)
+  // 编辑态回填期初（V24 起期初与现余额分开存：现余额 = 期初 + 流水，由服务端重算）
+  form.initBalance = Number(a.initBalance)
   form.isDefault = a.isDefault
   form.enabled = a.enabled
   form.remark = a.remark ?? ''
@@ -158,7 +158,9 @@ onMounted(async () => {
                 <el-tag v-if="a.isDefault" size="small" type="success">默认</el-tag>
                 <el-tag v-if="!a.enabled" size="small" type="danger">停用</el-tag>
               </div>
-              <div class="account-sub">{{ a.bankName || a.code }} · {{ money(a.balance) }} 元</div>
+              <div class="account-sub">
+                {{ a.bankName || a.code }} · 期初 {{ money(a.initBalance) }} · 余额 {{ money(a.balance) }} 元
+              </div>
             </div>
             <div class="account-ops">
               <el-button v-if="canWrite" link size="small" @click.stop="startEdit(a)">编辑</el-button>
@@ -209,8 +211,9 @@ onMounted(async () => {
         <el-form-item label="账号">
           <el-input v-model="form.accountNo" maxlength="64" />
         </el-form-item>
-        <el-form-item :label="editingId == null ? '期初余额(元)' : '账面余额(元)'">
+        <el-form-item label="期初余额(元)">
           <el-input-number v-model="form.initBalance" :min="0" :precision="2" :step="1000" />
+          <div class="form-hint">改期初会连带重算现余额（现余额 = 期初 + 已入账流水），流水本身不动</div>
         </el-form-item>
         <el-form-item label="默认账户">
           <el-switch v-model="form.isDefault" />
@@ -228,6 +231,14 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.form-hint {
+  width: 100%;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #909399;
+}
+
 .card-header {
   display: flex;
   justify-content: space-between;

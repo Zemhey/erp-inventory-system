@@ -131,6 +131,7 @@ public class FinBankController {
         m.put("bankName", a.bankName());
         m.put("accountNo", a.accountNo());
         m.put("currency", a.currency());
+        m.put("initBalance", a.initBalance());
         m.put("balance", a.balance());
         m.put("isDefault", a.isDefault());
         m.put("enabled", a.enabled());

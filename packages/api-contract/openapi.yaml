@@ -9739,7 +9739,8 @@ components:
         bankName: { type: string, nullable: true }
         accountNo: { type: string, nullable: true }
         currency: { type: string, example: CNY }
-        balance: { $ref: '#/components/schemas/FinMoney' }
+        initBalance: { $ref: '#/components/schemas/FinMoney', description: 期初余额（V24 起单独存，编辑账户改的就是它） }
+        balance: { $ref: '#/components/schemas/FinMoney', description: 现余额 = 期初 + Σ借 − Σ贷，服务端整链重算，不接受外部直接写入 }
         isDefault: { type: boolean, description: 收付款自动日记账的落点，每租户至多一个 }
         enabled: { type: boolean }
         remark: { type: string, nullable: true }
@@ -9767,7 +9768,7 @@ components:
         bankName: { type: string, maxLength: 64 }
         accountNo: { type: string, maxLength: 64 }
         currency: { type: string, default: CNY }
-        initBalance: { $ref: '#/components/schemas/FinMoney', description: 账面余额（仅初始化调整用） }
+        initBalance: { $ref: '#/components/schemas/FinMoney', description: 期初余额；省略＝不改期初。现余额随后由服务端按 期初 + 流水 重算 }
         isDefault: { type: boolean }
         enabled: { type: boolean }
         remark: { type: string, maxLength: 255 }
@@ -9782,7 +9783,7 @@ components:
         direction: { type: string, enum: [DEBIT, CREDIT], description: DEBIT 收 / CREDIT 支（资产账户借增贷减） }
         directionLabel: { type: string }
         amount: { $ref: '#/components/schemas/FinMoney' }
-        balance: { $ref: '#/components/schemas/FinMoney', description: 当日余额 = 上日余额 + 借 − 贷 }
+        balance: { $ref: '#/components/schemas/FinMoney', description: 该笔后的逐笔累计余额 = 期初 + 按 (biz_date, id) 排序到本行的净额；补录过去日期的分录会整链重算 }
         sourceType: { type: string }
         sourceId: { type: integer, format: int64, nullable: true }
         summary: { type: string }

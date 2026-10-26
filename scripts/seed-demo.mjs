@@ -273,6 +273,8 @@ async function main() {
     if (cm) console.log(`成本月结 ${period}：${cm.items.length} 个 SKU×仓，毛利记录 ${cm.marginRecordCount} 条`)
   }
 
+  await openingBalances()
+
   await verify()
 }
 
@@ -442,6 +444,48 @@ async function settleWave() {
 function note(where, err) {
   // 单笔失败不中断整批：让其余单据继续，最后统一列出来
   failed.push(`${where} -> ${err.message}`)
+}
+
+/**
+ * 期初建账：给"货币资金"补来路，并让首页卡片与资产负债表对上。
+ *
+ * 不做这一步时的实测：科目 1002 银行存款期初 0、实收资本期初 0，于是资产负债表上
+ * 银行存款 = Σ收 − Σ付 = **-102,146.45**，而财务首页"资金余额"卡片是另一个数。
+ * 一家刚成立、股东没投过钱的公司付不出 11 万货款；更糟的是同一个模块的两个页面
+ * 给出的"钱"不一样多。
+ *
+ * 做法：科目期初 = 银行卡片合计 − 总账 1002 的凭证净额（对账时的标准倒挤），
+ * 借 1002 / 贷 4001 记同一个数，资产负债表仍配平，从此 卡片 == 报表。
+ * 幂等：1002 期初非 0 说明人工建过账，不动。
+ */
+async function openingBalances() {
+  const accounts = unwrap(await call('GET', '/fin/accounts'))
+  const cash = accounts.find((a) => a.code === '1002')
+  const capital = accounts.find((a) => a.code === '4001')
+  if (!cash || !capital) return note('期初建账', new Error('科目表里找不到 1002 / 4001'))
+  if (Number(cash.initBalance) !== 0) {
+    console.log(`科目 1002 期初已有 ${cash.initBalance} 元，保留既有人工建账`)
+    return
+  }
+
+  const banks = unwrap(await call('GET', '/fin/bank-accounts?page=1&size=50'))
+  const cardTotal = banks.reduce((s, b) => s + Number(b.balance), 0)
+  // ★ 倒挤必须用总账自己的口径，不能拿现金日记账的净额：手工日记账分录**不生成凭证**
+  //   （JournalCommand 没有对方科目），"银行账户余额"与"科目 1002 的借贷净额"是两条轨。
+  //   报表行金额 = 既有期初 + 凭证净额，据此反推最稳。
+  const bs = await call('GET', `/fin/reports/balance-sheet?period=${day(0).slice(0, 7)}`)
+  const cashRow = (bs.assets ?? []).find((a) => a.code === '1002')
+  if (!cashRow) return note('期初建账', new Error('资产负债表里没有 1002 行'))
+  const voucherNet = Number(cashRow.amount) - Number(cash.initBalance)
+  const opening = Math.round((cardTotal - voucherNet) * 100) / 100
+  if (opening <= 0) return note('期初建账', new Error(`倒挤出的期初不是正数：${opening}`))
+
+  await call('PUT', `/fin/accounts/${cash.id}`, { initBalance: opening })
+    .catch((e) => note('科目 1002 期初', e))
+  await call('PUT', `/fin/accounts/${capital.id}`, { initBalance: opening })
+    .catch((e) => note('科目 4001 期初', e))
+  console.log(`期初建账：借 1002 银行存款 / 贷 4001 实收资本 各 ${fix(opening)} 元` +
+    `（银行卡片合计 ${fix(cardTotal)} − 总账 1002 凭证净额 ${fix(voucherNet)}）`)
 }
 
 /** 造完自己报数：这些正是界面上会被看的数字，对不上就是 seed 的问题。 */

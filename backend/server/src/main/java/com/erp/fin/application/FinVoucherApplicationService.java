@@ -467,13 +467,9 @@ public class FinVoucherApplicationService implements VoucherTrigger {
 
     private void writeJournal(BankAccount account, LocalDate date, AccountDirection direction,
                              BigDecimal amount, String sourceType, Long sourceId, String summary) {
-        BigDecimal opening = bank.lastBalance(account.id());
-        BigDecimal balance = direction == AccountDirection.DEBIT
-                ? opening.add(amount) : opening.subtract(amount);
-        bank.insertJournal(account.id(), date, direction, amount, balance, sourceType,
-                sourceId, summary);
-        bank.updateAccount(account.id(), account.name(), account.bankName(), account.accountNo(),
-                balance, account.isDefault(), account.enabled(), account.remark());
+        // 收付款的 biz_date 常常早于今天（补录核销），所以这里不能拿"最新一笔的余额"推算，
+        // 交给仓储整链重算（口径见 FinBankRepository.appendJournal）
+        bank.appendJournal(account.id(), date, direction, amount, sourceType, sourceId, summary);
     }
 
     private record JournalPlan(AccountDirection direction, BigDecimal amount, String summary) {

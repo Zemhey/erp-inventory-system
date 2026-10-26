@@ -68,12 +68,18 @@ public class FinBankApplicationService {
         BankAccount existing = bank.findAccount(id)
                 .orElseThrow(() -> new BusinessException(ErrorCode.FIN_BANK_ACCOUNT_NOT_FOUND,
                         "银行账户不存在：id=" + id));
-        BigDecimal balance = cmd.initBalance() == null ? existing.balance()
-                : cmd.initBalance().setScale(2, java.math.RoundingMode.HALF_UP);
+        BigDecimal init = null;
+        if (cmd.initBalance() != null) {
+            init = cmd.initBalance().setScale(2, java.math.RoundingMode.HALF_UP);
+            if (init.signum() < 0) {
+                throw new BusinessException(ErrorCode.SYS_VALIDATION_ERROR, "期初余额不能为负");
+            }
+        }
         boolean isDefault = cmd.isDefault() == null ? existing.isDefault() : cmd.isDefault();
+        // ★ 现余额不再接受外部写入：改期初后由仓储按 期初 + 流水净额 重算
         if (!bank.updateAccount(id,
                 cmd.name() == null ? existing.name() : cmd.name().trim(),
-                trim(cmd.bankName()), trim(cmd.accountNo()), balance, isDefault,
+                trim(cmd.bankName()), trim(cmd.accountNo()), init, isDefault,
                 cmd.enabled() == null ? existing.enabled() : cmd.enabled(),
                 trim(cmd.remark()))) {
             throw new BusinessException(ErrorCode.FIN_BANK_ACCOUNT_NOT_FOUND,
@@ -98,12 +104,10 @@ public class FinBankApplicationService {
                         "银行账户不存在：id=" + id));
         for (BankAccount a : bank.listAccounts()) {
             if (a.isDefault() && a.id() != id) {
-                bank.updateAccount(a.id(), a.name(), a.bankName(), a.accountNo(), a.balance(),
-                        false, a.enabled(), a.remark());
+                bank.setAccountDefault(a.id(), false);
             }
         }
-        bank.updateAccount(target.id(), target.name(), target.bankName(), target.accountNo(),
-                target.balance(), true, target.enabled(), target.remark());
+        bank.setAccountDefault(target.id(), true);
         return bank.findAccount(id).orElseThrow();
     }
 
@@ -132,16 +136,12 @@ public class FinBankApplicationService {
         }
         LocalDate date = cmd.bizDate() == null ? clock.today() : cmd.bizDate();
         BigDecimal amount = cmd.amount().setScale(2, java.math.RoundingMode.HALF_UP);
-        BigDecimal opening = bank.lastBalance(account.id());
-        BigDecimal balance = direction == AccountDirection.DEBIT
-                ? opening.add(amount) : opening.subtract(amount);
-        long id = bank.insertJournal(account.id(), date, direction, amount, balance,
+        long id = bank.appendJournal(account.id(), date, direction, amount,
                 "MANUAL", null, cmd.summary() == null || cmd.summary().isBlank()
                         ? "手工记账" : cmd.summary().trim());
-        bank.updateAccount(account.id(), account.name(), account.bankName(), account.accountNo(),
-                balance, account.isDefault(), account.enabled(), account.remark());
-        return new CashJournalEntry(id, account.id(), date, direction, amount, balance,
-                "MANUAL", null, cmd.summary());
+        // 行上的余额是整链重算出来的，回读而不是自己推：这样补录（bizDate 早于已有分录）
+        // 返回给前端的数字也和账上的一致
+        return bank.findJournal(id).orElseThrow();
     }
 
     private static long requireAccountId(JournalCommand cmd) {
