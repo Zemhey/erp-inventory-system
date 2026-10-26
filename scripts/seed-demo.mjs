@@ -40,7 +40,7 @@ const PLAN = {
     ['羊毛混纺围巾', '驼色', '均码', 12900, 6400],
     ['防晒轻薄外套', '雾灰', 'XL', 21900, 12800],
   ],
-  stockRounds: 3,
+  stockRounds: 4,
   salesRounds: 6,
 }
 
@@ -175,7 +175,9 @@ async function main() {
   // 先备货再出货：每个 SKU 在其仓里必须有足够实存，否则后端按可用量拦截。
   for (const line of lines) {
     for (let r = 0; r < PLAN.stockRounds; r++) {
-      const offset = 84 - r * 14 - rnd(4)
+      // 覆盖 4 个波次，最后一波必须落在当月：备货全排在 42~84 天前的话，
+      // 大屏的「本月进货金额」和进货趋势图就永远是 0，headline 空一格很难看。
+      const offset = 82 - r * 24 - rnd(6)
       const qty = 40 + rnd(60)
       await stockIn(line, qty, day(offset)).then(
         () => purchaseCount++,
