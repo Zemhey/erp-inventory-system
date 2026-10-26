@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   finApi,
   money,
@@ -163,6 +163,33 @@ async function post(row: FinVoucherRow) {
   } catch { /* 拦截器已提示 */ }
 }
 
+/**
+ * 删除草稿凭证（V4-1 接驳：此前没有 DELETE 入口，405，录错了只能留着）。
+ *
+ * 按钮只在 DRAFT 出现，但**这不只是界面礼貌**：后端对 AUDITED/POSTED 一律
+ * 409 FIN_VOUCHER_DELETE_FORBIDDEN，账期月结后也拒绝 —— 已过账的凭证进了报表
+ * 与科目余额，删掉会让配平关系当场失效，正解是作废/红冲。
+ */
+async function removeVoucher(row: FinVoucherRow) {
+  try {
+    await ElMessageBox.confirm(
+      `删除草稿凭证 ${row.voucherNo}？其分录一并清除且不可恢复。` +
+        '已审核 / 已过账的凭证不在此列（请走作废或红冲）。',
+      '删除凭证',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+  try {
+    await finApi.deleteVoucher(row.id)
+    ElMessage.success('已删除草稿凭证')
+    await load()
+  } catch {
+    /* 409 非草稿 / 账期已锁定：后端给的具体理由由拦截器透出 */
+  }
+}
+
 onMounted(async () => {
   const data = await finApi.accounts()
   accounts.value = data.items
@@ -233,11 +260,12 @@ onMounted(async () => {
           <el-tag :type="statusTag(row.status)" size="small">{{ row.statusLabel }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="170" fixed="right">
+      <el-table-column label="操作" width="220" fixed="right">
         <template #default="{ row }">
           <template v-if="canWrite">
             <el-button v-if="row.status === 'DRAFT'" link type="primary" @click="openEdit(row)">修改</el-button>
             <el-button v-if="row.status === 'DRAFT'" link type="warning" @click="audit(row)">审核</el-button>
+            <el-button v-if="row.status === 'DRAFT'" link type="danger" @click="removeVoucher(row)">删除</el-button>
             <el-button v-if="row.status === 'AUDITED'" link type="success" @click="post(row)">过账</el-button>
             <el-button v-if="row.status === 'POSTED'" link @click="openEdit(row)">查看</el-button>
           </template>

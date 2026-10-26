@@ -111,6 +111,26 @@ const http: AxiosInstance = axios.create({
   timeout: 15000,
 })
 
+/**
+ * 极小的认证事件总线（目前只有一个事件：password-expired）。
+ *
+ * 为什么不用 pinia store：client.ts 被 store 引用，store 再反向引用 client 就是循环依赖，
+ * 而 vite 下循环依赖的表现是"有时能用有时白屏"。这里用一个没有依赖的模块级 Set，
+ * 订阅方（MainLayout）负责在卸载时退订。
+ */
+export type AuthEventName = 'password-expired'
+const authListeners = new Set<() => void>()
+
+export function onAuthEvent(name: AuthEventName, handler: () => void): () => void {
+  void name // 目前只有一种事件，先不分支，避免为单个事件写一套分发
+  authListeners.add(handler)
+  return () => authListeners.delete(handler)
+}
+
+function emitAuthEvent(_name: AuthEventName): void {
+  authListeners.forEach((handler) => handler())
+}
+
 // ── 请求拦截：注入 token 与幂等键 ──
 http.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   const token = getToken()
@@ -137,6 +157,15 @@ http.interceptors.response.use(
     const message = payload?.message || error.message || '请求失败'
 
     if (status === 401) {
+      // ★ 必须按错误码分两种 401，否则会自毁刚接上的改密流程：
+      //   - IAM_UNAUTHENTICATED（token 失效/过期）→ 清 token 回登录页；
+      //   - IAM_BAD_CREDENTIALS（旧密码打错，见 AuthController.changePassword）
+      //     → 会话本身是**有效**的，清 token 跳登录等于"输错一次旧密码就被登出"。
+      //   只按 status 判断就是这里出的错：状态码表达类别，具体原因在业务码里。
+      if (payload?.code === 'IAM_BAD_CREDENTIALS') {
+        ElMessage.error(message)
+        return Promise.reject(new Error(message))
+      }
       // token 无效 / 过期：清掉本地 token 并回登录页。
       // 但在登录页本身，401 是“用户名或密码错误”的业务结果，必须原样展示 ——
       // 否则用户点了登录毫无反馈（M3-S8 E2E-02 实测发现的缺陷）。
@@ -151,6 +180,12 @@ http.interceptors.response.use(
     }
 
     if (status === 403) {
+      // 密码过期/强制改密：不弹普通 toast（用户点哪儿都是同一条 403，弹十条没有意义），
+      // 改为广播事件，由 MainLayout 打开"必须改密"对话框 —— 改密是此状态下唯一能做的事。
+      if (payload?.code === 'IAM_PASSWORD_EXPIRED') {
+        emitAuthEvent('password-expired')
+        return Promise.reject(new Error(payload?.message ?? '必须先修改密码'))
+      }
       ElMessage.error(message || '当前账号无权执行该操作')
     } else if (status === 423) {
       // 账号锁定
@@ -185,6 +220,21 @@ export const authApi = {
   me: () => http.get<never, SessionSnapshot>('/auth/me'),
   switchTenant: (tenantCode: string) =>
     http.post<never, LoginPayload>('/auth/switch-tenant', { tenantCode }),
+  /**
+   * 自助修改密码（FR-IAM-06）。
+   *
+   * ★ 这是"必须改密"状态下后端放行的**唯一写接口**（见 PasswordExpiryFilter 白名单）：
+   *   后端的做法是登录照发 token、但把其它业务接口拦成 403 IAM_PASSWORD_EXPIRED，
+   *   这样过期用户还能自救，不必找管理员。所以前端在这个状态下**必须**只留改密入口，
+   *   否则用户到处点都会撞 403，看起来像系统坏了。
+   *   校验规则以后端 `passwordRules`（PasswordPolicy.describe()）为准，弱密码返回
+   *   400 IAM_PASSWORD_WEAK，message 里带具体缺哪条。
+   */
+  changePassword: (oldPassword: string, newPassword: string) =>
+    http.post<never, { changed: boolean; mustChangePassword: boolean }>('/auth/change-password', {
+      oldPassword,
+      newPassword,
+    }),
 }
 
 /**
@@ -1703,6 +1753,14 @@ export const finApi = {
     http.put<never, FinVoucherDetail>(`/fin/vouchers/${id}`, body),
   auditVoucher: (id: number) => http.post<never, FinVoucherDetail>(`/fin/vouchers/${id}/audit`),
   postVoucher: (id: number) => http.post<never, FinVoucherDetail>(`/fin/vouchers/${id}/post`),
+  /**
+   * 删除凭证（V4-1 接驳：此前该路径无 DELETE，返回 405，录错的草稿删不掉）。
+   *
+   * 后端只允许 DRAFT；AUDITED/POSTED 返回 409 FIN_VOUCHER_DELETE_FORBIDDEN，
+   * 已月结的账期同样拒绝。分录由后端连带清除，前端不需要单独调。
+   */
+  deleteVoucher: (id: number) =>
+    http.delete<never, { deleted: boolean; id: number }>(`/fin/vouchers/${id}`),
 
   // ── 银行账户 + 日记账（FR-V3-09）──
   bankAccounts: () => http.get<never, { items: BankAccountView[] }>('/fin/bank-accounts'),

@@ -163,6 +163,38 @@ public class FinVoucherApplicationService implements VoucherTrigger {
         return require(id);
     }
 
+    /**
+     * 删除凭证（V4-1 接驳：录错了的草稿必须能删）。
+     *
+     * <p><b>只允许 DRAFT</b>。AUDITED / POSTED 一律 409 拒绝并指向既有语义：
+     * 已过账的凭证进了报表与科目余额，删掉会让"期初 + 本期发生 = 期末"当场不平，
+     * 那是数据事故而不是便利功能；正解是作废/红冲（本期尚未提供）。
+     *
+     * <p>自动生成的凭证（{@code sourceType != MANUAL}）落库即 POSTED，
+     * 因此天然走不到这里 —— 要冲销请去冲销来源单据，凭证只是它的投影。
+     *
+     * <p>账期锁照 create/update/post 同一口径拦截：月结后删草稿，
+     * 等于改动一个已经封板期间的发生额。
+     */
+    @Transactional
+    public void delete(long id) {
+        Voucher v = require(id);
+        if (v.status() != VoucherStatus.DRAFT) {
+            String origin = v.sourceType() == VoucherSourceType.MANUAL
+                    ? "如需冲销请走作废/红冲"
+                    : "该凭证由业务单据自动生成，请改为冲销来源单据";
+            throw new BusinessException(ErrorCode.FIN_VOUCHER_DELETE_FORBIDDEN,
+                    "凭证 %s 状态为 %s，只有草稿可删除；%s"
+                            .formatted(v.voucherNo(), v.status().label(), origin));
+        }
+        periodGuard.requireOpen(v.voucherDate());
+        if (!vouchers.deleteDraft(id)) {
+            throw new BusinessException(ErrorCode.FIN_VOUCHER_DELETE_FORBIDDEN,
+                    "凭证 %s 在删除前已被并发改为非草稿状态，未删除"
+                            .formatted(v.voucherNo()));
+        }
+    }
+
     private void transition(Voucher v, VoucherStatus target) {
         if (!v.status().canTransitionTo(target)) {
             throw new BusinessException(ErrorCode.FIN_VOUCHER_STATUS_ILLEGAL,

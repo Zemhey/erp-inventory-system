@@ -25,19 +25,25 @@ const period = (() => {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
 })()
 
-const examples = [
-  '查询库存',
-  '进货单列表 第1页',
-  `账期 ${period} 进销存汇总`,
-  '查询商品 关键字 T恤',
-]
+/**
+ * 示例指令 —— 只能放 `NlIntent` 里真实存在、且 stub 解析器认得的写法。
+ *
+ * 后端当前支持 8 个意图：help / query_inventory / list_documents / get_document /
+ * inventory_summary / query_master_data（只读）+ create_purchase_order /
+ * create_sales_order（写，仅建草稿）。这里刻意不放写意图的示例，
+ * 避免用户误点产生单据；想知道完整能力就点「帮助」，它直接问后端要意图清单。
+ */
+const examples = ['帮助', '查询库存', '进货单列表 第1页', `账期 ${period} 进销存汇总`, '查询商品 关键字 T恤']
 
 const items = computed<FlatRow[]>(() => {
   const data = result.value?.data
-  if (data && typeof data === 'object' && 'items' in data) {
-    const list = (data as { items?: unknown }).items
-    if (Array.isArray(list)) {
-      return list.filter((item): item is FlatRow => !!item && typeof item === 'object')
+  if (data && typeof data === 'object') {
+    // 读意图返回 data.items；help 返回 data.intents（意图清单），两者都是列表，同样用表格渲染。
+    for (const key of ['items', 'intents']) {
+      const list = (data as Record<string, unknown>)[key]
+      if (Array.isArray(list)) {
+        return list.filter((item): item is FlatRow => !!item && typeof item === 'object')
+      }
     }
   }
   return []
@@ -91,7 +97,10 @@ async function run(): Promise<void> {
     <template #header>
       <div class="nl-header">
         <span>自然语言操作</span>
-        <span class="nl-hint">例：{{ examples[0] }} · 写操作只建草稿，提交/审核请走对应页面</span>
+        <span class="nl-hint">
+          支持 查询库存 / 单据列表与详情 / 进销存汇总 / 主数据查询，以及建进货、出货**草稿**；
+          点「帮助」可让后端列出当前真实可用的意图
+        </span>
       </div>
     </template>
 

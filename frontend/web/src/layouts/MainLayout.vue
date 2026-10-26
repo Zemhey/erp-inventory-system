@@ -2,9 +2,11 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowDown, OfficeBuilding, Search, SwitchButton } from '@element-plus/icons-vue'
+import { ArrowDown, Key, OfficeBuilding, Search, SwitchButton } from '@element-plus/icons-vue'
 import { navGroups } from '@/router/registry'
 import { useSessionStore } from '@/stores/session'
+import { onAuthEvent } from '@/api/client'
+import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue'
 import { skeletonApi, type SearchHit, type SearchResult } from '@/api/skeleton'
 
 /**
@@ -140,6 +142,62 @@ async function handleLogout() {
   session.logout()
   router.push({ name: 'login' })
 }
+
+// ─────────────────── 修改密码（FR-IAM-06） ───────────────────
+
+/**
+ * 顶栏自助改密 + 强制改密引导。
+ *
+ * 强制态有两个来源，缺一不可：
+ * 1. `session.mustChangePassword`（登录响应 / /auth/me 下发）—— 覆盖"登录后就该改"
+ *    与"刷新页面时仍是过期态"；UserRoleView 上写着"首次登录将被强制修改密码"，
+ *    兑现的就是这一条。
+ * 2. axios 收到 403 `IAM_PASSWORD_EXPIRED` 时广播的事件 —— 覆盖"会话中途才过期"
+ *    （密码有效期按天算，没人规定它不能在用户点菜单的那一刻到期）。
+ *
+ * 后端 PasswordExpiryFilter 在这种状态下会把除改密以外的接口全拦掉，
+ * 所以这里不给关闭、不给跳过，只留一个"退出登录"逃生口。
+ */
+const pwdVisible = ref(false)
+const pwdBlockedByApi = ref(false)
+const pwdForced = computed(() => session.mustChangePassword || pwdBlockedByApi.value)
+
+function openPasswordDialog() {
+  pwdVisible.value = true
+}
+
+watch(
+  pwdForced,
+  (forced) => {
+    if (forced) pwdVisible.value = true
+  },
+  // ★ immediate 不能省：mustChangePassword 是从 localStorage 直接恢复的，
+  //   过期用户刷新页面时它在 setup 阶段就已经是 true —— 不加 immediate 就
+  //   "永远不变所以永远不触发"，界面停在正常工作台上，点哪儿都是 403。
+  { immediate: true },
+)
+
+// 改密成功后 mustChangePassword 转假，清掉事件来源的兜底标记，避免对话框被反复顶开。
+watch(
+  () => session.mustChangePassword,
+  (needed) => {
+    if (!needed) pwdBlockedByApi.value = false
+  },
+)
+
+let unsubscribeAuthEvent: (() => void) | undefined
+
+onMounted(() => {
+  unsubscribeAuthEvent = onAuthEvent('password-expired', () => {
+    pwdBlockedByApi.value = true
+    // /auth/me 在过滤器白名单里，借它把后端的真实理由（规则文案）取回来。
+    void session.refresh().catch(() => undefined)
+  })
+})
+
+onBeforeUnmount(() => {
+  unsubscribeAuthEvent?.()
+})
 
 // ─────────────────────────── 全局搜索（FR-V3-05） ───────────────────────────
 
@@ -380,6 +438,16 @@ function goSearchHit(hit: SearchHit, kind: 'products' | 'customers' | 'suppliers
             {{ session.displayName || session.username }}
             <template v-if="session.roles.length">（{{ session.roles.join(' / ') }}）</template>
           </span>
+          <el-tooltip
+            v-if="session.mustChangePassword"
+            content="当前账号被要求先修改密码"
+            placement="bottom"
+          >
+            <el-button text type="warning" :icon="Key" @click="openPasswordDialog">
+              改密
+            </el-button>
+          </el-tooltip>
+          <el-button v-else text :icon="Key" @click="openPasswordDialog">修改密码</el-button>
           <el-button text :icon="SwitchButton" @click="handleLogout">退出</el-button>
         </div>
       </el-header>
@@ -389,6 +457,9 @@ function goSearchHit(hit: SearchHit, kind: 'products' | 'customers' | 'suppliers
         <router-view :key="session.tenantId ?? 'no-tenant'" />
       </el-main>
     </el-container>
+
+    <!-- FR-IAM-06：自助改密；强制态下不给关闭 -->
+    <ChangePasswordDialog v-model="pwdVisible" :forced="pwdForced" />
   </el-container>
 </template>
 

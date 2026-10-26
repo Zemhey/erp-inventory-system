@@ -5977,6 +5977,31 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ApiError' }
+    delete:
+      tags: [fin]
+      summary: 删除凭证（仅 DRAFT；分录连带清除，跨租户 id 只会得到"未删除"）
+      description: |
+        V4-1 接驳新增。此前该路径没有 DELETE 方法（405），录错的草稿凭证删不掉。
+        只允许 DRAFT：AUDITED / POSTED 一律 409，正解是既有的作废/红冲语义
+        （已过账凭证进报表与科目余额，删除会让"期初 + 本期发生 = 期末"不平）。
+        由业务单据自动生成的凭证落库即 POSTED，因此天然不可删，应改为冲销来源单据。
+        账期已月结锁定时同样拒绝（FIN_PERIOD_CLOSED）。
+      operationId: deleteFinVoucher
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          $ref: '#/components/responses/SingleResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: |
+            FIN_VOUCHER_DELETE_FORBIDDEN（非草稿不可删，或并发下状态已变）
+            / FIN_PERIOD_CLOSED（账期已锁定）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
 
   /fin/vouchers/{id}/audit:
     post:

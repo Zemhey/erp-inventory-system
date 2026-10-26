@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { fenToYuan } from '@/api/client'
 import { skeletonApi, type DashboardSummary, type RecentDocument, type TrendPoint } from '@/api/skeleton'
 import DocumentDrawer from '@/components/DocumentDrawer.vue'
+import NlCommandBox from '@/components/NlCommandBox.vue'
 
 /**
  * 工作台（驾驶舱 · FR-V3-02）。
@@ -179,6 +180,11 @@ onMounted(loadSummary)
       </div>
       <el-button :loading="loading" @click="loadSummary">刷新</el-button>
     </div>
+
+    <!-- FR-SYS-04：自然语言操作入口（POST /nl/command）。
+         放在工作台首屏，是因为它的能力就是"从这里一句话查到/建出东西"，
+         藏进二级页面等于没有。意图与权限一律后端判定，组件只负责输入与展示。 -->
+    <NlCommandBox />
 
     <el-alert
       v-if="loadError"
