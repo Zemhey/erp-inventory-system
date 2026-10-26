@@ -19,7 +19,10 @@ let raf = 0
 
 function tween(from: number, to: number, duration: number): void {
   cancelAnimationFrame(raf)
-  if (duration <= 0 || from === to) {
+  // 页面不可见时浏览器根本不触发 rAF：动画既没有观众，还会把数字永久停在起始值 0。
+  // 大屏正是最常被投在后台标签页/最小化窗口里的场景，那样每 60 秒刷新一次、
+  // 每次 KPI 都是 0，而同一数据的公告条却是对的 —— 直接落值，不排动画。
+  if (duration <= 0 || from === to || document.hidden) {
     shown.value = to
     return
   }
