@@ -49,38 +49,19 @@ info "用户名：$ADMIN_USERNAME"
 info "角色：$ADMIN_ROLE"
 info "显示名：$ADMIN_DISPLAY_NAME"
 
+# 单一事实源：与单机版共用同一份 seed-admin.sql。
+# 这里以前抄了一份**多租户之前**的副本（只插 username/password_hash/display_name/enabled），
+# V16 给 app_users / app_user_tenants / app_user_roles 加了 NOT NULL 的 tenant_id 之后，
+# 两份副本都只在"账号已存在"时才侥幸能跑（走 ON CONFLICT 的 UPDATE 分支），
+# 全新库里必然报 null tenant_id —— 实测单机版首启就死在这。别再复制第三份。
 compose exec -T postgres psql \
   -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
   -v ON_ERROR_STOP=1 \
   -v username="$ADMIN_USERNAME" \
   -v password="$ADMIN_PASSWORD" \
   -v display_name="$ADMIN_DISPLAY_NAME" \
-  -v role="$ADMIN_ROLE" <<'SQL'
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-
-INSERT INTO app_users (username, password_hash, display_name, enabled)
-VALUES (:'username', crypt(:'password', gen_salt('bf', 10)), :'display_name', TRUE)
-ON CONFLICT (username) DO UPDATE
-   SET password_hash   = EXCLUDED.password_hash,
-       display_name    = EXCLUDED.display_name,
-       enabled         = TRUE,
-       failed_attempts = 0,
-       locked_until    = NULL,
-       updated_at      = now();
-
-INSERT INTO app_user_roles (user_id, role_id)
-SELECT u.id, r.id
-  FROM app_users u, app_roles r
- WHERE u.username = :'username'
-   AND r.code = :'role'
-ON CONFLICT DO NOTHING;
-
-SELECT u.id AS user_id, u.username, r.code AS role
-  FROM app_users u
-  LEFT JOIN app_user_roles ur ON ur.user_id = u.id
-  LEFT JOIN app_roles r ON r.id = ur.role_id
- WHERE u.username = :'username';
-SQL
+  -v role="$ADMIN_ROLE" \
+  < "$ROOT_DIR/infra/standalone/seed-admin.sql"
 
 log "完成"
 info "用该账号登录前端，或："

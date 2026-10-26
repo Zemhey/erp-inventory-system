@@ -60,8 +60,13 @@ function New-RandomHex([int]$Bytes) {
 function New-StandaloneEnv {
     $pgPassword = New-RandomHex -Bytes 24
     $jwtSecret = New-RandomHex -Bytes 32
+    # ★ 时间戳先算好再插值，不要用 + 拼：PowerShell 里逗号（数组构造）的优先级**高于** +，
+    #   'a' + 'b', 'c' 解析成 'a' + ('b','c')，整个 @(...) 塌成**一个**用空格连接的字符串，
+    #   写出来的 .env 只有一行，Load-DotEnv 一行键都读不到，脚本死在
+    #   "POSTGRES_PASSWORD 未设置"（实测在这台机器上必现，Windows 用户第一次部署必然踩）。
+    $stamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
     $lines = @(
-        '# 由 start-standalone 自动生成（' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + '）',
+        "# 由 start-standalone 自动生成（$stamp）",
         '# 本文件含真实凭据，已被 .gitignore 忽略；不要提交、不要发到聊天工具。',
         'POSTGRES_DB=erp',
         'POSTGRES_USER=erp',
@@ -78,6 +83,12 @@ function New-StandaloneEnv {
     )
     $content = ($lines -join "`r`n") + "`r`n"
     [System.IO.File]::WriteAllText($script:EnvFile, $content, (New-Object System.Text.UTF8Encoding($false)))
+    # 回读自检：单行/空文件这类事必须在这里就叫住，而不是让后面的密码校验去猜
+    $written = @(Get-Content -LiteralPath $script:EnvFile -Encoding UTF8 |
+            Where-Object { $_ -match '^POSTGRES_PASSWORD=.+' -and $_ -notmatch '^#' })
+    if ($written.Count -ne 1) {
+        Die "生成的 $($script:EnvFile) 里 POSTGRES_PASSWORD 不可解析（命中 $($written.Count) 行）；这是生成逻辑的问题，不是凭据的问题"
+    }
     Write-Info "已生成 $($script:EnvFile)（随机数据库密码与 JWT 密钥）"
 }
 
@@ -190,10 +201,20 @@ function Test-Image([string]$Image) {
 function Ensure-Images([switch]$Build) {
     $tag = if ($env:IMAGE_TAG) { $env:IMAGE_TAG } else { 'standalone' }
     $images = @('postgres:16-alpine', "erp-backend:$tag", "erp-web:$tag")
+
+    # ★ -Build 的语义是"每次都构建"，不是"缺了才构建"。实测：本机 erp-backend:standalone
+    #   是三周前构建的，加 -Build 启动会因为"镜像已存在"直接跳过构建，跑起来的是旧代码
+    #   （flyway_schema_history 停在 V7，而当前是 V24）—— 这种"启动成功但版本是旧的"
+    #   是单机版最难被发现的一类假绿：健康检查全过，页面却能跑出你没写过的界面。
+    if ($Build) {
+        Write-Step "按 -Build 重新构建后端/前端镜像（不信任已存在的同名 tag）"
+        Invoke-Compose -Arguments @('build', 'backend', 'web')
+    }
+
     $missing = @($images | Where-Object { -not (Test-Image $_) })
 
-    if ($missing.Count -gt 0 -and $Build) {
-        Write-Step "构建后端/前端镜像（需要网络或本地基础镜像）"
+    if ($missing.Count -gt 0 -and -not $Build) {
+        Write-Step "缺镜像，尝试构建（需要网络或本地基础镜像）"
         Invoke-Compose -Arguments @('build', 'backend', 'web')
         if (-not (Test-Image 'postgres:16-alpine')) {
             Write-Info "显式拉取 postgres:16-alpine（需要网络）"

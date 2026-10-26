@@ -43,8 +43,10 @@ Write-Host "  哈希前缀: $($hashHolder.Substring(0, 7))..."
 #   改成把 SQL 当**单个 -c 参数**传：argv 由 .NET 以 UTF-16 交给 docker CLI，
 #   再到容器里是 UTF-8，全程不经过控制台码页（下面赋角色的语句本来就是这么写的）。
 $sql = @"
-INSERT INTO app_users (username, password_hash, display_name, enabled)
-VALUES ('$Username', '$hashHolder', '$DisplayName', TRUE)
+INSERT INTO app_users (username, password_hash, display_name, enabled, tenant_id)
+VALUES ('$Username', '$hashHolder', '$DisplayName', TRUE,
+        COALESCE((SELECT tenant_id FROM app_users WHERE username = '$Username'),
+                 (SELECT id FROM tenants WHERE code = 'default' ORDER BY id LIMIT 1)))
 ON CONFLICT (username) DO UPDATE
    SET password_hash = EXCLUDED.password_hash,
        display_name  = EXCLUDED.display_name,
@@ -65,11 +67,18 @@ if (-not $userId) {
     exit 1
 }
 
-# 赋角色
+# 赋角色（V16 之后 tenant_id 是 NOT NULL，且角色按租户各一份，必须同租户配对；
+# app_user_tenants 是登录时的可见性检查，缺了它账号存在也登不进去）
 docker exec erp-postgres psql -U erp -d erp -c @"
-INSERT INTO app_user_roles (user_id, role_id)
-SELECT u.id, r.id FROM app_users u, app_roles r
- WHERE u.username = '$Username' AND r.code = '$Role'
+INSERT INTO app_user_tenants (user_id, tenant_id)
+SELECT u.id, u.tenant_id FROM app_users u WHERE u.username = '$Username'
+ON CONFLICT (user_id, tenant_id) DO NOTHING;
+
+INSERT INTO app_user_roles (user_id, role_id, tenant_id)
+SELECT u.id, r.id, u.tenant_id
+  FROM app_users u
+  JOIN app_roles r ON r.code = '$Role' AND r.tenant_id = u.tenant_id
+ WHERE u.username = '$Username'
 ON CONFLICT DO NOTHING;
 "@ | Out-Null
 
