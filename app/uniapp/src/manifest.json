@@ -4,6 +4,8 @@
   "description": "服装/鞋帽网店进销存移动端",
   "versionName": "0.1.0",
   "versionCode": "100",
+  // versionCode 是**整数语义**且每次发布递增（别和 versionName 混）；同包名安装时 versionCode 偏低会被拒装。
+  // 出包前先跑：npm run preflight —— 把"到设备上一定坏"的配置项在构建前报出来。
   "transformPx": false,
   "vueVersion": "3",
   "uniStatistics": {
@@ -20,10 +22,20 @@
       "delay": 0
     },
     "distribute": {
+      // ★ icons 未配置：HBuilderX 云打包会用它的默认图标出 APK —— **能出包，但图标不是我们的**。
+      //   准备一张 ≥1024×1024 的方形主图放 src/uni-app-icons/source/master.png，然后：
+      //   node scripts/make-icons.mjs --write-manifest
       "android": {
+        // ★ 包名是**按应用名（云裳）取的占位值，不是终态**：上架/装机后改不了（同包名互相覆盖，
+        //   签名与升级链路和包名绑死）。确定实际主体后替换成 com.<实际主体>.erp：
+        //   node scripts/set-appid.mjs com.<实际主体>.erp --target packagename --force
+        "packagename": "com.yunshang.erp",
         "permissions": [
           "<uses-permission android:name=\"android.permission.INTERNET\"/>",
-          "<uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\"/>"
+          "<uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\"/>",
+          // CAMERA：扫码三页（shipments/detail、purchase/scan-receive、stocktakes/scan）都走
+          // uni.scanCode —— 手输框只是扫码失败后的降级路径，不是主路径；真机调摄像头要这条权限。
+          "<uses-permission android:name=\"android.permission.CAMERA\"/>"
         ]
       },
       "ios": {},
