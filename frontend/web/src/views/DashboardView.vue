@@ -103,6 +103,8 @@ const warehouseBars = computed(() => {
   const max = Math.max(1, ...data.map((d) => d.value))
   return data.map((d, i) => ({
     id: d.id,
+    // 名字由后端 JOIN warehouses 给（V4-2）；只有后端回不来时才退化成 "仓 #id"
+    label: d.name?.trim() ? d.name : `仓 #${d.id}`,
     value: d.value,
     width: Math.round((d.value / max) * 100),
     color: PIE_COLORS[i % PIE_COLORS.length],
@@ -272,7 +274,7 @@ onMounted(loadSummary)
         <template #header><span class="chart-title">各仓库 SKU 覆盖</span></template>
         <div v-if="summary && warehouseBars.length" class="bar-wrap">
           <div v-for="b in warehouseBars" :key="b.id" class="bar-row">
-            <span class="bar-label">仓 #{{ b.id }}</span>
+            <span class="bar-label" :title="b.label">{{ b.label }}</span>
             <div class="bar-track">
               <div class="bar-fill" :style="{ width: b.width + '%', background: b.color }" />
             </div>
@@ -493,7 +495,12 @@ onMounted(loadSummary)
 }
 
 .bar-label {
-  flex: 0 0 56px;
+  /* 56px 是按 "仓 #421" 这种短兜底定的；换成仓库名（如"演示仓-上海"）需要更宽，
+     超出用省略号 + title 悬浮全文，避免把柱状轨道挤没。 */
+  flex: 0 0 92px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: #606266;
 }
 

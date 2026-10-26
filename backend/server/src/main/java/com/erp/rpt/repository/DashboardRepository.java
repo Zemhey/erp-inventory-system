@@ -91,17 +91,31 @@ public class DashboardRepository {
                 });
     }
 
-    /** 各仓库 SKU 覆盖数（TOP 6 柱状图）。 */
+    /**
+     * 各仓库 SKU 覆盖数（TOP 6 柱状图）。
+     *
+     * <p>带仓库名返回：前端此前只有 {@code id}，只能渲染成"仓 #421"这种用户读不懂的兜底。
+     * 列名以 {@code \d warehouses} / {@code \d inventory_balances} 实测为准
+     * （{@code warehouses.name}，FK 列 {@code inventory_balances.warehouse_id}）——
+     * 猜错列名会让整个 /dashboard/summary 500，且三道编译门禁都拦不住。
+     *
+     * <p>用 LEFT JOIN：{@code warehouse_id} 虽是 FK 非空，但停用的仓库仍可能有历史余额行，
+     * INNER JOIN 会让这些仓从图上无声消失。理论上 name 不会为 null（NOT NULL 约束），
+     * 仍保留 id 让前端兜底。
+     */
     public List<Map<String, Object>> inventoryByWarehouse() {
         return jdbc.query(
                 """
-                        SELECT warehouse_id AS id, COUNT(DISTINCT sku_id) AS value
-                          FROM inventory_balances
-                         GROUP BY warehouse_id ORDER BY value DESC LIMIT 6
+                        SELECT b.warehouse_id AS id, w.name AS name,
+                               COUNT(DISTINCT b.sku_id) AS value
+                          FROM inventory_balances b
+                          LEFT JOIN warehouses w ON w.id = b.warehouse_id
+                         GROUP BY b.warehouse_id, w.name ORDER BY value DESC LIMIT 6
                         """,
                 (rs, i) -> {
                     Map<String, Object> m = new java.util.LinkedHashMap<>();
                     m.put("id", rs.getLong("id"));
+                    m.put("name", rs.getString("name"));
                     m.put("value", rs.getLong("value"));
                     return m;
                 });
