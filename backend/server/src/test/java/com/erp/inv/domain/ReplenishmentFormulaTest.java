@@ -19,9 +19,13 @@ class ReplenishmentFormulaTest {
     }
 
     @Test
-    @DisplayName("在途量 > 0：不重复建议（防二次采购）")
-    void 存在在途采购时不出建议() {
-        assertThat(ReplenishmentFormula.suggest(10, 20, 100, 5)).isNull();
+    @DisplayName("在途量按净额扣减：缺口未被在途覆盖时仍出建议，覆盖完了才不出")
+    void 存在在途采购时按净额给建议() {
+        // max 100 − 可用 10 − 在途 5 = 85：在途已在建议量里扣掉，不会重复采购
+        assertThat(ReplenishmentFormula.suggest(10, 20, 100, 5)).isEqualTo(85);
+        // 在途把缺口整个盖住 → 不再建议
+        assertThat(ReplenishmentFormula.suggest(10, 20, 60, 50)).isNull();
+        assertThat(ReplenishmentFormula.suggest(10, 20, 55, 50)).isNull();
     }
 
     @Test

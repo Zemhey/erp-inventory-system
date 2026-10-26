@@ -207,6 +207,33 @@ async function main() {
   const settle = await settleWave()
   console.log(`核销：收款 ${settle.receipts} 笔 ${yuan(settle.receivedFen)} 元，付款 ${settle.payments} 笔 ${yuan(settle.paidFen)} 元`)
 
+  // 安全库存阈值。库里此前 0 个 SKU 设过 min_level，所以库存预警、补货建议、
+  // 待办的「库存预警」、大屏的 lowStock 全部为 0 —— 不是坏了，是没有阈值可判。
+  // 把三条线的下限设到"当前可用量之上"保证命中；maxLevel 只给第一条设，
+  // 让另一种口径（库里 CHECK 是 max_level=0 视为未设上限）也同时在场。
+  const freshSkus = unwrap(await call('GET', '/skus?page=1&size=400'))
+  const availOf = new Map()
+  for (const b of unwrap(await call('GET', '/inventory?page=1&size=400'))) {
+    const k = Number(b.skuId)
+    availOf.set(k, (availOf.get(k) ?? 0) + Number(b.availableQty ?? 0))
+  }
+  let levelSet = 0
+  for (const [i, line] of lines.entries()) {
+    if (i >= 3) break
+    const s = freshSkus.find((x) => Number(x.id) === Number(line.sku.id))
+    if (!s) continue
+    const avail = availOf.get(Number(s.id)) ?? 0
+    // PUT 是全量覆盖语义，未改的字段必须原值带回，否则 barcode/enabled/价格会被抹掉
+    await call('PUT', `/skus/${s.id}`, {
+      barcode: s.barcode ?? '',
+      retailPriceAmount: s.retailPriceAmount,
+      enabled: s.enabled !== false,
+      minLevel: avail + 20,
+      maxLevel: i === 0 ? avail + 150 : 0,
+    }).then(() => { levelSet++ }, (e) => note(`阈值 ${line.name}`, e))
+  }
+  console.log(`安全库存阈值：已设 ${levelSet} 个 SKU`)
+
   // 留几张停在中间态的单：待办中心、审批工作台、消息通知才有内容可看。
   // 全推到 COMPLETED 的系统看起来像"跑完的批处理"，不像正在被用的系统。
   let pendingCount = 0
@@ -415,6 +442,12 @@ async function verify() {
   }
   const journals = unwrap(await call('GET', '/fin/cash-journal?page=1&size=5').catch(() => []))
   console.log(`现金日记账流水：${journals.length} 条`)
+
+  // 阈值设下去之后，这两处才第一次会有内容：预警按类型分桶、补货给出建议量
+  const alerts = unwrap(await call('GET', '/inventory/alerts').catch(() => []))
+  const repl = unwrap(await call('GET', '/inventory/replenishment').catch(() => []))
+  console.log(`库存预警 ${alerts.length} 条 / 补货建议 ${repl.length} 条` +
+    (repl[0] ? `（例：${JSON.stringify(repl[0]).slice(0, 110)}）` : ''))
 
   const trend = await call('GET', `/reports/purchase?from=${day(84)}&to=${day(0)}`).catch(() => null)
   const sales = await call('GET', `/reports/sales?from=${day(84)}&to=${day(0)}`).catch(() => null)

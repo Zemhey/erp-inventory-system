@@ -4,11 +4,14 @@ package com.erp.inv.domain;
  * 补货建议公式（FR-INV-13 的定义性规则，答辩口径固化在这里）。
  *
  * <pre>
- *   建议量 = max_level − 可用量          （低于 min_level 才建议，补到 max_level）
+ *   建议量 = max_level − 可用量 − 在途量   （低于 min_level 才建议，补到 max_level）
  *   可用量 ≥ min_level                  → 不建议
- *   同仓同 SKU 有在途（已下未到 pendingPurchaseQty &gt; 0）→ 不建议（防重复采购）
- *   建议量 ≤ 0（如 max_level 未设置）    → 不建议
+ *   建议量 ≤ 0（含在途已覆盖缺口、max_level 未设置）→ 不建议
  * </pre>
+ *
+ * <p>在途按<b>净额扣减</b>而不是"有在途就整条不出"：后者在真实业务里等于永久空页——
+ * 已下单未到货是常态，不是"无需补货"的信号。净额口径同样防重复采购，
+ * 因为在途覆盖缺口时算出来 ≤ 0，同样不出建议。
  *
  * <p>返回 {@code null} 表示"该候选不需要出现在建议列表里"。纯函数、不落库，
  * 因此重复调用结果一致（幂等验收点）。
@@ -27,13 +30,14 @@ public final class ReplenishmentFormula {
      */
     public static Integer suggest(int availableQty, int minLevel, int maxLevel,
                                   int pendingPurchaseQty) {
-        if (pendingPurchaseQty > 0) {
-            return null;
-        }
         if (availableQty >= minLevel) {
             return null;
         }
-        int suggested = maxLevel - availableQty;
+        // 在途量按净额扣减，而不是"有在途就整条不出建议"。
+        // 后者会让任何一个正在正常采购的租户永远看不到补货建议 —— 已下单但还没到货
+        // 是常态，不是"无需补货"的信号。净额口径同样防重复采购：在途已覆盖缺口时
+        // 算出来 ≤ 0，照样不出建议。
+        int suggested = maxLevel - availableQty - pendingPurchaseQty;
         return suggested > 0 ? suggested : null;
     }
 }

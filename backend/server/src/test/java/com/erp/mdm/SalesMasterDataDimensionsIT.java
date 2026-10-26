@@ -147,12 +147,15 @@ class SalesMasterDataDimensionsIT extends PostgresTestBase {
 
         Sku updated = skus.update(sku.id(), new SkuApplicationService.UpdateCommand(
                 "6901000260", 20000L, true, "2027SS", "BAND-N",
-                LocalDate.of(2027, 1, 1)));
+                LocalDate.of(2027, 1, 1), 40, 600));
 
         assertThat(updated.barcode()).isEqualTo("6901000260");
         assertThat(updated.retailPriceAmount()).isEqualTo(20000L);
         assertThat(updated.seasonCode()).isEqualTo("2027SS");
         assertThat(updated.bandCode()).isEqualTo("BAND-N");
+        // 安全库存阈值同批更新（单位是整数件，不是分）
+        assertThat(updated.minLevel()).isEqualTo(40);
+        assertThat(updated.maxLevel()).isEqualTo(600);
         assertThat(updated.launchDate()).isEqualTo(LocalDate.of(2027, 1, 1));
         assertThat(updated.seasonYear()).isEqualTo(2027);
     }
