@@ -1391,6 +1391,17 @@ paths:
           in: query
           description: 可选仓库过滤；省略=全部仓库。口径按单据 biz_date（闭区间）
           schema: { type: integer, format: int64 }
+        # ★ V4-4 追加（不传时与改动前逐字相同：ORDER BY 分组键、全量返回）
+        - name: orderBy
+          in: query
+          description: |
+            key=按分组键升序（既有默认，ORDER BY 1）；amount=按金额降序、同额按分组键升序。
+            limit 只在 amount 上才是"TOP N"——按分组键截断切掉的是字典序靠后的行。
+          schema: { type: string, enum: [key, amount], default: key }
+        - name: limit
+          in: query
+          description: 展示行数上限（1~200，与 customer-contribution 的 limit 同范围）；省略=不截断
+          schema: { type: integer, minimum: 1, maximum: 200 }
       responses:
         '200':
           description: 进货统计行（data.items）
@@ -1430,6 +1441,15 @@ paths:
           in: query
           description: 可选仓库过滤；省略=全部仓库。口径按单据 biz_date（闭区间），不含退货
           schema: { type: integer, format: int64 }
+        # ★ V4-4 追加（与 /reports/purchase 同一组可选参数、同一套默认值）
+        - name: orderBy
+          in: query
+          description: key=按分组键升序（既有默认）；amount=按金额降序，同额按分组键升序
+          schema: { type: string, enum: [key, amount], default: key }
+        - name: limit
+          in: query
+          description: 展示行数上限（1~200）；省略=不截断。单品排行请 orderBy=amount + limit=N
+          schema: { type: integer, minimum: 1, maximum: 200 }
       responses:
         '200':
           description: 出货统计行（data.items）
@@ -1618,6 +1638,22 @@ paths:
           required: true
           description: 观察日（账龄截止日）
           schema: { type: string, format: date }
+        # ★ V4-4 追加（都不传时与改动前逐字相同）
+        - name: partnerId
+          in: query
+          required: false
+          description: 只看这一个往来单位（AR=客户 id，AP=供应商 id）。此前前端只能按名称包含匹配
+          schema: { type: integer, format: int64 }
+        - name: groupBy
+          in: query
+          required: false
+          description: partner=按往来单位一行（既有默认）；document=按单据展开，每行多回 docNo/docDate/dueDate
+          schema: { type: string, enum: [partner, document], default: partner }
+        - name: limit
+          in: query
+          required: false
+          description: 展示行数上限（1~200）；summary 始终是截断前的全额合计
+          schema: { type: integer, minimum: 1, maximum: 200 }
       responses:
         '200':
           description: 账龄行 + 汇总
@@ -1806,6 +1842,19 @@ paths:
           in: query
           required: true
           schema: { type: string, format: date }
+        # ★ V4-4 追加（与 /reports/aging 同一组参数，导出 == 页面）
+        - name: partnerId
+          in: query
+          required: false
+          schema: { type: integer, format: int64 }
+        - name: groupBy
+          in: query
+          required: false
+          schema: { type: string, enum: [partner, document], default: partner }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 200 }
       responses:
         '200':
           description: UTF-8 BOM 的 CSV（Excel 可直接打开）
@@ -1813,6 +1862,371 @@ paths:
             text/csv:
               schema: { type: string, format: binary }
         '400': { $ref: '#/components/responses/BadRequest' }
+
+  # ─────────────────────────── V4-4 报表补口 ───────────────────────────
+  # 全部是新增端点或既有端点的可选追加参数；既有字段与取值一个没改。
+  # 口径纪律：rpt 域金额一律**分**（ADR-0005），CSV 落格才换成元。
+  /reports/slow-moving:
+    get:
+      tags: [rpt]
+      summary: 呆滞分析（服务端过滤，行形状与库存周转一致）
+      description: |
+        呆滞 = 周转查询里 `idle_days >= days` 且期末有库存的行；
+        阈值语义与 `/reports/inventory-turnover` 的 `deadDays` 同一个口径，不另造定义。
+        此前前端把全量周转行拉回浏览器再过滤，所以这张表只有前端 CSV；
+        现在过滤进 SQL，并配 `/reports/slow-moving/export`。
+        数量单位件；本端点不回金额。
+      operationId: slowMovingReport
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: days
+          in: query
+          required: false
+          description: 空闲天数下限（同时作为 stale 判定线），默认 30，范围 1~3650
+          schema: { type: integer, minimum: 1, maximum: 3650, default: 30 }
+        - name: warehouseId
+          in: query
+          required: false
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: 呆滞行（data.items，字段同 InventoryTurnoverRow）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        required: [items]
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/InventoryTurnoverRow' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /reports/slow-moving/export:
+    get:
+      tags: [rpt]
+      summary: 呆滞分析导出 CSV
+      operationId: slowMovingExportReport
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: days
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 3650, default: 30 }
+        - name: warehouseId
+          in: query
+          required: false
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: UTF-8 BOM 的 CSV（Excel 可直接打开）
+          content:
+            text/csv:
+              schema: { type: string, format: binary }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /reports/inventory-value:
+    get:
+      tags: [rpt]
+      summary: 库存金额（库存总值）
+      description: |
+        期末库存的成本金额。数据来自成本月结结果表 `cost_monthly`，
+        但**权限码是 `rpt:read`**：报表中心不自带成本查询，也**不借** `cst:*` 权限，
+        而是由 rpt 用自己的只读 SQL 读同一张结果表（`ArchitectureTest` 规则 7 仍然成立）。
+        **金额单位分**（ADR-0005），全程成本口径，不出现售价、不出现元。
+        未做成本月结的账期/维度返回 `null` 金额（不是 0），并在 `summary` 里
+        用 `valuedPoolCount` 与 `coverageRateBp` 如实报告覆盖率。
+        期末数量与金额与 `/reports/inventory-summary` 的 `closingQty`/`closingCostAmount` 同源同值。
+      operationId: inventoryValueReport
+      parameters:
+        - name: period
+          in: query
+          required: true
+          description: 账期 yyyy-MM（与进销存汇总同口径，非法即 400）
+          schema: { type: string, pattern: '^\d{4}-\d{2}$', example: '2026-10' }
+        - name: warehouseId
+          in: query
+          required: false
+          schema: { type: integer, format: int64 }
+        - name: groupBy
+          in: query
+          required: false
+          schema: { type: string, enum: [sku, warehouse], default: sku }
+        - name: limit
+          in: query
+          required: false
+          description: 只截断展示行；summary 始终覆盖全部维度值
+          schema: { type: integer, minimum: 1, maximum: 200 }
+      responses:
+        '200':
+          description: 库存金额行 + 汇总
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/InventoryValueResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /reports/inventory-value/export:
+    get:
+      tags: [rpt]
+      summary: 库存金额导出 CSV（金额列标（元），未月结显示 -）
+      operationId: inventoryValueExportReport
+      parameters:
+        - name: period
+          in: query
+          required: true
+          schema: { type: string, pattern: '^\d{4}-\d{2}$' }
+        - name: warehouseId
+          in: query
+          required: false
+          schema: { type: integer, format: int64 }
+        - name: groupBy
+          in: query
+          required: false
+          schema: { type: string, enum: [sku, warehouse], default: sku }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 200 }
+      responses:
+        '200':
+          description: UTF-8 BOM 的 CSV（Excel 可直接打开）
+          content:
+            text/csv:
+              schema: { type: string, format: binary }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /reports/purchase-detail:
+    get:
+      tags: [rpt]
+      summary: 进货明细（按单据展开，分页）
+      description: |
+        与 `/reports/purchase` 的分工：那张按供应商/商品/SKU/日/月**聚合**，
+        拿不到单号、业务日期与经手人；这张给到**单据行**。
+        金额算式与聚合端点逐字相同（`received_qty × unit_price_amount`），
+        因此"明细各行金额之和 == 同期同参聚合金额"可互相验证。
+        **金额单位分**（ADR-0005）。口径：单据 `biz_date` 闭区间、状态 `PARTIAL|COMPLETED`、
+        `received_qty > 0`。分页 `page`（从 1 起）/`size`（默认 20，上限 200）与项目既有分页端点同形。
+      operationId: purchaseDetailReport
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: warehouseId
+          in: query
+          required: false
+          schema: { type: integer, format: int64 }
+        - name: partnerId
+          in: query
+          required: false
+          description: 供应商 id（进货侧）；省略=全部供应商
+          schema: { type: integer, format: int64 }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: 分页的进货明细行（data:{items,total,page,size}）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        required: [items, total, page, size]
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/DocumentDetailRow' }
+                          total: { type: integer, format: int64 }
+                          page: { type: integer }
+                          size: { type: integer }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /reports/purchase-detail/export:
+    get:
+      tags: [rpt]
+      summary: 进货明细导出 CSV（全量、不带分页）
+      description: |
+        导出**不接受** `page`/`size`：CSV 必须是这个查询条件下的全部行，
+        分页导出会产出互不相干的若干张表，就失去了「导出 == 页面」的意义。
+        金额列按分→元两位小数落格（与 JSON 的分是同一个数，只是显示）。
+      operationId: purchaseDetailExportReport
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: warehouseId
+          in: query
+          required: false
+          schema: { type: integer, format: int64 }
+        - name: partnerId
+          in: query
+          required: false
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: UTF-8 BOM 的 CSV（Excel 可直接打开）
+          content:
+            text/csv:
+              schema: { type: string, format: binary }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /reports/sales-detail:
+    get:
+      tags: [rpt]
+      summary: 销售明细（按单据展开，分页）
+      description: |
+        同 `/reports/purchase-detail`，事实来源换成出货单；
+        金额算式 `round(unit_price_amount × shipped_qty × discount_rate / 10000)`
+        与聚合端点 `round(...)` 同一个舍入口径。
+        **金额单位分**（ADR-0005）；`discountRate` 是万分比。
+      operationId: salesDetailReport
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: warehouseId
+          in: query
+          required: false
+          schema: { type: integer, format: int64 }
+        - name: partnerId
+          in: query
+          required: false
+          description: 客户 id（销售侧）；省略=全部客户
+          schema: { type: integer, format: int64 }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: 分页的销售明细行（data:{items,total,page,size}）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        required: [items, total, page, size]
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/DocumentDetailRow' }
+                          total: { type: integer, format: int64 }
+                          page: { type: integer }
+                          size: { type: integer }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /reports/sales-detail/export:
+    get:
+      tags: [rpt]
+      summary: 销售明细导出 CSV（全量、不带分页）
+      operationId: salesDetailExportReport
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: warehouseId
+          in: query
+          required: false
+          schema: { type: integer, format: int64 }
+        - name: partnerId
+          in: query
+          required: false
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: UTF-8 BOM 的 CSV（Excel 可直接打开）
+          content:
+            text/csv:
+              schema: { type: string, format: binary }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /reports/profit/export:
+    get:
+      tags: [rpt, cst]
+      summary: 毛利分析导出 CSV（补 FR-RPT-09 缺的最后一张）
+      description: |
+        参数与 `GET /reports/profit` 完全一致，调用同一次 `analyze`，所以导出 == 页面。
+        ★ `from`/`to` 是**账期** `yyyy-MM`，不是 ISO 日期（与毛利查询端点同一口径）。
+        源数据单位**分**，CSV 表头一律标（元）；毛利率是万分比，落成 `66.67%` 样式。
+        实现落在 `cst` 模块：毛利查询属成本域，而架构规则禁止 `rpt` 依赖其它模块的应用服务，
+        因此导出与查询同模块（路径仍在 `/reports` 命名空间、权限仍是 `rpt:read`）。
+      operationId: profitExportReport
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, pattern: '^\d{4}-\d{2}$', example: '2026-10' }
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, pattern: '^\d{4}-\d{2}$', example: '2026-12' }
+        - name: groupBy
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [product, customer, period]
+            default: product
+      responses:
+        '200':
+          description: UTF-8 BOM 的 CSV（Excel 可直接打开）
+          content:
+            text/csv:
+              schema: { type: string, format: binary }
+        '400':
+          description: 参数非法（from > to / groupBy 非法 / 格式错误）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
 
   # ─────────────────────────── NL ───────────────────────────
   /nl/command:
@@ -7395,6 +7809,36 @@ components:
         inboundQty: { type: integer, format: int64, description: 本期入库数量 }
         outboundQty: { type: integer, format: int64, description: 本期出库数量 }
         closingQty: { type: integer, format: int64, description: 期末数量 }
+        # ★ V4-4 追加（纯可选，老字段一个没动）。名称口径与 InventoryTurnoverRow 逐字相同。
+        skuCode:
+          type: string
+          description: 'SKU 编码 = 商品编码-颜色-尺码；主数据缺失时回退 SKU#<id>'
+        skuName:
+          type: string
+          description: '展示名 = 商品名 · 颜色-尺码；与库存周转/呆滞两张表同一口径'
+        warehouseName:
+          type: string
+          description: 仓库名（已停用仓库带「（已停用）」后缀）
+        openingCostAmount:
+          type: integer
+          format: int64
+          nullable: true
+          description: 期初库存成本金额（**分**，ADR-0005）；来源 cost_monthly，该账期未月结时为 null（null ≠ 0）
+        inboundCostAmount:
+          type: integer
+          format: int64
+          nullable: true
+          description: 本期入库成本金额（**分**）；未月结为 null
+        outboundCostAmount:
+          type: integer
+          format: int64
+          nullable: true
+          description: 本期出库成本金额（**分**）；未月结为 null
+        closingCostAmount:
+          type: integer
+          format: int64
+          nullable: true
+          description: 期末库存成本金额（**分**）；未月结为 null。数量口径来自流水、金额口径来自成本月结，两者同页列示但互不推算
 
     OperatingReportRow:
       type: object
@@ -7502,6 +7946,19 @@ components:
         bucket1: { type: integer, format: int64, description: 31-60 天 }
         bucket2: { type: integer, format: int64, description: 61-90 天 }
         bucket3: { type: integer, format: int64, description: 90+ 天 }
+        # ★ V4-4 追加：只在 groupBy=document 时有值，默认粒度（partner）下恒为 null。
+        docNo:
+          type: string
+          nullable: true
+          description: '单据号：AR = 出货单号（sales_orders.order_no）；AP = 应付单号（supplier_payables.payable_no）'
+        docDate:
+          type: string
+          nullable: true
+          description: 单据业务日期（yyyy-MM-dd）
+        dueDate:
+          type: string
+          nullable: true
+          description: 约定到期日（yyyy-MM-dd）。应付表**没有**到期日列，AP 恒为 null
 
     AgingSummary:
       type: object
@@ -7522,6 +7979,90 @@ components:
           type: array
           items: { $ref: '#/components/schemas/AgingRow' }
         summary: { $ref: '#/components/schemas/AgingSummary' }
+        # ★ V4-4 追加：本次实际返回的行数（传 limit 时小于 summary 覆盖的行数）。
+        #   summary 始终是"过滤后、截断前"的全额合计，所以 Top N 展示不会把合计切小。
+        returnedCount: { type: integer }
+
+    DocumentDetailRow:
+      type: object
+      description: |
+        单据行级明细一行（进货 / 销售共用）。
+        金额一律**分**（ADR-0005）；数量按**已执行量**（received_qty / shipped_qty）计。
+      required: [orderNo, bizDate, status, partnerCode, partnerName, lineNo,
+                 skuCode, skuName, orderedQty, executedQty, unitPriceAmount, amount]
+      properties:
+        orderNo: { type: string, description: 单据号（purchase_orders.order_no / sales_orders.order_no） }
+        bizDate: { type: string, description: '业务日期 yyyy-MM-dd（报表口径归属日）' }
+        status: { type: string, description: 单据状态（本表只会出现 PARTIAL / COMPLETED） }
+        partnerCode: { type: string, description: 供应商编码（进货）/ 客户编码（销售） }
+        partnerName: { type: string }
+        warehouseName:
+          type: string
+          description: 仓库名（已停用带「（已停用）」后缀）；主数据缺失回退 仓库#<id>
+        operator:
+          type: string
+          nullable: true
+          description: 经手人（app_users.display_name，按单据 created_by 关联）；无创建人时 null
+        lineNo: { type: integer, description: 行号 }
+        skuCode: { type: string, description: '商品编码-颜色-尺码；缺失回退 SKU#<id>' }
+        skuName: { type: string, description: '商品名 颜色/尺码（与周转、呆滞、进销存同一口径）' }
+        orderedQty: { type: integer, format: int64, description: 下单数量 }
+        executedQty: { type: integer, format: int64, description: 已入库 / 已出货数量（金额按它算） }
+        unitPriceAmount: { type: integer, format: int64, description: 单价（**分**） }
+        discountRate:
+          type: integer
+          format: int64
+          nullable: true
+          description: 折扣率（万分比，9950 = 99.50%）。进货单没有折扣列，恒 null
+        amount:
+          type: integer
+          format: int64
+          description: |
+            行金额（**分**）。进货 = received_qty × unit_price_amount；
+            销售 = round(unit_price_amount × shipped_qty × discount_rate / 10000) —— 与聚合端点同一算式
+
+    InventoryValueResult:
+      type: object
+      description: |
+        库存金额（库存总值）结果。★ 全部金额字段单位**分**（ADR-0005），成本口径。
+        null 金额 = 该账期/维度没有成本月结结果（"没数"），不是 0。
+      required: [items, summary]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/InventoryValueRow' }
+        summary: { $ref: '#/components/schemas/InventoryValueSummary' }
+
+    InventoryValueRow:
+      type: object
+      required: [key, label, qty, poolCount, valuedPoolCount]
+      properties:
+        key: { type: string, description: 维度键（sku 时是 skuId 的字符串形式，warehouse 时是 warehouseId） }
+        label: { type: string, description: 维度展示名（与进销存/周转同一 SKU 名称口径） }
+        qty: { type: integer, format: int64, description: 期末数量（件） }
+        unitCostAmount:
+          type: integer
+          format: int64
+          nullable: true
+          description: 加权平均单价（分）= costAmount / qty，四舍五入到分；未估值时 null
+        costAmount:
+          type: integer
+          format: int64
+          nullable: true
+          description: 期末库存成本金额（分）；该维度全部池都未月结时 null
+        poolCount: { type: integer, description: 该维度下期末有库存的 (SKU, 仓库) 池数 }
+        valuedPoolCount: { type: integer, description: 其中已有成本金额的池数 }
+
+    InventoryValueSummary:
+      type: object
+      required: [poolCount, valuedPoolCount, totalQty, valuedQty, totalCostAmount, coverageRateBp]
+      properties:
+        poolCount: { type: integer }
+        valuedPoolCount: { type: integer }
+        totalQty: { type: integer, format: int64, description: 全部池期末数量（件） }
+        valuedQty: { type: integer, format: int64, description: 已估值池的期末数量（件） }
+        totalCostAmount: { type: integer, format: int64, description: 已估值池的期末成本合计（分） }
+        coverageRateBp: { type: integer, format: int64, description: 估值覆盖率，万分比整数 }
 
     NlCommandRequest:
       type: object
