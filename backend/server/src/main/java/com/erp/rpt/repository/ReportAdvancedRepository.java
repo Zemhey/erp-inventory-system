@@ -1,5 +1,6 @@
 package com.erp.rpt.repository;
 
+import com.erp.rpt.domain.AgingGroupBy;
 import com.erp.rpt.domain.AgingRow;
 import com.erp.rpt.domain.AgingType;
 import com.erp.rpt.domain.CustomerContributionRow;
@@ -85,7 +86,17 @@ public class ReportAdvancedRepository {
                     rs.getLong("bucket0"),
                     rs.getLong("bucket1"),
                     rs.getLong("bucket2"),
-                    rs.getLong("bucket3"));
+                    rs.getLong("bucket3"),
+                    rs.getString("doc_no"),
+                    rs.getString("doc_date"),
+                    rs.getString("due_date"));
+
+    /**
+     * 呆滞行复用 {@link InventoryTurnoverRow} 的形状：字段名与 {@code /reports/inventory-turnover}
+     * 逐字相同（前端两张表本来就是同一份列定义），因此把呆滞分析切到服务端过滤时
+     * 页面不用改一列。
+     */
+    private static final RowMapper<InventoryTurnoverRow> SLOW_MOVING_ROW = TURNOVER_ROW;
 
     private final JdbcTemplate jdbc;
     private final ScopeContext scope;
@@ -217,6 +228,36 @@ public class ReportAdvancedRepository {
     }
 
     Sql inventoryTurnoverSql(LocalDate from, LocalDate to, int deadDays, Long warehouseId) {
+        return turnoverSql(from, to, deadDays, warehouseId, null);
+    }
+
+    /**
+     * 呆滞分析（V4-4 新增端点的仓储方法）。
+     *
+     * <p><b>刻意不另写一条 SQL</b>：呆滞就是"周转结果里 {@code idle_days >= days} 的那些行"，
+     * 口径必须与周转表同源，否则两张表对同一个 SKU 会给出不同的空闲天数
+     * （前端兜底版本正是因为共用周转端点才对得上）。这里只在周转查询外面加一层
+     * {@code WHERE q.idle_days >= ?}，阈值同时作为 {@code stale} 的判定线。
+     */
+    public List<InventoryTurnoverRow> slowMoving(LocalDate from, LocalDate to,
+                                                 int days, Long warehouseId) {
+        Sql sql = slowMovingSql(from, to, days, warehouseId);
+        return jdbc.query(sql.text(), SLOW_MOVING_ROW, sql.args().toArray());
+    }
+
+    Sql slowMovingSql(LocalDate from, LocalDate to, int days, Long warehouseId) {
+        return turnoverSql(from, to, days, warehouseId, days);
+    }
+
+    /**
+     * 周转与呆滞共用的那条 SQL。
+     *
+     * @param minIdleDays 非空时在外层追加"空闲天数下限"过滤（呆滞用），
+     *                    占位符排在所有既有参数<b>之后</b> —— 因为它在 SQL 文本里出现得最晚，
+     *                    既有调用方（{@code minIdleDays = null}）的参数顺序一字未动
+     */
+    private Sql turnoverSql(LocalDate from, LocalDate to, int deadDays, Long warehouseId,
+                            Integer minIdleDays) {
         LocalDateTime fromStart = from.atStartOfDay();
         LocalDateTime toEnd = to.plusDays(1).atStartOfDay();
         long periodDays = java.time.temporal.ChronoUnit.DAYS.between(from, to) + 1;
@@ -284,8 +325,13 @@ public class ReportAdvancedRepository {
                       LEFT JOIN outbound o
                         ON o.sku_id = s.sku_id AND o.warehouse_id = s.warehouse_id
                   ) q
+                 WHERE TRUE %3$s
                  ORDER BY q.stale DESC, q.closing_qty DESC, q.sku_id, q.warehouse_id
-                """.formatted(stockFilter, outboundFilter);
+                """.formatted(stockFilter, outboundFilter,
+                minIdleDays == null ? "" : "AND q.idle_days >= ?");
+        if (minIdleDays != null) {
+            args.add(minIdleDays);
+        }
         return new Sql(text, args);
     }
 
@@ -358,34 +404,83 @@ public class ReportAdvancedRepository {
      * 账龄分桶：未到期 / 无到期日归 0–30；逾期天数 31–60、61–90、>90 依次进入后三桶。
      * 只统计未作废且余额 > 0 的行，因此「四桶合计 == 余额」在行级和汇总级都必须成立。
      */
+    /** 账龄（V4-4 扩展版）：可按单一往来单位收窄、可按单据展开。 */
+    public List<AgingRow> aging(AgingType type, LocalDate asOf, Long partnerId,
+                                AgingGroupBy groupBy) {
+        Sql sql = agingSql(type, asOf, partnerId, groupBy);
+        return jdbc.query(sql.text(), AGING_ROW, sql.args().toArray());
+    }
+
+    /**
+     * 占位符顺序：{@code asOf}（{@code p} CTE）→ 可选 {@code partnerId}。
+     *
+     * <p>{@code groupBy=document} 时分组键加上单据 id，四桶与余额的算法一个字没改 ——
+     * 只是把同一个往来单位的若干张未结单据摊成若干行，
+     * 所以"按单据各行合计 == 按单位那一行"仍然成立（应用服务的分桶守恒校验
+     * 对两种粒度同样有效）。
+     *
+     * <p>列名全部实测：AR 侧 {@code customer_receivables.(customer_id, due_date, biz_date,
+     * balance, status, sales_order_id)} 联 {@code sales_orders.order_no}；
+     * AP 侧 {@code supplier_payables.(supplier_id, biz_date, balance_amount, payable_no, id)}
+     * —— 应付表<b>没有</b> {@code due_date} 列，所以 AP 的到期日列恒为 NULL（不是 0）。
+     */
     Sql agingSql(AgingType type, LocalDate asOf) {
+        return agingSql(type, asOf, null, AgingGroupBy.PARTNER);
+    }
+
+    Sql agingSql(AgingType type, LocalDate asOf, Long partnerId, AgingGroupBy groupBy) {
+        boolean byDoc = groupBy == AgingGroupBy.DOCUMENT;
         String source = type == AgingType.AR
                 ? """
                   SELECT c.id AS partner_id, c.code AS partner_code, c.name AS partner_name,
                          r.balance AS balance,
-                         p.as_of - r.due_date AS overdue_days
+                         p.as_of - r.due_date AS overdue_days,
+                         r.id AS doc_key,
+                         so.order_no AS doc_no,
+                         r.biz_date AS doc_date,
+                         r.due_date AS due_date
                     FROM customer_receivables r
                     CROSS JOIN p
                     JOIN customers c ON c.id = r.customer_id
+                    LEFT JOIN sales_orders so ON so.id = r.sales_order_id
                    WHERE r.status <> 'VOIDED' AND r.balance > 0
                      AND r.biz_date <= p.as_of
                   """
                 : """
                   SELECT s.id AS partner_id, s.code AS partner_code, s.name AS partner_name,
                          sp.balance_amount AS balance,
-                         p.as_of - sp.biz_date AS overdue_days
+                         p.as_of - sp.biz_date AS overdue_days,
+                         sp.id AS doc_key,
+                         sp.payable_no AS doc_no,
+                         sp.biz_date AS doc_date,
+                         NULL AS due_date
                     FROM supplier_payables sp
                     CROSS JOIN p
                     JOIN suppliers s ON s.id = sp.supplier_id
                    WHERE sp.balance_amount > 0
                      AND sp.biz_date <= p.as_of
                   """;
+        List<Object> args = new ArrayList<>(List.of(asOf));
+        String partnerFilter = "";
+        if (partnerId != null) {
+            partnerFilter = type == AgingType.AR
+                    ? "AND r.customer_id = ?" : "AND sp.supplier_id = ?";
+            args.add(partnerId);
+        }
+        String docCols = byDoc
+                ? "doc_no, doc_date::text AS doc_date, due_date::text AS due_date"
+                : "NULL AS doc_no, NULL AS doc_date, NULL AS due_date";
+        String docGroup = byDoc ? ", doc_key, doc_no, doc_date, due_date" : "";
+        String docOrder = byDoc ? ", doc_no" : "";
+
         String text = """
                 WITH p AS (SELECT ?::date AS as_of),
                 rows AS (
                 %1$s
+                  %2$s
                 )
                 SELECT partner_id, partner_code, partner_name,
+                       %3$s,
                        COALESCE(SUM(balance), 0) AS balance_amount,
                        COALESCE(SUM(balance) FILTER (
                            WHERE overdue_days IS NULL OR overdue_days <= 30), 0) AS bucket0,
@@ -395,10 +490,10 @@ public class ReportAdvancedRepository {
                            WHERE overdue_days BETWEEN 61 AND 90), 0) AS bucket2,
                        COALESCE(SUM(balance) FILTER (WHERE overdue_days > 90), 0) AS bucket3
                   FROM rows
-                 GROUP BY partner_id, partner_code, partner_name
-                 ORDER BY balance_amount DESC, partner_code
-                """.formatted(source);
-        return new Sql(text, List.of(asOf));
+                 GROUP BY partner_id, partner_code, partner_name%4$s
+                 ORDER BY balance_amount DESC, partner_code%5$s
+                """.formatted(source, partnerFilter, docCols, docGroup, docOrder);
+        return new Sql(text, args);
     }
 
     /**

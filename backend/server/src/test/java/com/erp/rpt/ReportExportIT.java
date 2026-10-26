@@ -123,16 +123,27 @@ public class ReportExportIT extends ReportV28TestSupport {
         List<InventorySummaryExportRow> rows = reports.inventorySummaryExport(
                 YearMonth.of(2026, 3), null);
 
-        assertThat(csv.get(0)).containsExactly("SKU", "仓库", "期初", "本期入库", "本期出库", "期末");
+        // V4-4：前 6 列不变，末尾追加 SKU编码 + 四个金额列（分→元；未月结为 -）。
+        assertThat(csv.get(0)).containsExactly("SKU", "仓库", "期初", "本期入库", "本期出库", "期末",
+                "SKU编码", "期初金额（元）", "本期入库金额（元）", "本期出库金额（元）",
+                "期末金额（元）");
         assertThat(csv).hasSize(rows.size() + 1);
         for (int i = 0; i < rows.size(); i++) {
             InventorySummaryExportRow r = rows.get(i);
             assertThat(csv.get(i + 1)).containsExactly(r.skuName(), r.warehouseName(),
                     String.valueOf(r.openingQty()), String.valueOf(r.inboundQty()),
-                    String.valueOf(r.outboundQty()), String.valueOf(r.closingQty()));
+                    String.valueOf(r.outboundQty()), String.valueOf(r.closingQty()),
+                    r.skuCode(), moneyCell(r.openingCostAmount()), moneyCell(r.inboundCostAmount()),
+                    moneyCell(r.outboundCostAmount()), moneyCell(r.closingCostAmount()));
         }
         assertThat(rows).anySatisfy(r ->
                 assertThat(r.skuName()).isEqualTo("V2-8 商品A · 白色-L"));
+    }
+
+    /** 与 {@code ReportCsvService.moneyOrDash} 同一规则：null（未月结）落 "-"，不是 0.00。 */
+    private static String moneyCell(Long fen) {
+        return fen == null ? "-"
+                : java.math.BigDecimal.valueOf(fen, 2).toPlainString();
     }
 
     @Test

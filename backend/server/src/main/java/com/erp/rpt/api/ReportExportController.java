@@ -40,10 +40,13 @@ public class ReportExportController {
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestParam(required = false) String groupBy,
-            @RequestParam(required = false) Long warehouseId) {
+            @RequestParam(required = false) Long warehouseId,
+            @RequestParam(required = false) String orderBy,
+            @RequestParam(required = false) Integer limit) {
         ReportGroupBy dim = ReportRequestParams.parseGroupBy(groupBy, ReportGroupBy.SUPPLIER,
                 ReportRequestParams.PURCHASE_DIMS);
-        return csv(exports.purchaseCsv(from, to, dim, warehouseId));
+        return csv(exports.purchaseCsv(from, to, dim, warehouseId,
+                ReportRequestParams.parseOrderBy(orderBy), limit));
     }
 
     @GetMapping(value = "/sales/export", produces = "text/csv;charset=UTF-8")
@@ -52,10 +55,75 @@ public class ReportExportController {
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestParam(required = false) String groupBy,
-            @RequestParam(required = false) Long warehouseId) {
+            @RequestParam(required = false) Long warehouseId,
+            @RequestParam(required = false) String orderBy,
+            @RequestParam(required = false) Integer limit) {
         ReportGroupBy dim = ReportRequestParams.parseGroupBy(groupBy, ReportGroupBy.CUSTOMER,
                 ReportRequestParams.SALES_DIMS);
-        return csv(exports.salesCsv(from, to, dim, warehouseId));
+        return csv(exports.salesCsv(from, to, dim, warehouseId,
+                ReportRequestParams.parseOrderBy(orderBy), limit));
+    }
+
+    /**
+     * 进货明细导出（按单据展开，全量、不分页）。
+     *
+     * <p>刻意不接 {@code page}/{@code size}：CSV 要能整份核对，
+     * 金额列同样是<b>分→元两位小数</b>（与页面 JSON 的分是同一个数，只是落格格式）。
+     */
+    @GetMapping(value = "/purchase-detail/export", produces = "text/csv;charset=UTF-8")
+    @RequirePermission("rpt:read")
+    public ResponseEntity<byte[]> purchaseDetailExport(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) Long warehouseId,
+            @RequestParam(required = false) Long partnerId) {
+        return csv(exports.purchaseDetailCsv(from, to, warehouseId, partnerId));
+    }
+
+    /** 销售明细导出（按单据展开，全量、不分页）。 */
+    @GetMapping(value = "/sales-detail/export", produces = "text/csv;charset=UTF-8")
+    @RequirePermission("rpt:read")
+    public ResponseEntity<byte[]> salesDetailExport(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) Long warehouseId,
+            @RequestParam(required = false) Long partnerId) {
+        return csv(exports.salesDetailCsv(from, to, warehouseId, partnerId));
+    }
+
+    /** 呆滞分析导出：与 JSON 同参（{@code days} 同样是呆滞阈值）。 */
+    @GetMapping(value = "/slow-moving/export", produces = "text/csv;charset=UTF-8")
+    @RequirePermission("rpt:read")
+    public ResponseEntity<byte[]> slowMovingExport(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(defaultValue = "30") int days,
+            @RequestParam(required = false) Long warehouseId) {
+        return csv(exports.slowMovingCsv(from, to, days, warehouseId));
+    }
+
+    /** 库存金额导出（金额列单位分 → CSV 落元，未月结显示 -）。 */
+    @GetMapping(value = "/inventory-value/export", produces = "text/csv;charset=UTF-8")
+    @RequirePermission("rpt:read")
+    public ResponseEntity<byte[]> inventoryValueExport(
+            @RequestParam String period,
+            @RequestParam(required = false) Long warehouseId,
+            @RequestParam(required = false) String groupBy,
+            @RequestParam(required = false) Integer limit) {
+        return csv(exports.inventoryValueCsv(ReportRequestParams.parsePeriod(period), warehouseId,
+                ReportRequestParams.parseValueDim(groupBy), limit));
+    }
+
+    @GetMapping(value = "/aging/export", produces = "text/csv;charset=UTF-8")
+    @RequirePermission("rpt:read")
+    public ResponseEntity<byte[]> agingExport(
+            @RequestParam String type,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate asOf,
+            @RequestParam(required = false) Long partnerId,
+            @RequestParam(required = false) String groupBy,
+            @RequestParam(required = false) Integer limit) {
+        return csv(exports.agingCsv(ReportRequestParams.parseAgingType(type), asOf, partnerId,
+                ReportRequestParams.parseAgingGroupBy(groupBy), limit));
     }
 
     @GetMapping(value = "/inventory-summary/export", produces = "text/csv;charset=UTF-8")
@@ -96,14 +164,6 @@ public class ReportExportController {
             @RequestParam(defaultValue = "20") int limit,
             @RequestParam(required = false) Long warehouseId) {
         return csv(exports.customerContributionCsv(from, to, warehouseId, limit));
-    }
-
-    @GetMapping(value = "/aging/export", produces = "text/csv;charset=UTF-8")
-    @RequirePermission("rpt:read")
-    public ResponseEntity<byte[]> agingExport(
-            @RequestParam String type,
-            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate asOf) {
-        return csv(exports.agingCsv(ReportRequestParams.parseAgingType(type), asOf));
     }
 
     private static ResponseEntity<byte[]> csv(CsvDocument doc) {

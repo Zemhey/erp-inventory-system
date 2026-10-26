@@ -1,12 +1,11 @@
 package com.erp.rpt.domain;
 
 /**
- * 进销存导出行：在 {@link InventorySummaryRow} 的六个报表字段之外，
- * 带上<b>与页面同一份</b>名称（商品名 · 颜色-尺码 / 仓库名）。
+ * 进销存汇总的导出行（与 {@link InventorySummaryRow} 来自同一条 SQL）。
  *
- * <p>名称由同一条聚合 SQL 的 LEFT JOIN 给出，不另发查询；页面字典缺失时的
- * {@code SKU#id} / {@code 仓库#id} 回退也写在同一 SQL 的 COALESCE 里，
- * 因此 CSV 与页面在字典不完整时仍然一致。
+ * <p>V4-4 追加：{@code skuCode} 与四个成本金额列（<b>单位分</b>，可空 = 该账期未月结）。
+ * 原有 6 列的 CSV 顺序不变，金额列一律排在最后，所以老脚本按列位解析仍然能读到
+ * 前六列；新增列是纯追加。
  */
 public record InventorySummaryExportRow(
         long skuId,
@@ -16,5 +15,10 @@ public record InventorySummaryExportRow(
         long openingQty,
         long inboundQty,
         long outboundQty,
-        long closingQty) {
+        long closingQty,
+        String skuCode,
+        Long openingCostAmount,
+        Long inboundCostAmount,
+        Long outboundCostAmount,
+        Long closingCostAmount) {
 }

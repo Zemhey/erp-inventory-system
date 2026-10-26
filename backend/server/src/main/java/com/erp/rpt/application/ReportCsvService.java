@@ -1,5 +1,6 @@
 package com.erp.rpt.application;
 
+import com.erp.rpt.domain.AgingGroupBy;
 import com.erp.rpt.domain.AgingResult;
 import com.erp.rpt.domain.AgingRow;
 import com.erp.rpt.domain.AgingSummary;
@@ -7,10 +8,15 @@ import com.erp.rpt.domain.AgingType;
 import com.erp.rpt.domain.CustomerContributionResult;
 import com.erp.rpt.domain.CustomerContributionRow;
 import com.erp.rpt.domain.CustomerContributionSummary;
+import com.erp.rpt.domain.DocumentDetailRow;
 import com.erp.rpt.domain.InventorySummaryExportRow;
 import com.erp.rpt.domain.InventoryTurnoverRow;
+import com.erp.rpt.domain.InventoryValueDim;
+import com.erp.rpt.domain.InventoryValueResult;
+import com.erp.rpt.domain.InventoryValueRow;
 import com.erp.rpt.domain.OperatingReportRow;
 import com.erp.rpt.domain.ReportGroupBy;
+import com.erp.rpt.domain.ReportOrderBy;
 import com.erp.rpt.domain.ReportPeriodDim;
 import com.erp.rpt.domain.ReportRow;
 import java.math.BigDecimal;
@@ -48,7 +54,13 @@ public class ReportCsvService {
 
     public CsvDocument purchaseCsv(LocalDate from, LocalDate to,
                                    ReportGroupBy groupBy, Long warehouseId) {
-        List<ReportRow> rows = reports.purchaseReport(from, to, groupBy, warehouseId);
+        return purchaseCsv(from, to, groupBy, warehouseId, ReportOrderBy.KEY, null);
+    }
+
+    /** 进货统计导出（V4-4 扩展）：与 JSON 端点同一组参数、同一条 SQL。 */
+    public CsvDocument purchaseCsv(LocalDate from, LocalDate to, ReportGroupBy groupBy,
+                                   Long warehouseId, ReportOrderBy orderBy, Integer limit) {
+        List<ReportRow> rows = reports.purchaseReport(from, to, groupBy, warehouseId, orderBy, limit);
         Csv csv = new Csv().header("分组键", "名称", "数量", "金额（元）", "单据数");
         for (ReportRow r : rows) {
             csv.row(r.key(), r.label(), r.qty(), money(r.amount()), r.orderCount());
@@ -58,7 +70,13 @@ public class ReportCsvService {
 
     public CsvDocument salesCsv(LocalDate from, LocalDate to,
                                 ReportGroupBy groupBy, Long warehouseId) {
-        List<ReportRow> rows = reports.salesReport(from, to, groupBy, warehouseId);
+        return salesCsv(from, to, groupBy, warehouseId, ReportOrderBy.KEY, null);
+    }
+
+    /** 出货统计导出（V4-4 扩展）。 */
+    public CsvDocument salesCsv(LocalDate from, LocalDate to, ReportGroupBy groupBy,
+                                Long warehouseId, ReportOrderBy orderBy, Integer limit) {
+        List<ReportRow> rows = reports.salesReport(from, to, groupBy, warehouseId, orderBy, limit);
         Csv csv = new Csv().header("分组键", "名称", "数量", "金额（元）", "单据数");
         for (ReportRow r : rows) {
             csv.row(r.key(), r.label(), r.qty(), money(r.amount()), r.orderCount());
@@ -66,12 +84,95 @@ public class ReportCsvService {
         return new CsvDocument("sales-%s_%s.csv".formatted(from, to), csv.build());
     }
 
+    // ─────────────────────────── 单据行级明细（V4-4） ───────────────────────────
+
+    /**
+     * 进货明细导出（全量，不带分页）。
+     *
+     * <p>页面是分页看的，CSV 是这个查询条件下的<b>全部行</b>：
+     * 分列导出会产出互不相干的若干张表，也就失去了"导出 == 页面"的意义。
+     * 金额列与 {@code /reports/purchase/export} 同样按<b>元、两位小数</b>落格，
+     * 单位分只存在于 JSON。
+     */
+    public CsvDocument purchaseDetailCsv(LocalDate from, LocalDate to,
+                                         Long warehouseId, Long partnerId) {
+        return detailCsv("进货明细", reports.purchaseDetailAll(from, to, warehouseId, partnerId),
+                "purchase-detail");
+    }
+
+    /** 销售明细导出（全量，不带分页）。 */
+    public CsvDocument salesDetailCsv(LocalDate from, LocalDate to,
+                                      Long warehouseId, Long partnerId) {
+        return detailCsv("销售明细", reports.salesDetailAll(from, to, warehouseId, partnerId),
+                "sales-detail");
+    }
+
+    private static CsvDocument detailCsv(String title, List<DocumentDetailRow> rows, String stem) {
+        Csv csv = new Csv().header("单号", "业务日期", "状态", "往来单位编码", "往来单位名称",
+                "仓库", "经手人", "行号", "SKU编码", "SKU名称", "下单数量", "执行数量",
+                "单价（元）", "折扣率（万分比）", "金额（元）");
+        for (DocumentDetailRow r : rows) {
+            csv.row(r.orderNo(), r.bizDate(), r.status(), r.partnerCode(), r.partnerName(),
+                    r.warehouseName(), r.operator(), r.lineNo(), r.skuCode(), r.skuName(),
+                    r.orderedQty(), r.executedQty(), money(r.unitPriceAmount()),
+                    r.discountRate() == null ? "-" : r.discountRate(), money(r.amount()));
+        }
+        return new CsvDocument("%s-%s.csv".formatted(stem, java.time.LocalDate.now()), csv.build());
+    }
+
+    // ─────────────────────────── 呆滞 / 库存金额（V4-4） ───────────────────────────
+
+    /**
+     * 呆滞分析导出。列与 {@code /reports/inventory-turnover/export} 一致，
+     * 因为两张表本来就是同一份行形状（阈值不同而已）。
+     */
+    public CsvDocument slowMovingCsv(LocalDate from, LocalDate to, int days, Long warehouseId) {
+        List<InventoryTurnoverRow> rows = reports.slowMoving(from, to, days, warehouseId);
+        Csv csv = new Csv().header("SKU编码", "SKU名称", "仓库", "期初", "期末",
+                "区间出库", "周转天数", "呆滞天数", "是否呆滞");
+        for (InventoryTurnoverRow r : rows) {
+            csv.row(r.skuCode(), r.skuName(), r.warehouseName(), r.openingQty(), r.closingQty(),
+                    r.outboundQty(), turnoverDays(r.turnoverDays()), r.idleDays(),
+                    yesNo(r.stale()));
+        }
+        return new CsvDocument("slow-moving-%s_%s.csv".formatted(from, to), csv.build());
+    }
+
+    /**
+     * 库存金额导出。金额列标<b>（元）</b>并按与页面相同的分→元换算落格，
+     * 未月结的维度显示 {@code -}（不是 0），页面上是空白单元格 —— 两边都是"没数"。
+     */
+    public CsvDocument inventoryValueCsv(YearMonth period, Long warehouseId,
+                                         InventoryValueDim dim, Integer limit) {
+        InventoryValueResult result = reports.inventoryValue(period, warehouseId, dim, limit);
+        Csv csv = new Csv().header("维度键", "名称", "期末数量", "加权平均单价（元）",
+                "期末库存金额（元）", "库存池数", "已估值池数");
+        for (InventoryValueRow r : result.items()) {
+            csv.row(r.key(), r.label(), r.qty(),
+                    r.unitCostAmount() == null ? "-" : money(r.unitCostAmount()),
+                    r.costAmount() == null ? "-" : money(r.costAmount()),
+                    r.poolCount(), r.valuedPoolCount());
+        }
+        InventoryValueResult.Summary s = result.summary();
+        csv.blank();
+        csv.header("汇总", "库存池数", "已估值池数", "估值覆盖率", "期末数量合计",
+                "已估值数量合计", "期末库存金额合计（元）");
+        csv.row("汇总", s.poolCount(), s.valuedPoolCount(), rate(s.coverageRateBp()),
+                s.totalQty(), s.valuedQty(), money(s.totalCostAmount()));
+        return new CsvDocument("inventory-value-%s.csv".formatted(period), csv.build());
+    }
+
     public CsvDocument inventorySummaryCsv(YearMonth period, Long warehouseId) {
         List<InventorySummaryExportRow> rows = reports.inventorySummaryExport(period, warehouseId);
-        Csv csv = new Csv().header("SKU", "仓库", "期初", "本期入库", "本期出库", "期末");
+        // 前 6 列一个没动（老脚本按列位读仍然对）；V4-4 追加 SKU编码与四个金额列。
+        Csv csv = new Csv().header("SKU", "仓库", "期初", "本期入库", "本期出库", "期末",
+                "SKU编码", "期初金额（元）", "本期入库金额（元）", "本期出库金额（元）",
+                "期末金额（元）");
         for (InventorySummaryExportRow r : rows) {
             csv.row(r.skuName(), r.warehouseName(), r.openingQty(), r.inboundQty(),
-                    r.outboundQty(), r.closingQty());
+                    r.outboundQty(), r.closingQty(), r.skuCode(),
+                    moneyOrDash(r.openingCostAmount()), moneyOrDash(r.inboundCostAmount()),
+                    moneyOrDash(r.outboundCostAmount()), moneyOrDash(r.closingCostAmount()));
         }
         return new CsvDocument("inventory-summary-%s.csv".formatted(period), csv.build());
     }
@@ -126,14 +227,31 @@ public class ReportCsvService {
     }
 
     public CsvDocument agingCsv(AgingType type, LocalDate asOf) {
-        AgingResult result = reports.aging(type, asOf);
+        return agingCsv(type, asOf, null, AgingGroupBy.PARTNER, null);
+    }
+
+    /** 账龄导出（V4-4 扩展）：可选单一往来单位、可选按单据展开、可选 Top N。 */
+    public CsvDocument agingCsv(AgingType type, LocalDate asOf, Long partnerId,
+                                AgingGroupBy groupBy, Integer limit) {
+        AgingResult result = reports.aging(type, asOf, partnerId, groupBy, limit);
         String partner = type == AgingType.AR ? "客户" : "供应商";
-        Csv csv = new Csv().header(partner + "编码", partner + "名称", "余额（元）",
-                "0-30", "31-60", "61-90", "90+");
+        boolean byDoc = groupBy == AgingGroupBy.DOCUMENT;
+        Csv csv = byDoc
+                ? new Csv().header(partner + "编码", partner + "名称", "单号", "单据日期",
+                    "到期日", "余额（元）", "0-30", "31-60", "61-90", "90+")
+                : new Csv().header(partner + "编码", partner + "名称", "余额（元）",
+                    "0-30", "31-60", "61-90", "90+");
         for (AgingRow r : result.items()) {
-            csv.row(r.partnerCode(), r.partnerName(), money(r.balanceAmount()),
-                    money(r.bucket0()), money(r.bucket1()), money(r.bucket2()),
-                    money(r.bucket3()));
+            if (byDoc) {
+                csv.row(r.partnerCode(), r.partnerName(), dash(r.docNo()), dash(r.docDate()),
+                        dash(r.dueDate()), money(r.balanceAmount()),
+                        money(r.bucket0()), money(r.bucket1()), money(r.bucket2()),
+                        money(r.bucket3()));
+            } else {
+                csv.row(r.partnerCode(), r.partnerName(), money(r.balanceAmount()),
+                        money(r.bucket0()), money(r.bucket1()), money(r.bucket2()),
+                        money(r.bucket3()));
+            }
         }
         AgingSummary s = result.summary();
         csv.blank();
@@ -148,6 +266,16 @@ public class ReportCsvService {
     /** 整数分 → 元，两位小数；与前端 {@code fenToYuan} 同一结果。 */
     static String money(long fen) {
         return BigDecimal.valueOf(fen, 2).toPlainString();
+    }
+
+    /** 可空金额：null = 该账期未做成本月结（没数），落 {@code -} 而不是 0.00。 */
+    static String moneyOrDash(Long fen) {
+        return fen == null ? "-" : money(fen);
+    }
+
+    /** 可空文本列（按单据展开时的单号/日期）；AP 没有到期日，恒为 {@code -}。 */
+    static String dash(String value) {
+        return value == null ? "-" : value;
     }
 
     /** 周转天数一位小数；无出库（null）显示 {@code -}。 */
