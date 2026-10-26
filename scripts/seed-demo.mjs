@@ -199,6 +199,12 @@ async function main() {
 
   }
 
+  // 核销一批应收/应付：收付款才会写现金日记账、才会生成 SAL_RCV / PUR_PAY 凭证，
+  // 财务首页的"资金余额"和账龄报表也才有已收与未收的对比。故意只核一部分（约六成），
+  // 剩下的留着当挂账 —— 全部结清的账龄报表同样是零信息。
+  const settle = await settleWave()
+  console.log(`核销：收款 ${settle.receipts} 笔 ${yuan(settle.receivedFen)} 元，付款 ${settle.payments} 笔 ${yuan(settle.paidFen)} 元`)
+
   // 留几张停在中间态的单：待办中心、审批工作台、消息通知才有内容可看。
   // 全推到 COMPLETED 的系统看起来像"跑完的批处理"，不像正在被用的系统。
   let pendingCount = 0
@@ -302,6 +308,63 @@ async function salesPending(line, customer, qty, bizDate) {
   return call('POST', `/sales-orders/${order.id}/approve`)
 }
 
+/**
+ * 收付款核销一波。
+ *
+ * 分配口径：按 balance 的约六成核销，且每人只核前两条 —— 故意留尾差和挂账，
+ * 这样应收/应付账龄报表同时有"已收"和"未收"两种行，财务首页资金余额也才非零。
+ */
+async function settleWave() {
+  let receipts = 0
+  let payments = 0
+  let receivedFen = 0
+  let paidFen = 0
+
+  const recv = unwrap(await call('GET', '/receivables?page=1&size=200'))
+    .filter((r) => Number(r.balance) > 0 && r.status !== 'SETTLED')
+  const byCustomer = new Map()
+  for (const r of recv) {
+    const k = Number(r.customerId)
+    if (!byCustomer.has(k)) byCustomer.set(k, [])
+    byCustomer.get(k).push(r)
+  }
+  let ci = 0
+  for (const [customerId, rows] of byCustomer) {
+    if (ci++ >= 12) break
+    const allocations = rows.slice(0, 2)
+      .map((r) => ({ receivableId: Number(r.id), amount: Math.round(Number(r.balance) * 0.6) }))
+      .filter((a) => a.amount > 0)
+    if (allocations.length === 0) continue
+    const amount = allocations.reduce((s, a) => s + a.amount, 0)
+    await call('POST', '/customer-receipts', {
+      customerId, amount, bizDate: day(1 + rnd(3)), remark: '演示回款（部分核销）', allocations,
+    }).then(() => { receipts++; receivedFen += amount }, (e) => note(`收款 客户 ${customerId}`, e))
+  }
+
+  const pay = unwrap(await call('GET', '/supplier-payables?page=1&size=200'))
+    .filter((p) => Number(p.balance) > 0 && p.status !== 'PAID' && p.status !== 'SETTLED')
+  const bySupplier = new Map()
+  for (const p of pay) {
+    const k = Number(p.supplierId)
+    if (!bySupplier.has(k)) bySupplier.set(k, [])
+    bySupplier.get(k).push(p)
+  }
+  let si = 0
+  for (const [supplierId, rows] of bySupplier) {
+    if (si++ >= 10) break
+    const allocations = rows.slice(0, 2)
+      .map((p) => ({ payableId: Number(p.id), amount: Math.round(Number(p.balance) * 0.6) }))
+      .filter((a) => a.amount > 0)
+    if (allocations.length === 0) continue
+    const amount = allocations.reduce((s, a) => s + a.amount, 0)
+    await call('POST', '/supplier-payments', {
+      supplierId, amount, bizDate: day(1 + rnd(3)), remark: '演示付款（部分核销）', allocations,
+    }).then(() => { payments++; paidFen += amount }, (e) => note(`付款 供应商 ${supplierId}`, e))
+  }
+
+  return { receipts, payments, receivedFen, paidFen }
+}
+
 function note(where, err) {
   // 单笔失败不中断整批：让其余单据继续，最后统一列出来
   failed.push(`${where} -> ${err.message}`)
@@ -330,6 +393,26 @@ async function verify() {
 
   const vouchers = await call('GET', '/fin/vouchers?page=1&size=1').catch(() => null)
   console.log(`自动生成凭证：${vouchers?.total ?? 0} 张`)
+
+  // 收付款核销的下游效果：现金日记账与资金余额。没核销时这两处恒为 0，
+  // 财务首页四个卡片就只有一格有数，看起来像半成品。
+  const ov = await call('GET', '/fin/overview').catch(() => null)
+  if (ov) {
+    // 真实结构是 cards.{fundsBalance,receivableTotal,payableTotal,monthInflow,monthOutflow}
+    // —— 字段名以实测为准，不要预先猜
+    const c = ov.cards ?? {}
+    console.log(`财务首页：资金余额 ${fix(c.fundsBalance)} / 应收 ${fix(c.receivableTotal)} / 应付 ${fix(c.payableTotal)} / 本月收 ${fix(c.monthInflow)} 支 ${fix(c.monthOutflow)}`)
+    console.log(`过账凭证 ${ov.postedVoucherCount} 张，其中本期 ${ov.periodVoucherCount} 张`)
+  }
+  const bySource = await call('GET', '/fin/vouchers?page=1&size=200').catch(() => null)
+  if (bySource?.items) {
+    const tally = {}
+    for (const v of bySource.items) tally[v.sourceType] = (tally[v.sourceType] ?? 0) + 1
+    console.log(`凭证来源分布：${Object.entries(tally).map(([k, n]) => `${k}=${n}`).join('  ')}` +
+      `（凭证总数 ${bySource.total ?? '?'}，此处只统计前 200 条）`)
+  }
+  const journals = unwrap(await call('GET', '/fin/cash-journal?page=1&size=5').catch(() => []))
+  console.log(`现金日记账流水：${journals.length} 条`)
 
   const trend = await call('GET', `/reports/purchase?from=${day(84)}&to=${day(0)}`).catch(() => null)
   const sales = await call('GET', `/reports/sales?from=${day(84)}&to=${day(0)}`).catch(() => null)
