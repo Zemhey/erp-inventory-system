@@ -2,6 +2,7 @@ package com.erp.rpt.api;
 
 import com.erp.iam.security.RequirePermission;
 import com.erp.rpt.application.ReportApplicationService;
+import com.erp.rpt.domain.DocumentDetailRow;
 import com.erp.rpt.domain.InventorySummaryRow;
 import com.erp.rpt.domain.ReportGroupBy;
 import com.erp.rpt.domain.ReportRow;
@@ -50,10 +51,13 @@ public class ReportController {
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestParam(required = false) String groupBy,
-            @RequestParam(required = false) Long warehouseId) {
+            @RequestParam(required = false) Long warehouseId,
+            @RequestParam(required = false) String orderBy,
+            @RequestParam(required = false) Integer limit) {
         ReportGroupBy dim = ReportRequestParams.parseGroupBy(groupBy, ReportGroupBy.SUPPLIER,
                 ReportRequestParams.PURCHASE_DIMS);
-        return items(reports.purchaseReport(from, to, dim, warehouseId)
+        return items(reports.purchaseReport(from, to, dim, warehouseId,
+                        ReportRequestParams.parseOrderBy(orderBy), limit)
                 .stream().map(ReportController::toMap).toList());
     }
 
@@ -63,10 +67,13 @@ public class ReportController {
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestParam(required = false) String groupBy,
-            @RequestParam(required = false) Long warehouseId) {
+            @RequestParam(required = false) Long warehouseId,
+            @RequestParam(required = false) String orderBy,
+            @RequestParam(required = false) Integer limit) {
         ReportGroupBy dim = ReportRequestParams.parseGroupBy(groupBy, ReportGroupBy.CUSTOMER,
                 ReportRequestParams.SALES_DIMS);
-        return items(reports.salesReport(from, to, dim, warehouseId)
+        return items(reports.salesReport(from, to, dim, warehouseId,
+                        ReportRequestParams.parseOrderBy(orderBy), limit)
                 .stream().map(ReportController::toMap).toList());
     }
 
@@ -80,6 +87,42 @@ public class ReportController {
                 .stream().map(ReportController::toMap).toList());
     }
 
+    // ─────────────────────────── 单据行级明细（V4-4） ───────────────────────────
+
+    /**
+     * 进货明细（按单据展开）。
+     *
+     * <p>与 {@code /reports/purchase} 的分工：那张是聚合（回答"这个供应商这个月进了多少"），
+     * 这张是行级（回答"具体是哪几张单的哪几行"）。金额口径与算法两者逐字相同，
+     * 所以明细各行金额之和 == 聚合端点同期同参的结果，两边可以互相验证。
+     *
+     * <p><b>金额单位分</b>（ADR-0005，与整个 rpt 域一致）。
+     */
+    @GetMapping("/purchase-detail")
+    @RequirePermission("rpt:read")
+    public ResponseEntity<Map<String, Object>> purchaseDetail(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) Long warehouseId,
+            @RequestParam(required = false) Long partnerId,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return page(reports.purchaseDetail(from, to, warehouseId, partnerId, page, size));
+    }
+
+    /** 销售明细（按单据展开）；口径同上，金额单位分。 */
+    @GetMapping("/sales-detail")
+    @RequirePermission("rpt:read")
+    public ResponseEntity<Map<String, Object>> salesDetail(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) Long warehouseId,
+            @RequestParam(required = false) Long partnerId,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return page(reports.salesDetail(from, to, warehouseId, partnerId, page, size));
+    }
+
     // ─────────────────────────── 响应包装 ───────────────────────────
 
     /** 契约：报表响应是 {@code data.items} 数组。 */
@@ -87,6 +130,17 @@ public class ReportController {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("items", rows);
         return ResponseEntity.ok(ApiResponses.ok(data));
+    }
+
+    /**
+     * 分页信封与项目既有分页端点同形：{@code data:{items,total,page,size}}
+     * （{@code ApiResponses.page}），不自创新命名。
+     */
+    private static ResponseEntity<Map<String, Object>> page(
+            com.erp.shared.web.PageResult<DocumentDetailRow> result) {
+        return ResponseEntity.ok(ApiResponses.page(new com.erp.shared.web.PageResult<>(
+                result.items().stream().map(ReportController::toMap).toList(),
+                result.total(), result.page(), result.size())));
     }
 
     private static Map<String, Object> toMap(ReportRow r) {
@@ -107,6 +161,37 @@ public class ReportController {
         m.put("inboundQty", r.inboundQty());
         m.put("outboundQty", r.outboundQty());
         m.put("closingQty", r.closingQty());
+        // ★ V4-4 追加列，前六个字段名与顺序一个字没改。
+        //   名称口径与 /reports/inventory-turnover 对齐（两个端点此前不一致就是这个原因
+        //   逼得前端自己拼 /skus 字典、还被每页 200 条上限卡住）。
+        //   金额单位分，null = 该账期未做成本月结。
+        m.put("skuCode", r.skuCode());
+        m.put("skuName", r.skuName());
+        m.put("warehouseName", r.warehouseName());
+        m.put("openingCostAmount", r.openingCostAmount());
+        m.put("inboundCostAmount", r.inboundCostAmount());
+        m.put("outboundCostAmount", r.outboundCostAmount());
+        m.put("closingCostAmount", r.closingCostAmount());
+        return m;
+    }
+
+    private static Map<String, Object> toMap(DocumentDetailRow r) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("orderNo", r.orderNo());
+        m.put("bizDate", r.bizDate());
+        m.put("status", r.status());
+        m.put("partnerCode", r.partnerCode());
+        m.put("partnerName", r.partnerName());
+        m.put("warehouseName", r.warehouseName());
+        m.put("operator", r.operator());
+        m.put("lineNo", r.lineNo());
+        m.put("skuCode", r.skuCode());
+        m.put("skuName", r.skuName());
+        m.put("orderedQty", r.orderedQty());
+        m.put("executedQty", r.executedQty());
+        m.put("unitPriceAmount", r.unitPriceAmount());
+        m.put("discountRate", r.discountRate());
+        m.put("amount", r.amount());
         return m;
     }
 }

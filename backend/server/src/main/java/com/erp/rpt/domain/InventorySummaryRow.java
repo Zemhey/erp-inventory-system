@@ -1,24 +1,36 @@
 package com.erp.rpt.domain;
 
 /**
- * 进销存汇总的一行（契约 {@code InventorySummaryRow}），粒度是 <b>(SKU, 仓库)</b>。
+ * 进销存汇总行（数量来自库存流水，金额来自成本月结）。
  *
- * <p><b>★ 恒等式（不变量 RPT-03，计划书 §3.5）</b>：
- * {@code openingQty + inboundQty - outboundQty == closingQty}，
- * 且 {@code closingQty} 等于该 (SKU, 仓库) <b>截至期末的流水净和</b>。
- * 这四个数在同一条聚合 SQL 里分别求和（不是先算三个再推第四个），
- * 因此恒等式成立本身就是"口径没写错"的证据 —— 由 TC-RPT-006 断言。
+ * <p><b>★ V4-4 追加字段（纯加法）</b>：原有 6 个数量字段的名字、类型、顺序一个没动，
+ * 前端 11 张报表按现状消费的部分不受影响。新增的两组字段都是<b>可空</b>：
+ * <ul>
+ *   <li>{@code skuCode} / {@code skuName} / {@code warehouseName}：与
+ *       {@code /reports/inventory-turnover} <b>逐字相同</b>的取名口径
+ *       （页面名 = 商品名 · 颜色-尺码 / 商品名 颜色/尺码、停用仓库加「（已停用）」、
+ *       主数据缺失时回退 {@code SKU#id} / {@code 仓库#id}）。此前只有 CSV 侧读名称列，
+ *       JSON 丢掉名称，前端只能自己拿 {@code /skus} 拼字典（还被每页 200 条上限卡住）。</li>
+ *   <li>四个金额列：来源 {@code cost_monthly}（成本月结按账期 × SKU × 仓库落的一行），
+ *       <b>单位分</b>（ADR-0005，与 rpt/pur/sal 三域一致）。该账期尚未做成本月结、
+ *       或该 (SKU, 仓库) 不在月结结果里时为 {@code null} —— 刻意不返回 0，
+ *       因为「没算」与「算出来是 0」在报表上是两回事。</li>
+ * </ul>
  *
- * <p>口径与另两张报表<b>不同</b>（§3.5 明确要求写清楚，不要混用）：
- * 进货/出货统计按单据 {@code biz_date}，本表按流水 {@code occurred_at}，
- * 因为要回答的是"货什么时候真的动了"，流水才是事实源（ADR-0007）。
- *
- * @param openingQty  期初 = 期间开始前的流水净和
- * @param inboundQty  本期入库 = 期间内正变动合计（取正数）
- * @param outboundQty 本期出库 = 期间内负变动合计（已取正数，故恒等式里是减号）
- * @param closingQty  期末 = 截至期末的流水净和
+ * <p>金额列来自月结，数量列来自流水，两者<b>口径不同源</b>但同一页面列示、互不推算
+ * （数量不许用金额反推，反之亦然）。
  */
 public record InventorySummaryRow(long skuId, long warehouseId,
                                   long openingQty, long inboundQty,
-                                  long outboundQty, long closingQty) {
+                                  long outboundQty, long closingQty,
+                                  String skuCode, String skuName, String warehouseName,
+                                  Long openingCostAmount, Long inboundCostAmount,
+                                  Long outboundCostAmount, Long closingCostAmount) {
+
+    /** 兼容旧构造：只给数量（测试与历史调用点仍可用）。 */
+    public InventorySummaryRow(long skuId, long warehouseId, long openingQty, long inboundQty,
+                               long outboundQty, long closingQty) {
+        this(skuId, warehouseId, openingQty, inboundQty, outboundQty, closingQty,
+                null, null, null, null, null, null, null);
+    }
 }

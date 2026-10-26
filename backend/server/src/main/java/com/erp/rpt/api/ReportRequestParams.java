@@ -1,7 +1,10 @@
 package com.erp.rpt.api;
 
+import com.erp.rpt.domain.AgingGroupBy;
 import com.erp.rpt.domain.AgingType;
+import com.erp.rpt.domain.InventoryValueDim;
 import com.erp.rpt.domain.ReportGroupBy;
+import com.erp.rpt.domain.ReportOrderBy;
 import com.erp.rpt.domain.ReportPeriodDim;
 import com.erp.shared.error.BusinessException;
 import com.erp.shared.error.ErrorCode;
@@ -82,6 +85,50 @@ final class ReportRequestParams {
         } catch (IllegalArgumentException ex) {
             throw new BusinessException(ErrorCode.SYS_VALIDATION_ERROR,
                     "type 取值非法：%s（允许 AR | AP）".formatted(raw));
+        }
+    }
+
+    /**
+     * 聚合报表的排序方式（V4-4 新增），缺省 {@code key} = 既有的 {@code ORDER BY 1}。
+     *
+     * <p>和 {@code groupBy} 一样走枚举而不是把用户字符串拼进 ORDER BY：
+     * {@code orderBy=amount;DROP} 这种输入必须在这里就变成 400。
+     */
+    static ReportOrderBy parseOrderBy(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return ReportOrderBy.KEY;
+        }
+        try {
+            return ReportOrderBy.valueOf(raw.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            throw new BusinessException(ErrorCode.SYS_VALIDATION_ERROR,
+                    "orderBy 取值非法：%s（允许 key | amount）".formatted(raw));
+        }
+    }
+
+    /** 账龄展示粒度（V4-4 新增），缺省 {@code partner} = 既有行为。 */
+    static AgingGroupBy parseAgingGroupBy(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return AgingGroupBy.PARTNER;
+        }
+        try {
+            return AgingGroupBy.valueOf(raw.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            throw new BusinessException(ErrorCode.SYS_VALIDATION_ERROR,
+                    "groupBy 取值非法：%s（本报表允许 partner | document）".formatted(raw));
+        }
+    }
+
+    /** 库存金额汇总维度（V4-4 新增），缺省 {@code sku}。 */
+    static InventoryValueDim parseValueDim(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return InventoryValueDim.SKU;
+        }
+        try {
+            return InventoryValueDim.valueOf(raw.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            throw new BusinessException(ErrorCode.SYS_VALIDATION_ERROR,
+                    "groupBy 取值非法：%s（本报表允许 sku | warehouse）".formatted(raw));
         }
     }
 

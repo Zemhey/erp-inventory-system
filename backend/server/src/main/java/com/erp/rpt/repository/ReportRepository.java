@@ -1,8 +1,10 @@
 package com.erp.rpt.repository;
 
+import com.erp.rpt.domain.DocumentDetailRow;
 import com.erp.rpt.domain.InventorySummaryExportRow;
 import com.erp.rpt.domain.InventorySummaryRow;
 import com.erp.rpt.domain.ReportGroupBy;
+import com.erp.rpt.domain.ReportOrderBy;
 import com.erp.rpt.domain.ReportRow;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -59,11 +61,18 @@ public class ReportRepository {
                     rs.getLong("opening_qty"),
                     rs.getLong("inbound_qty"),
                     rs.getLong("outbound_qty"),
-                    rs.getLong("closing_qty"));
+                    rs.getLong("closing_qty"),
+                    rs.getString("sku_code"),
+                    rs.getString("sku_name"),
+                    rs.getString("warehouse_name"),
+                    nullableLong(rs, "opening_cost_amount"),
+                    nullableLong(rs, "inbound_cost_amount"),
+                    nullableLong(rs, "outbound_cost_amount"),
+                    nullableLong(rs, "closing_cost_amount"));
 
     /**
-     * 导出行读取同一条 SQL 里的名称列。页面名 = 商品名 · 颜色-尺码、仓库名（停用加后缀），
-     * 回退串也一致，因此 CSV 与页面逐格相同。
+     * 导出行读取与 JSON 完全相同的列（同一条 SQL、同一批行、同一组舍入前的整数），
+     * 所以 CSV 与页面逐格相同。V4-4 之后 CSV 也带上名称与四个金额列。
      */
     private static final RowMapper<InventorySummaryExportRow> SUMMARY_EXPORT_ROW = (rs, n) ->
             new InventorySummaryExportRow(
@@ -74,7 +83,40 @@ public class ReportRepository {
                     rs.getLong("opening_qty"),
                     rs.getLong("inbound_qty"),
                     rs.getLong("outbound_qty"),
-                    rs.getLong("closing_qty"));
+                    rs.getLong("closing_qty"),
+                    rs.getString("sku_code"),
+                    nullableLong(rs, "opening_cost_amount"),
+                    nullableLong(rs, "inbound_cost_amount"),
+                    nullableLong(rs, "outbound_cost_amount"),
+                    nullableLong(rs, "closing_cost_amount"));
+
+    private static final RowMapper<DocumentDetailRow> DETAIL_ROW = (rs, n) -> new DocumentDetailRow(
+            rs.getString("order_no"),
+            rs.getObject("biz_date", java.time.LocalDate.class).toString(),
+            rs.getString("status"),
+            rs.getString("partner_code"),
+            rs.getString("partner_name"),
+            rs.getString("warehouse_name"),
+            rs.getString("operator"),
+            rs.getInt("line_no"),
+            rs.getString("sku_code"),
+            rs.getString("sku_name"),
+            rs.getLong("ordered_qty"),
+            rs.getLong("executed_qty"),
+            rs.getLong("unit_price_amount"),
+            nullableLong(rs, "discount_rate"),
+            rs.getLong("amount"));
+
+    /**
+     * 可空的 bigint 列。
+     *
+     * <p>{@code rs.getLong} 对 NULL 返回 0，会把"没算出成本"读成"成本为 0"；
+     * 报表里这是两种完全不同的事实，必须分开。
+     */
+    private static Long nullableLong(java.sql.ResultSet rs, String column) throws java.sql.SQLException {
+        long value = rs.getLong(column);
+        return rs.wasNull() ? null : value;
+    }
 
     private final JdbcTemplate jdbc;
 
@@ -119,6 +161,19 @@ public class ReportRepository {
     }
 
     /**
+     * 进货统计（V4-4 扩展版）。
+     *
+     * <p>{@code orderBy} / {@code limit} 都是可选的：
+     * {@code KEY} + 无 limit 与 {@link #purchaseReport(LocalDate, LocalDate, ReportGroupBy, Long)}
+     * 逐字相同（同一份 SQL 文本、同一个顺序），老调用方零行为变化。
+     */
+    public List<ReportRow> purchaseReport(LocalDate from, LocalDate to, ReportGroupBy groupBy,
+                                          Long warehouseId, ReportOrderBy orderBy, Integer limit) {
+        Sql sql = purchaseSql(from, to, groupBy, warehouseId, orderBy, limit);
+        return jdbc.query(sql.text(), REPORT_ROW, sql.args().toArray());
+    }
+
+    /**
      * 出货统计：期间内<b>已出货</b>数量与金额，<b>不含退货</b>（§3.5 + §7 决策 5：
      * 报表展示毛出货，净额看结算的 {@code netAmount}）。
      *
@@ -134,6 +189,13 @@ public class ReportRepository {
         return jdbc.query(sql.text(), REPORT_ROW, sql.args().toArray());
     }
 
+    /** 出货统计（V4-4 扩展版），语义同 {@link #purchaseReport} 的扩展版。 */
+    public List<ReportRow> salesReport(LocalDate from, LocalDate to, ReportGroupBy groupBy,
+                                       Long warehouseId, ReportOrderBy orderBy, Integer limit) {
+        Sql sql = salesSql(from, to, groupBy, warehouseId, orderBy, limit);
+        return jdbc.query(sql.text(), REPORT_ROW, sql.args().toArray());
+    }
+
     Sql purchaseSql(LocalDate from, LocalDate to, ReportGroupBy groupBy, Long warehouseId) {
         return documentSql(Source.PURCHASE, from, to, groupBy, warehouseId,
                 scope.current());
@@ -144,6 +206,18 @@ public class ReportRepository {
                 scope.current());
     }
 
+    Sql purchaseSql(LocalDate from, LocalDate to, ReportGroupBy groupBy, Long warehouseId,
+                    ReportOrderBy orderBy, Integer limit) {
+        return documentSql(Source.PURCHASE, from, to, groupBy, warehouseId, scope.current(),
+                orderBy, limit);
+    }
+
+    Sql salesSql(LocalDate from, LocalDate to, ReportGroupBy groupBy, Long warehouseId,
+                 ReportOrderBy orderBy, Integer limit) {
+        return documentSql(Source.SALES, from, to, groupBy, warehouseId, scope.current(),
+                orderBy, limit);
+    }
+
     /**
      * @param dataScope 数据权限。<b>由调用方传入而不是在这里取</b>：
      *                  本方法是静态的（要能被执行计划用例直接调用），
@@ -152,6 +226,14 @@ public class ReportRepository {
     private static Sql documentSql(Source src, LocalDate from, LocalDate to,
                                    ReportGroupBy groupBy, Long warehouseId,
                                    com.erp.shared.scope.DataScope dataScope) {
+        return documentSql(src, from, to, groupBy, warehouseId, dataScope,
+                ReportOrderBy.KEY, null);
+    }
+
+    private static Sql documentSql(Source src, LocalDate from, LocalDate to,
+                                   ReportGroupBy groupBy, Long warehouseId,
+                                   com.erp.shared.scope.DataScope dataScope,
+                                   ReportOrderBy orderBy, Integer limit) {
         Group g = group(src, groupBy);
         List<Object> args = new ArrayList<>(List.of(from, to));
 
@@ -177,9 +259,153 @@ public class ReportRepository {
         //   传一个别仓的 warehouseId 只会得到空结果，而不是别人的数据。
         sql.append(dataScope.warehousePredicate("o.warehouse_id", args)).append('\n');
         sql.append(" GROUP BY ").append(g.groupByExpr()).append('\n');
-        // ORDER BY 1 = 分组键：编码类维度按字典序、day/month 按时间序，结果顺序确定可复现
-        sql.append(" ORDER BY 1");
+        if (orderBy == ReportOrderBy.AMOUNT) {
+            // TOP N 只在金额降序上有意义；同额按分组键升序，顺序仍然确定可复现。
+            sql.append(" ORDER BY amount DESC, 1");
+        } else {
+            // ORDER BY 1 = 分组键：编码类维度按字典序、day/month 按时间序，结果顺序确定可复现
+            sql.append(" ORDER BY 1");
+        }
+        if (limit != null) {
+            // limit 由应用服务校验过范围（1~200），并且是 int 绑定，不是拼进 SQL 的字面量。
+            sql.append("\n LIMIT ?");
+            args.add(limit);
+        }
         return new Sql(sql.toString(), args);
+    }
+
+    // ─────────────────────────── 单据行级明细（V4-4） ───────────────────────────
+
+    /** 进货明细（按单据展开）。金额算式与进货统计逐字相同，因此两者可逐期核对。 */
+    public List<DocumentDetailRow> purchaseDetail(LocalDate from, LocalDate to,
+                                                  Long warehouseId, Long partnerId,
+                                                  int offset, int size) {
+        Sql sql = detailSql(Source.PURCHASE, from, to, warehouseId, partnerId, offset, size);
+        return jdbc.query(sql.text(), DETAIL_ROW, sql.args().toArray());
+    }
+
+    /** 销售明细（按单据展开）。 */
+    public List<DocumentDetailRow> salesDetail(LocalDate from, LocalDate to,
+                                               Long warehouseId, Long partnerId,
+                                               int offset, int size) {
+        Sql sql = detailSql(Source.SALES, from, to, warehouseId, partnerId, offset, size);
+        return jdbc.query(sql.text(), DETAIL_ROW, sql.args().toArray());
+    }
+
+    /** 明细总行数（与 {@link #detailSql} 同一组过滤条件，只把投影换成 COUNT）。 */
+    public long purchaseDetailCount(LocalDate from, LocalDate to, Long warehouseId, Long partnerId) {
+        return detailCount(Source.PURCHASE, from, to, warehouseId, partnerId);
+    }
+
+    /** 明细总行数（销售）。 */
+    public long salesDetailCount(LocalDate from, LocalDate to, Long warehouseId, Long partnerId) {
+        return detailCount(Source.SALES, from, to, warehouseId, partnerId);
+    }
+
+    /**
+     * 明细全量（导出用）。
+     *
+     * <p>导出<b>不接受</b> page/size：CSV 必须是"这个查询条件下的全部行"，
+     * 分页导出会产出十份互不相干的表，既不可核对也违背"导出 == 页面"的初衷。
+     * 金额合计与页面各页之和一致，由同一份 SQL 保证。
+     */
+    public List<DocumentDetailRow> purchaseDetailAll(LocalDate from, LocalDate to,
+                                                     Long warehouseId, Long partnerId) {
+        Sql sql = detailSql(Source.PURCHASE, from, to, warehouseId, partnerId, 0, 0);
+        // size = 0 表示不带 LIMIT（见 detailSql）
+        return jdbc.query(sql.text(), DETAIL_ROW, sql.args().toArray());
+    }
+
+    /** 明细全量（销售，导出用）。 */
+    public List<DocumentDetailRow> salesDetailAll(LocalDate from, LocalDate to,
+                                                  Long warehouseId, Long partnerId) {
+        Sql sql = detailSql(Source.SALES, from, to, warehouseId, partnerId, 0, 0);
+        return jdbc.query(sql.text(), DETAIL_ROW, sql.args().toArray());
+    }
+
+    /**
+     * 占位符顺序（自上而下）：{@code from}、{@code to}、可选仓库、可选伙伴、
+     * 数据权限、{@code size}、{@code offset}。列名全部实测于
+     * {@code information_schema}（{@code purchase_order_lines.order_id} /
+     * {@code received_qty} / {@code unit_price_amount}、
+     * {@code sales_order_lines.discount_rate} 等），不是照抄别处的写法。
+     */
+    Sql detailSql(Source src, LocalDate from, LocalDate to, Long warehouseId, Long partnerId,
+                  int offset, int size) {
+        List<Object> args = new ArrayList<>(List.of(from, to));
+        String executed = src.qtyColumn;   // received_qty / shipped_qty（实测列名）
+        StringBuilder sql = new StringBuilder("""
+                SELECT o.order_no,
+                       o.biz_date,
+                       o.status,
+                       g.code AS partner_code,
+                       g.name AS partner_name,
+                       COALESCE(CASE WHEN w.enabled THEN w.name
+                                     ELSE w.name || '（已停用）' END,
+                                '仓库#' || o.warehouse_id) AS warehouse_name,
+                       u.display_name AS operator,
+                       l.line_no,
+                       COALESCE(pr.code || '-' || k.color || '-' || k.size,
+                                'SKU#' || l.sku_id) AS sku_code,
+                       COALESCE(pr.name || ' ' || k.color || '/' || k.size,
+                                'SKU#' || l.sku_id) AS sku_name,
+                       l.qty AS ordered_qty,
+                       l.%1$s AS executed_qty,
+                       l.unit_price_amount,
+                       %2$s AS discount_rate,
+                       %3$s AS amount
+                  FROM %4$s o
+                  JOIN %5$s l ON l.order_id = o.id
+                  %6$s
+                  LEFT JOIN warehouses w ON w.id = o.warehouse_id
+                  LEFT JOIN app_users u ON u.id = o.created_by
+                  LEFT JOIN skus k ON k.id = l.sku_id
+                  LEFT JOIN products pr ON pr.id = k.product_id
+                 WHERE o.biz_date >= ? AND o.biz_date <= ?
+                   AND o.status IN %7$s
+                   AND l.%1$s > 0
+                """.formatted(executed, src.discountExpr, src.lineAmountExpr,
+                src.orderTable, src.lineTable, src.partnerJoin, COUNTED_STATUSES));
+        if (warehouseId != null) {
+            sql.append("   AND o.warehouse_id = ?\n");
+            args.add(warehouseId);
+        }
+        if (partnerId != null) {
+            sql.append("   AND o.").append(src.partnerColumn).append(" = ?\n");
+            args.add(partnerId);
+        }
+        sql.append(scope.current().warehousePredicate("o.warehouse_id", args)).append('\n');
+        sql.append(" ORDER BY o.biz_date DESC, o.order_no, l.line_no");
+        if (size > 0) {
+            sql.append("\n LIMIT ?\n OFFSET ?");
+            args.add(size);
+            args.add(offset);
+        }
+        return new Sql(sql.toString(), args);
+    }
+
+    private long detailCount(Source src, LocalDate from, LocalDate to,
+                             Long warehouseId, Long partnerId) {
+        List<Object> args = new ArrayList<>(List.of(from, to));
+        StringBuilder sql = new StringBuilder("""
+                SELECT COUNT(*)
+                  FROM %1$s o
+                  JOIN %2$s l ON l.order_id = o.id
+                 WHERE o.biz_date >= ? AND o.biz_date <= ?
+                   AND o.status IN %3$s
+                   AND l.%4$s > 0
+                """.formatted(src.orderTable, src.lineTable, COUNTED_STATUSES, src.qtyColumn));
+        if (warehouseId != null) {
+            sql.append("   AND o.warehouse_id = ?\n");
+            args.add(warehouseId);
+        }
+        if (partnerId != null) {
+            sql.append("   AND o.").append(src.partnerColumn).append(" = ?\n");
+            args.add(partnerId);
+        }
+        sql.append(scope.current().warehousePredicate("o.warehouse_id", args)).append('\n');
+        Long count = jdbc.queryForObject(sql.toString(), Long.class, args.toArray());
+        return count == null ? 0 : count;
     }
 
     // ─────────────────────────── 进销存汇总 ───────────────────────────
@@ -222,6 +448,8 @@ public class ReportRepository {
         StringBuilder sql = new StringBuilder("""
                 SELECT l.sku_id,
                        l.warehouse_id,
+                       COALESCE(pr.code || '-' || k.color || '-' || k.size,
+                                'SKU#' || l.sku_id) AS sku_code,
                        COALESCE(pr.name || ' · ' || k.color || '-' || k.size,
                                 'SKU#' || l.sku_id) AS sku_name,
                        COALESCE(CASE WHEN w.enabled THEN w.name
@@ -232,13 +460,24 @@ public class ReportRepository {
                                                             AND l.change_qty > 0), 0) AS inbound_qty,
                        COALESCE(-SUM(l.change_qty) FILTER (WHERE l.occurred_at >= ?
                                                              AND l.change_qty < 0), 0) AS outbound_qty,
-                       COALESCE(SUM(l.change_qty), 0) AS closing_qty
+                       COALESCE(SUM(l.change_qty), 0) AS closing_qty,
+                       cm.opening_cost_amount,
+                       cm.inbound_cost_amount,
+                       cm.outbound_cost_amount,
+                       cm.closing_cost_amount
                   FROM inventory_ledger l
                   LEFT JOIN skus k ON k.id = l.sku_id
                   LEFT JOIN products pr ON pr.id = k.product_id
                   LEFT JOIN warehouses w ON w.id = l.warehouse_id
+                  LEFT JOIN cost_monthly cm
+                         ON cm.sku_id = l.sku_id AND cm.warehouse_id = l.warehouse_id
+                        AND cm.period = ?
                  WHERE l.occurred_at < ?
                 """);
+        // cost_monthly 的唯一键是 (period, sku_id, warehouse_id)（实测 uq_cost_monthly），
+        // 所以这条 LEFT JOIN 每个池最多命中一行，四个金额列可以直接进 GROUP BY，
+        // 不需要 MAX() 之类的聚合伪装。账期串由流水时间轴的起点反推，不新增入参。
+        args.add(periodFrom.toLocalDate().toString().substring(0, 7));
         args.add(periodTo);
         if (warehouseId != null) {
             sql.append("   AND l.warehouse_id = ?\n");
@@ -246,7 +485,12 @@ public class ReportRepository {
         }
         // ★ 数据权限：进销存汇总同样要收窄，否则"合计"会把别仓的进出算进来
         sql.append(scope.current().warehousePredicate("l.warehouse_id", args)).append('\n');
-        sql.append(" GROUP BY l.sku_id, l.warehouse_id, k.id, pr.id, w.id\n");
+        // cm 的四个金额列是"每池最多一行"的直取值（uq_cost_monthly 保证），
+        // 列进 GROUP BY 只是为了满足 SQL 语法，不改变分组基数；主键 k.id/pr.id/w.id
+        // 让名称列走 PostgreSQL 的函数依赖，与改动前同一套写法。
+        sql.append(" GROUP BY l.sku_id, l.warehouse_id, k.id, pr.id, w.id,"
+                + " cm.opening_cost_amount, cm.inbound_cost_amount,"
+                + " cm.outbound_cost_amount, cm.closing_cost_amount\n");
         sql.append(" ORDER BY l.sku_id, l.warehouse_id");
         return new Sql(sql.toString(), args);
     }
@@ -257,11 +501,18 @@ public class ReportRepository {
     private enum Source {
         PURCHASE("purchase_orders", "purchase_order_lines", "received_qty",
                 "COALESCE(SUM(l.received_qty * l.unit_price_amount), 0)",
-                "JOIN suppliers g ON g.id = o.supplier_id"),
+                "JOIN suppliers g ON g.id = o.supplier_id",
+                "supplier_id",
+                "NULL",
+                "COALESCE(l.received_qty * l.unit_price_amount, 0)"),
         SALES("sales_orders", "sales_order_lines", "shipped_qty",
                 "COALESCE(SUM(ROUND((l.unit_price_amount::numeric * l.shipped_qty"
                         + " * l.discount_rate) / 10000)), 0)::bigint",
-                "JOIN customers g ON g.id = o.customer_id");
+                "JOIN customers g ON g.id = o.customer_id",
+                "customer_id",
+                "l.discount_rate",
+                "COALESCE(ROUND((l.unit_price_amount::numeric * l.shipped_qty"
+                        + " * l.discount_rate) / 10000), 0)::bigint");
 
         final String orderTable;
         final String lineTable;
@@ -269,14 +520,24 @@ public class ReportRepository {
         final String amountExpr;
         /** 伙伴主数据（供应商/客户）的关联，仅 SUPPLIER / CUSTOMER 维度使用。 */
         final String partnerJoin;
+        /** 单据上的伙伴外键列名（明细端点的 partnerId 过滤用，实测列名）。 */
+        final String partnerColumn;
+        /** 行级折扣率表达式；进货单没有折扣列，恒为 NULL。 */
+        final String discountExpr;
+        /** 行级金额表达式 —— 与聚合端点的 {@link #amountExpr} 同一个舍入口径。 */
+        final String lineAmountExpr;
 
         Source(String orderTable, String lineTable, String qtyColumn,
-               String amountExpr, String partnerJoin) {
+               String amountExpr, String partnerJoin, String partnerColumn,
+               String discountExpr, String lineAmountExpr) {
             this.orderTable = orderTable;
             this.lineTable = lineTable;
             this.qtyColumn = qtyColumn;
             this.amountExpr = amountExpr;
             this.partnerJoin = partnerJoin;
+            this.partnerColumn = partnerColumn;
+            this.discountExpr = discountExpr;
+            this.lineAmountExpr = lineAmountExpr;
         }
     }
 
