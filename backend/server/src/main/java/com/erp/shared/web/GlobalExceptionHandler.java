@@ -173,6 +173,21 @@ public class GlobalExceptionHandler {
                         request.getMethod()), null, traceId));
     }
 
+    /**
+     * 路径没匹配到任何 handler 时，Spring 会当成"找不到静态资源"抛到这里。
+     * 落到下面的 {@link Exception} 兜底会变成 500「服务器内部错误，请联系管理员」——
+     * 拼错一个 URL 就报服务器故障，既误导排查也误导演示。按框架级先例给 404。
+     */
+    @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleResourceNotFound(
+            org.springframework.web.servlet.resource.NoResourceFoundException ex,
+            HttpServletRequest request) {
+        String traceId = traceId(request);
+        return ResponseEntity.status(404).body(body("SYS_RESOURCE_NOT_FOUND",
+                "%s %s 不是已知接口：请检查路径与版本号".formatted(
+                        request.getMethod(), request.getRequestURI()), null, traceId));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleUnexpected(Exception ex,
                                                                HttpServletRequest request) {

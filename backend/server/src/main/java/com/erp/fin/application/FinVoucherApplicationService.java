@@ -173,8 +173,7 @@ public class FinVoucherApplicationService implements VoucherTrigger {
      * <p>自动生成的凭证（{@code sourceType != MANUAL}）落库即 POSTED，
      * 因此天然走不到这里 —— 要冲销请去冲销来源单据，凭证只是它的投影。
      *
-     * <p>账期锁照 create/update/post 同一口径拦截：月结后删草稿，
-     * 等于改动一个已经封板期间的发生额。
+     * <p>只有 DRAFT 可删：AUDITED/POSTED 已进账务流程，改动必须留痕，只能冲销。
      */
     @Transactional
     public void delete(long id) {
@@ -187,7 +186,9 @@ public class FinVoucherApplicationService implements VoucherTrigger {
                     "凭证 %s 状态为 %s，只有草稿可删除；%s"
                             .formatted(v.voucherNo(), v.status().label(), origin));
         }
-        periodGuard.requireOpen(v.voucherDate());
+        // 不做账期守卫：报表只统计 POSTED 凭证（见 FinReportRepository 的
+        // WHERE v.status = 'POSTED'），而这里只允许删 DRAFT —— 草稿不可能出现在任何
+        // 已封板期间的发生额里。加守卫只会造成"月结后垃圾草稿永远删不掉"。
         if (!vouchers.deleteDraft(id)) {
             throw new BusinessException(ErrorCode.FIN_VOUCHER_DELETE_FORBIDDEN,
                     "凭证 %s 在删除前已被并发改为非草稿状态，未删除"
