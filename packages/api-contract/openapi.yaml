@@ -1687,6 +1687,15 @@ paths:
         - name: warehouseId
           in: query
           schema: { type: integer, format: int64 }
+        # ★ V4-4 追加：导出与页面必须同参数，否则"导出==页面"不成立
+        - name: orderBy
+          in: query
+          description: 与 /reports/purchase 的 orderBy 同口径（key=分组键升序；amount=金额降序）
+          schema: { type: string, enum: [key, amount], default: key }
+        - name: limit
+          in: query
+          description: 展示行数上限（1~200）；省略=不截断，与页面端点同范围
+          schema: { type: integer, minimum: 1, maximum: 200 }
       responses:
         '200':
           description: UTF-8 BOM 的 CSV（Excel 可直接打开）
@@ -1715,6 +1724,15 @@ paths:
         - name: warehouseId
           in: query
           schema: { type: integer, format: int64 }
+        # ★ V4-4 追加：导出与页面必须同参数，否则"导出==页面"不成立
+        - name: orderBy
+          in: query
+          description: 与 /reports/purchase 的 orderBy 同口径（key=分组键升序；amount=金额降序）
+          schema: { type: string, enum: [key, amount], default: key }
+        - name: limit
+          in: query
+          description: 展示行数上限（1~200）；省略=不截断，与页面端点同范围
+          schema: { type: integer, minimum: 1, maximum: 200 }
       responses:
         '200':
           description: UTF-8 BOM 的 CSV（Excel 可直接打开）
