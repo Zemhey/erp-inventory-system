@@ -17,3 +17,19 @@ export function consumeInventoryTab(): InventoryTab | null {
   uni.removeStorageSync(PENDING_TAB_KEY)
   return raw
 }
+
+const PENDING_BIZ_REF_KEY = 'erp.inventory.pendingBizRefNo'
+
+/** 从盘点/收货页跳到库存流水并按单号过滤（同样走一次性 storage）。 */
+export function openInventoryLedger(bizRefNo: string): void {
+  uni.setStorageSync(PENDING_TAB_KEY, 'ledger')
+  uni.setStorageSync(PENDING_BIZ_REF_KEY, bizRefNo)
+  uni.switchTab({ url: '/pages/inventory/inventory' })
+}
+
+export function consumeInventoryBizRefNo(): string {
+  const raw = uni.getStorageSync(PENDING_BIZ_REF_KEY)
+  if (typeof raw !== 'string' || !raw) return ''
+  uni.removeStorageSync(PENDING_BIZ_REF_KEY)
+  return raw
+}

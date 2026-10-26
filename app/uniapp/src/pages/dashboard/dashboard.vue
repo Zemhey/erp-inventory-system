@@ -299,6 +299,16 @@ function openPage(path: string): void {
           <text class="action-sub">按发货单逐行扫码确认数量，扫满后整单出库</text>
           <text class="action-arrow">›</text>
         </view>
+        <view class="card action" data-entry="scan-receive" @click="openPage('/pages/purchase/scan-receive')">
+          <text class="action-title">扫码收货</text>
+          <text class="action-sub">选待收货进货单，按 SKU 条码逐条累计入库</text>
+          <text class="action-arrow">›</text>
+        </view>
+        <view class="card action" data-entry="stocktakes" @click="openPage('/pages/stocktakes/stocktakes')">
+          <text class="action-title">库存盘点</text>
+          <text class="action-sub">扫码盘点、查看差异并过账生成调整流水</text>
+          <text class="action-arrow">›</text>
+        </view>
         <view class="card action" data-entry="receivables" @click="openPage('/pages/receivables/receivables')">
           <text class="action-title">客户应收与收款</text>
           <text class="action-sub">看余额构成，现场登记收款并核销</text>

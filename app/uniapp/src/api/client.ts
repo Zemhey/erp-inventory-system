@@ -512,6 +512,7 @@ export const purApi = {
       method: 'POST',
       data: body,
     }),
+  receipts: (id: number) => request<PurchaseReceipt[]>(`/purchase-orders/${id}/receipts`),
 }
 
 /**
@@ -835,4 +836,69 @@ export interface IamUser {
 export const iamApi = {
   listUsers: (params: { keyword?: string; page?: number; size?: number } = {}) =>
     request<PageData<IamUser>>('/iam/users', { query: params }),
+}
+
+// ─────────── PDA 作业（扫码收货 / 盘点）───────────
+// 从 erp-v29-mobile 泳道捞回的三个页所用；那批页面从未进过版本控制，
+// 四个端点已逐个对现在的后端验过（/inventory/stocktakes、
+// /inventory/stocktakes/{id}/post、/purchase-orders/{id}/receipts）。
+
+/** 到货记录行（GET /purchase-orders/{id}/receipts，列级快照）。 */
+export interface PurchaseReceiptLine {
+  id: number
+  lineNo: number
+  purchaseOrderLineId: number
+  skuId: number
+  batchNo: string | null
+  receivedQty: number
+  qcQty: number
+}
+
+export interface PurchaseReceipt {
+  id: number
+  receiptNo: string
+  purchaseOrderId: number
+  supplierId: number
+  warehouseId: number
+  bizDate: string | null
+  totalQty: number
+  acceptedQty: number
+  rejectedQty: number
+  acceptedAmount: number
+  lines: PurchaseReceiptLine[]
+}
+
+export interface StocktakeLine {
+  lineNo: number
+  skuId: number
+  batchNo: string
+  bookQty: number
+  countedQty: number
+  diffQty: number
+}
+
+export interface Stocktake {
+  id: number
+  stocktakeNo: string
+  warehouseId: number
+  status: string
+  bizDate: string | null
+  remark: string | null
+  totalDiffQty: number
+  postedAt: string | null
+  createdAt: string | null
+  lines: StocktakeLine[]
+}
+
+export const stocktakeApi = {
+  list: (params: { status?: string; warehouseId?: number; page?: number; size?: number } = {}) =>
+    request<PageData<Stocktake>>('/inventory/stocktakes', { query: params }),
+  create: (body: {
+    warehouseId: number
+    bizDate?: string
+    remark?: string
+    lines: Array<{ skuId: number; batchNo?: string; countedQty: number }>
+  }) => request<Stocktake>('/inventory/stocktakes', { method: 'POST', data: body }),
+  post: (id: number) =>
+    request<Stocktake>(`/inventory/stocktakes/${id}/post`, { method: 'POST' }),
 }

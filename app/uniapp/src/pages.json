@@ -142,6 +142,30 @@
         "enablePullDownRefresh": true,
         "backgroundTextStyle": "dark"
       }
+    },
+    {
+      "path": "pages/purchase/scan-receive",
+      "style": {
+        "navigationBarTitleText": "扫码收货",
+        "enablePullDownRefresh": true,
+        "backgroundTextStyle": "dark"
+      }
+    },
+    {
+      "path": "pages/stocktakes/stocktakes",
+      "style": {
+        "navigationBarTitleText": "库存盘点",
+        "enablePullDownRefresh": true,
+        "backgroundTextStyle": "dark"
+      }
+    },
+    {
+      "path": "pages/stocktakes/scan",
+      "style": {
+        "navigationBarTitleText": "扫码盘点",
+        "enablePullDownRefresh": true,
+        "backgroundTextStyle": "dark"
+      }
     }
   ],
   "globalStyle": {

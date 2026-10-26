@@ -7,7 +7,7 @@ import { hasPermission } from '@/stores/session'
 import { errorMessage } from '@/utils/error'
 import { bizTypeLabel, formatDate, formatDateTime, signedQty } from '@/utils/format'
 import { formatFen } from '@/utils/money'
-import { consumeInventoryTab, type InventoryTab } from '@/utils/navigation'
+import { consumeInventoryBizRefNo, consumeInventoryTab, type InventoryTab } from '@/utils/navigation'
 import { ensureLoggedIn } from '@/utils/routeGuard'
 import { safe } from '@/utils/safe'
 
@@ -213,6 +213,10 @@ onShow(() => {
 
   const pending = consumeInventoryTab()
   if (pending) tab.value = pending
+
+  // 从盘点/收货页跳过来时带着单号：直接落到"该单据的流水"，而不是让人再输一遍
+  const pendingBizRef = consumeInventoryBizRefNo()
+  if (pendingBizRef) bizRefNo.value = pendingBizRef
 
   if (!allowed.value) return
 
