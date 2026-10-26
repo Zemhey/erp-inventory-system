@@ -155,17 +155,26 @@ onMounted(() => void load(activeTab.value))
         </el-table-column>
       </el-table>
 
-      <!-- 库存预警 -->
+      <!-- 库存预警：口径与「库存预警」页的 SAFETY 一致 —— 可用量低于安全库存的 SKU+仓库 -->
       <el-table v-else-if="activeTab === 'low-stock' && items.length" :data="items" border size="small">
-        <el-table-column label="SKU" prop="skuId" width="90" />
-        <el-table-column label="仓库" prop="warehouseId" width="90" />
-        <el-table-column label="批次" prop="batchNo" min-width="120" />
+        <el-table-column label="商品" min-width="180">
+          <template #default="{ row }">{{ row.productCode }} {{ row.productName }}</template>
+        </el-table-column>
+        <el-table-column label="规格" prop="variant" width="120" />
+        <el-table-column label="仓库" prop="warehouseName" min-width="120" />
         <el-table-column label="实存" prop="onHandQty" width="80" />
-        <el-table-column label="预占" prop="reservedQty" width="80" />
-        <el-table-column label="冻结" prop="frozenQty" width="80" />
         <el-table-column label="可用" width="80">
           <template #default="{ row }">
             <el-tag size="small" type="danger">{{ row.availableQty }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="安全库存" prop="minLevel" width="90" />
+        <el-table-column label="缺口" width="80">
+          <template #default="{ row }">{{ row.minLevel - row.availableQty }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="110" fixed="right">
+          <template #default>
+            <el-button link type="primary" @click="router.push('/inventory-alerts')">去调阈值</el-button>
           </template>
         </el-table-column>
       </el-table>

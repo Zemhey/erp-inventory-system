@@ -24,8 +24,9 @@ import org.springframework.transaction.annotation.Transactional;
  * 财务报表与财务总览（FR-V3-12 / FR-V3-13）。
  *
  * <p><b>配平口径</b>（简报 §4）：科目余额 = init_balance + Σ借 − Σ贷（按 direction 取号）；
- * 资产负债表要求 资产 = 负债 + 权益 + <b>本期累计利润</b>。最后一项是复式记账的
- * 平衡项：损益类科目的净额尚未做"年末结转"（本批不做），不补进权益侧就必然不平。
+ * 资产负债表要求 资产 = 负债 + 权益。损益类科目的净额尚未做"年末结转"（本批不做），
+ * 以「4103 本年利润（未结转损益）」并入权益侧参与合计 —— 它就是复式记账的平衡项，
+ * 但不该在权益之外单列，否则报表上会出现"权益 0 元"。
  * 利润用<b>截至报表期间的累计数</b>而非当期数 —— 与"余额截至该期末"同一时间轴，
  * 否则任何非首个期间都会平不了。
  *
@@ -37,6 +38,9 @@ public class FinReportApplicationService {
     /** 资产负债表一侧的行。 */
     public record ReportRow(String code, String name, BigDecimal amount) {
     }
+
+    /** 未结转损益在权益侧的挂账科目；科目表里没有 4103，不会与真实科目行重复计数。 */
+    private static final String RETAINED_EARNINGS_CODE = "4103";
 
     private static final DateTimeFormatter PERIOD = DateTimeFormatter.ofPattern("yyyy-MM");
 
@@ -88,12 +92,14 @@ public class FinReportApplicationService {
         BigDecimal accumulatedProfit = nets.get(AccountCategory.REVENUE)
                 .subtract(nets.get(AccountCategory.COST))
                 .subtract(nets.get(AccountCategory.EXPENSE));
+        // 未结转损益挂进权益，报表才是 资产 = 负债 + 权益；放在独立行上会让人以为权益是 0
+        equity.add(new ReportRow(RETAINED_EARNINGS_CODE, "本年利润（未结转损益）", accumulatedProfit));
 
         BigDecimal assetTotal = sumRows(assets);
         BigDecimal liabilityTotal = sumRows(liabilities);
         BigDecimal equityTotal = sumRows(equity);
-        BigDecimal diff = assetTotal.subtract(liabilityTotal.add(equityTotal)
-                .add(accumulatedProfit));
+        BigDecimal liabilityEquityTotal = liabilityTotal.add(equityTotal);
+        BigDecimal diff = assetTotal.subtract(liabilityEquityTotal);
 
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("period", p);
@@ -104,7 +110,7 @@ public class FinReportApplicationService {
         out.put("liabilityTotal", liabilityTotal);
         out.put("equityTotal", equityTotal);
         out.put("accumulatedProfit", accumulatedProfit);
-        out.put("liabilityEquityTotal", liabilityTotal.add(equityTotal).add(accumulatedProfit));
+        out.put("liabilityEquityTotal", liabilityEquityTotal);
         out.put("diff", diff);
         out.put("balanced", diff.signum() == 0);
         return out;

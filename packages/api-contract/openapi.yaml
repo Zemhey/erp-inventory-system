@@ -5739,7 +5739,7 @@ paths:
       parameters:
         - name: type
           in: query
-          description: approval=待审批 / purchase-receipt=待收货 / sales-ship=待发货 / low-stock=库存预警
+          description: approval=待审批 / purchase-receipt=待收货 / sales-ship=待发货 / low-stock=库存预警（可用量低于 skus.min_level，按 SKU+仓库汇总，与 /inventory/alerts 的 SAFETY 同一口径）
           schema: { type: string, enum: [approval, purchase-receipt, sales-ship, low-stock], default: approval }
         - name: limit
           in: query
@@ -6814,10 +6814,11 @@ paths:
   /fin/reports/balance-sheet:
     get:
       tags: [fin]
-      summary: 资产负债表（只统计 POSTED 凭证；资产 = 负债 + 权益 + 累计利润，diff 必须回传）
+      summary: 资产负债表（只统计 POSTED 凭证；资产 = 负债 + 权益，diff 必须回传）
       description: |
         - 科目余额 = init_balance + Σ借 − Σ贷（按 direction 取号）；
-        - accumulatedProfit 是截至该期间的损益累计净额，作为权益侧的平衡项
+        - 截至该期间的损益累计净额以「4103 本年利润（未结转损益）」作为 equity 的一行
+          参与合计，equityTotal 因此已含利润；accumulatedProfit 回传同一个数供交叉核对
           （损益结转到利润分配属下期能力，不做它这张表永远不平）；
         - balanced=false 时 diff 给出具体差额（简报验收"不平要报差异"）。
       operationId: getBalanceSheet

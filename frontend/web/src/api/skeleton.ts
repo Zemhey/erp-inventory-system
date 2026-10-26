@@ -100,10 +100,11 @@ export interface TodoItem {
   totalAmount?: number
   skuId?: number
   warehouseId?: number
-  batchNo?: string | null
+  productCode?: string
+  productName?: string
+  variant?: string
+  minLevel?: number
   onHandQty?: number
-  reservedQty?: number
-  frozenQty?: number
   availableQty?: number
   bizType?: string
   bizId?: number

@@ -1,6 +1,7 @@
 package com.erp.rpt.application;
 
 import com.erp.rpt.repository.DashboardRepository;
+import com.erp.rpt.repository.TodoRepository;
 import com.erp.shared.time.ClockProvider;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -21,10 +22,13 @@ import org.springframework.transaction.annotation.Transactional;
 public class DashboardService {
 
     private final DashboardRepository repository;
+    private final TodoRepository todoRepository;
     private final ClockProvider clock;
 
-    public DashboardService(DashboardRepository repository, ClockProvider clock) {
+    public DashboardService(DashboardRepository repository, TodoRepository todoRepository,
+                            ClockProvider clock) {
         this.repository = repository;
+        this.todoRepository = todoRepository;
         this.clock = clock;
     }
 
@@ -40,7 +44,7 @@ public class DashboardService {
         kpis.put("purchaseOrderTotal", repository.countPurchaseOrders());
         kpis.put("salesOrderTotal", repository.countSalesOrders());
         kpis.put("inventoryRowTotal", repository.countInventoryRows());
-        kpis.put("lowStockTotal", repository.countLowStock());
+        kpis.put("lowStockTotal", repository.countZeroAvailable());
         result.put("kpis", kpis);
 
         LocalDate to = clock.today();
@@ -56,7 +60,7 @@ public class DashboardService {
         todos.put("approvalPending", repository.countPendingApprovals());
         todos.put("purchaseReceipt", repository.countPurchaseToReceive());
         todos.put("salesShip", repository.countSalesToShip());
-        todos.put("lowStock", repository.countLowStock());
+        todos.put("lowStock", todoRepository.countLowStock());
         todos.put("items", repository.recentPendingApprovals(5));
         result.put("todos", todos);
 

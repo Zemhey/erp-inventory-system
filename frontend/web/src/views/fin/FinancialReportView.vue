@@ -89,7 +89,7 @@ onMounted(load)
     <template v-if="which === 'balance' && balance">
       <el-alert
         :title="balance.balanced
-          ? `配平：资产 ${money(balance.assetTotal)} = 负债+权益+累计利润 ${money(balance.liabilityEquityTotal)}，差额 0.00`
+          ? `配平：资产 ${money(balance.assetTotal)} = 负债 ${money(balance.liabilityTotal)} + 权益 ${money(balance.equityTotal)}（含未结转损益 ${money(balance.accumulatedProfit)}），差额 0.00`
           : `不平！差额 ${money(balance.diff)} 元（只统计已过账凭证；请核查期初余额与凭证）`"
         :type="balance.balanced ? 'success' : 'error'"
         show-icon
@@ -128,9 +128,9 @@ onMounted(load)
                 <td>{{ r.code }} {{ r.name }}</td>
                 <td class="num">{{ money(r.amount) }}</td>
               </tr>
-              <tr>
-                <td>累计利润（未结转，平衡项）</td>
-                <td class="num">{{ money(balance.accumulatedProfit) }}</td>
+              <tr class="sub">
+                <td>权益合计</td>
+                <td class="num">{{ money(balance.equityTotal) }}</td>
               </tr>
               <tr class="total">
                 <td>负债与权益总计</td>

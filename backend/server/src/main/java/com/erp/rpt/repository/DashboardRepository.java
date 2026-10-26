@@ -55,7 +55,8 @@ public class DashboardRepository {
         return count("SELECT COUNT(*) FROM inventory_balances");
     }
 
-    public long countLowStock() {
+    /** 零可用库存行数（工作台 KPI「零可用库存」）。★ 不是"库存预警"，预警口径见 TodoRepository.countLowStock()。 */
+    public long countZeroAvailable() {
         return count("SELECT COUNT(*) FROM inventory_balances WHERE available_qty <= 0");
     }
 
