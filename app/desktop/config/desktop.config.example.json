@@ -1,0 +1,10 @@
+{
+  "host": "127.0.0.1",
+  "port": 8788,
+  "apiTarget": "http://127.0.0.1:8080",
+  "apiPrefixes": ["/api"],
+  "webDist": "../../frontend/web/dist",
+  "devServerUrl": null,
+  "closeToTray": true,
+  "protocol": "erp-desktop"
+}
