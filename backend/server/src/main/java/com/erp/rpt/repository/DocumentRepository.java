@@ -36,6 +36,20 @@ public class DocumentRepository {
                 rs.getLong("amount"));
     };
 
+    /**
+     * 明细行金额列的两套取法。
+     *
+     * <p>进货/销售/退货行本身带 {@code unit_price_amount} 与 {@code amount}；调拨行没有这两列，
+     * 只有发运时快照的批次成本 {@code unit_cost_amount}（可空），所以按成本口径别名出来 ——
+     * 详情抽屉里调拨单的"金额"读作成本金额，不是售价金额。
+     */
+    private static final String LINE_COLS_STANDARD =
+            "l.line_no, l.sku_id, l.qty, l.unit_price_amount, l.amount";
+
+    private static final String LINE_COLS_COST =
+            "l.line_no, l.sku_id, l.qty, COALESCE(l.unit_cost_amount, 0) AS unit_price_amount, "
+                    + "l.qty * COALESCE(l.unit_cost_amount, 0) AS amount";
+
     private static String trimName(String productName, String color, String size) {
         StringBuilder sb = new StringBuilder();
         if (productName != null) sb.append(productName);
@@ -56,7 +70,8 @@ public class DocumentRepository {
                               JOIN warehouses w ON w.id = po.warehouse_id
                              WHERE po.id = ?
                             """,
-                    "purchase_order_lines", "purchase_order_id",
+                    "purchase_order_lines", "order_id",
+                    LINE_COLS_STANDARD,
                     id);
             case "sales" -> headerAndLines(
                     type,
@@ -69,6 +84,7 @@ public class DocumentRepository {
                              WHERE so.id = ?
                             """,
                     "sales_order_lines", "order_id",
+                    LINE_COLS_STANDARD,
                     id);
             case "return" -> headerAndLines(
                     type,
@@ -81,19 +97,30 @@ public class DocumentRepository {
                              WHERE ro.id = ?
                             """,
                     "return_order_lines", "order_id",
+                    LINE_COLS_STANDARD,
                     id);
             case "transfer" -> headerAndLines(
                     type,
+                    // inventory_transfers 表上没有 total_qty / total_amount 汇总列（V9 建表就没有，
+                    // V16 只补了 tenant_id），所以表头合计只能从明细行现算。
                     """
                             SELECT t.id, t.transfer_no AS order_no, t.status, t.biz_date,
-                                   COALESCE(t.total_qty, 0) AS total_qty,
-                                   COALESCE(t.total_amount, 0) AS total_amount,
+                                   COALESCE(l.total_qty, 0) AS total_qty,
+                                   COALESCE(l.total_amount, 0) AS total_amount,
                                    NULL AS party_name, w.name AS warehouse_name
                               FROM inventory_transfers t
                               JOIN warehouses w ON w.id = t.from_warehouse_id
+                              LEFT JOIN (
+                                    SELECT transfer_id,
+                                           SUM(qty)::bigint AS total_qty,
+                                           SUM(qty * COALESCE(unit_cost_amount, 0)) AS total_amount
+                                      FROM transfer_lines
+                                     GROUP BY transfer_id
+                                   ) l ON l.transfer_id = t.id
                              WHERE t.id = ?
                             """,
                     "transfer_lines", "transfer_id",
+                    LINE_COLS_COST,
                     id);
             default -> throw new BusinessException(ErrorCode.SYS_VALIDATION_ERROR,
                     "不支持的单据类型：" + type);
@@ -101,7 +128,7 @@ public class DocumentRepository {
     }
 
     private DocDetail headerAndLines(String type, String headerSql, String lineTable,
-                                    String lineFk, long id) {
+                                    String lineFk, String lineCols, long id) {
         DocDetail header = jdbc.query(headerSql, (rs, i) -> new DocDetail(
                 type,
                 rs.getLong("id"),
@@ -118,14 +145,14 @@ public class DocumentRepository {
 
         List<DocLine> lines = jdbc.query(
                 """
-                        SELECT l.line_no, l.sku_id, l.qty, l.unit_price_amount, l.amount,
+                        SELECT %s,
                                p.name AS product_name, s.color, s.size
                           FROM %s l
                           JOIN skus s ON s.id = l.sku_id
                           JOIN products p ON p.id = s.product_id
                          WHERE l.%s = ?
                          ORDER BY l.line_no
-                        """.formatted(lineTable, lineFk),
+                        """.formatted(lineCols, lineTable, lineFk),
                 LINE_MAPPER, id);
 
         return new DocDetail(header.type(), header.id(), header.no(), header.status(),
