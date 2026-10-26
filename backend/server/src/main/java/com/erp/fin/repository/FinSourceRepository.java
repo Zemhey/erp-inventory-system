@@ -30,6 +30,43 @@ public class FinSourceRepository {
                             long revenueFen, long costFen) {
     }
 
+    /**
+     * 出货单直接出货（{@code POST /sales-orders/{id}/ship}）的凭证源。
+     *
+     * <p>与 {@link #shipment(long)} 的区别只在来源聚合：那条走发货单（{@code so_shipments}），
+     * 这条走出货单本身。两条路径都会写 {@code inventory_ledger(biz_type='SALES_OUT')} 与应收，
+     * 所以收入/成本口径一致。
+     *
+     * <p>成本按 {@code biz_ref_id}（= 销售单 id）直查流水，不像发货单那样用单号前缀 LIKE：
+     * 直接出货时一单会产生多条不同行/仓的流水，前缀匹配会把它们混成一组。
+     */
+    public Optional<SalOutDoc> salesOrderOut(long salesOrderId) {
+        Optional<SalOutDoc> head = jdbc.query("""
+                SELECT o.order_no, o.biz_date, c.name AS customer_name,
+                       (SELECT COALESCE(SUM(ROUND(l.shipped_qty::numeric
+                                    * l.unit_price_amount * l.discount_rate / 10000.0)), 0)::bigint
+                          FROM sales_order_lines l
+                         WHERE l.order_id = o.id) AS revenue_fen
+                  FROM sales_orders o
+                  JOIN customers c ON c.id = o.customer_id
+                 WHERE o.id = ?
+                """, (rs, i) -> new SalOutDoc(rs.getString("order_no"),
+                rs.getObject("biz_date", LocalDate.class), rs.getString("customer_name"),
+                rs.getLong("revenue_fen"), 0L), salesOrderId).stream().findFirst();
+        if (head.isEmpty()) {
+            return Optional.empty();
+        }
+        Long cost = jdbc.queryForObject("""
+                SELECT COALESCE(SUM(cl.total_cost_amount), 0)
+                  FROM cost_layers cl
+                  JOIN inventory_ledger l ON l.id = cl.ledger_id
+                 WHERE l.biz_type = 'SALES_OUT' AND l.biz_ref_id = ?
+                """, Long.class, salesOrderId);
+        SalOutDoc doc = head.get();
+        return Optional.of(new SalOutDoc(doc.shipmentNo(), doc.bizDate(), doc.customerName(),
+                doc.revenueFen(), cost == null ? 0L : cost));
+    }
+
     /** 付款核销凭证源：payable_allocations 按 payment_no 聚合的一笔付款。 */
     public record PayDoc(String paymentNo, LocalDate bizDate, String supplierName,
                          long amountFen) {

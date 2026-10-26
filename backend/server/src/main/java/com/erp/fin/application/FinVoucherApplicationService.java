@@ -329,6 +329,28 @@ public class FinVoucherApplicationService implements VoucherTrigger {
                             "库存出库 %s".formatted(doc.shipmentNo()), cost));
                 }
             }
+            case SAL_ORDER_OUT -> {
+                FinSourceRepository.SalOutDoc doc = sources.salesOrderOut(sourceId)
+                        .orElseThrow(() -> notFound("出货单", sourceId));
+                BigDecimal revenue = fenToYuan(doc.revenueFen());
+                BigDecimal cost = fenToYuan(doc.costFen());
+                if (revenue.signum() <= 0) {
+                    return 0L;
+                }
+                date = doc.bizDate();
+                sourceNo = doc.shipmentNo();
+                remark = "出货单直接出货自动生成（客户 %s）".formatted(doc.customerName());
+                lines.add(debitLine(StandardChartOfAccounts.RECEIVABLE,
+                        "应收 %s".formatted(doc.customerName()), revenue));
+                lines.add(creditLine(StandardChartOfAccounts.MAIN_REVENUE,
+                        "销售收入 %s".formatted(doc.shipmentNo()), revenue));
+                if (cost.signum() > 0) {
+                    lines.add(debitLine(StandardChartOfAccounts.MAIN_COST,
+                            "结转销售成本 %s".formatted(doc.shipmentNo()), cost));
+                    lines.add(creditLine(StandardChartOfAccounts.MERCHANDISE,
+                            "库存出库 %s".formatted(doc.shipmentNo()), cost));
+                }
+            }
             case PUR_PAY -> {
                 FinSourceRepository.PayDoc doc = sources.payment(sourceId)
                         .orElseThrow(() -> notFound("付款单", sourceId));

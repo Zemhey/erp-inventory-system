@@ -70,7 +70,7 @@ public class FinVoucherController {
         PageResult<Voucher> found = vouchers.page(parseEnum(VoucherStatus.class, status,
                         "DRAFT|AUDITED|POSTED"),
                 parseEnum(VoucherSourceType.class, sourceType,
-                        "MANUAL|PUR_IN|SAL_OUT|PUR_PAY|SAL_RCV|EXPENSE|INVOICE"),
+                        "MANUAL|PUR_IN|SAL_OUT|SAL_ORDER_OUT|PUR_PAY|SAL_RCV|EXPENSE|INVOICE"),
                 period, from, to, keyword, page, size);
         List<Map<String, Object>> items = new ArrayList<>();
         for (Voucher v : found.items()) {

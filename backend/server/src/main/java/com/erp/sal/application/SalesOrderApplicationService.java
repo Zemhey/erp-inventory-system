@@ -70,6 +70,12 @@ public class SalesOrderApplicationService {
     /** 当前操作人（数据权限"按本人"）。 */
     private final ActorContext actors;
 
+    /**
+     * 凭证触发出口（依赖倒置见 {@code shared.finance.VoucherTrigger}）。
+     * 出货完成时：借 1122 应收 / 贷 6001 收入；成本引擎有结转额时追加 6401/1405。
+     */
+    private final com.erp.shared.finance.VoucherTrigger vouchers;
+
     public SalesOrderApplicationService(SalesOrderRepository orders,
                                         WarehouseRepository warehouses,
                                         SkuRepository skus,
@@ -81,7 +87,8 @@ public class SalesOrderApplicationService {
                                         CreditService credit,
                                         ReceivableService receivables,
                                         ApprovalGate approvalGate,
-                                        ActorContext actors) {
+                                        ActorContext actors,
+                                        com.erp.shared.finance.VoucherTrigger vouchers) {
         this.orders = orders;
         this.warehouses = warehouses;
         this.skus = skus;
@@ -94,6 +101,7 @@ public class SalesOrderApplicationService {
         this.receivables = receivables;
         this.approvalGate = approvalGate;
         this.actors = actors;
+        this.vouchers = vouchers;
     }
 
     /** 折扣率基准：10000 = 不打折（整数万分比，ADR-0005）。 */
@@ -442,6 +450,18 @@ public class SalesOrderApplicationService {
                 ErrorCode.SAL_STATUS_ILLEGAL, refreshed.orderNo());
         transition(refreshed, target);
         receivables.recordShipment(id, refreshed.customerId(), refreshed.bizDate(), shippedAmount);
+
+        // V3-5 FR-V3-08 补口：直接出货路径也要出凭证（此前只有发货单确认会生成，
+        // 从出货单页面点"出货"扣了库存、记了应收，总账却一片空白）。
+        //
+        // 只在整单发完时生成：凭证源取的是累计已发量，而幂等键 (SAL_ORDER_OUT, 单 id)
+        // 决定一单只出一张 —— 若在部分出货时就生成，后续补发会被幂等吞掉，永久少计收入。
+        //
+        // 已知边界：同一张单既走发货单又走直接出货时，两边各出一张会重复入账。
+        // 这两条是互斥的履约流程，界面按单据状态只会开放其一，故不在本次范围内做去重。
+        if (target == DocumentStatus.COMPLETED) {
+            vouchers.generateForSource("SAL_ORDER_OUT", id);
+        }
         return require(id);
     }
 

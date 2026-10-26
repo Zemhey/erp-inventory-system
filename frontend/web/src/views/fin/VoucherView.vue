@@ -200,10 +200,12 @@ onMounted(async () => {
         <el-select v-model="filters.sourceType" placeholder="来源" class="w-140" clearable>
           <el-option label="手工" value="MANUAL" />
           <el-option label="采购入库" value="PUR_IN" />
-          <el-option label="销售出库" value="SAL_OUT" />
+          <el-option label="销售出库（发货单）" value="SAL_OUT" />
+          <el-option label="销售出货（直发）" value="SAL_ORDER_OUT" />
           <el-option label="付款核销" value="PUR_PAY" />
           <el-option label="收款核销" value="SAL_RCV" />
           <el-option label="费用报销" value="EXPENSE" />
+          <el-option label="发票" value="INVOICE" />
         </el-select>
         <el-input v-model="filters.keyword" placeholder="凭证号 / 来源单号 / 摘要" class="w-220" clearable />
         <el-button type="primary" @click="search">查询</el-button>

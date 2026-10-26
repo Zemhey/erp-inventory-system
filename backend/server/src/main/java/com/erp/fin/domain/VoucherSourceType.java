@@ -11,6 +11,7 @@ public enum VoucherSourceType {
     MANUAL("手工录入"),
     PUR_IN("采购入库"),
     SAL_OUT("销售出库"),
+    SAL_ORDER_OUT("销售出货"),
     PUR_PAY("付款核销"),
     SAL_RCV("收款核销"),
     EXPENSE("费用报销"),
