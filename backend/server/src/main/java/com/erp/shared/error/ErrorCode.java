@@ -288,7 +288,30 @@ public enum ErrorCode {
      * <p>不复用 {@code SYS_VALIDATION_ERROR}：前端要按码把错误定位到阈值那两个输入框，
      * 通用码做不到。
      */
-    MDM_SKU_LEVEL_INVALID(400);
+    MDM_SKU_LEVEL_INVALID(400),
+
+    // ── V4-3 审批流节点缺失（纯追加，勿改上面任何条目）──
+    /**
+     * 审批流已启用但没有任何可用审批节点 —— 配置缺陷，不是调用方的错。
+     *
+     * <p><b>为什么必须是独立错误码、并且必须在 submit 就响亮失败</b>：
+     * 修复前 {@code ApprovalApplicationService.submit()} 拿到启用流后直接遍历
+     * {@code flow.steps()}；节点表是空的，于是循环 0 次、
+     * 实例插进去又因为 {@code firstActive == null} 整体回滚 ——
+     * 对外表现为"提交审批没有生成任何实例"，而 {@code POST /purchase-orders/{id}/approve}
+     * 的闸门只看"有没有实例"，于是报 {@code APS_APPROVAL_REQUIRED}
+     * 「需要审批但尚未提交」。那句话是<b>误导</b>的：用户确实提交了，
+     * 是流程本身没节点。单据于是永久停在 SUBMITTED，
+     * 进货 → 入库 → 自动生成凭证整条链停摆，而 HTTP 层看着像正常的 4xx。
+     *
+     * <p>静默跳过比 500 更危险：500 至少让人知道出事，而"看起来成功了"会让用户
+     * 以为审批已经通过，然后带着一个永远不会动的单据去干别的事。
+     * 见 {@code V23__aps_flow_steps.sql} 补节点，与本码把这类流程变成显式失败。
+     *
+     * <p>取 409 而不是 400：请求体完全合法（400 会让人去查自己的入参），
+     * 冲突的是服务端流程配置态，与 {@code APS_APPROVAL_PENDING} 同一族。
+     */
+    APS_FLOW_NO_STEPS(409);
 
     private final int httpStatus;
 
