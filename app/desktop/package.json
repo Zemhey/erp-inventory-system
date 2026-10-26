@@ -1,0 +1,17 @@
+{
+  "name": "erp-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "进销存系统 PC 端（Electron 包装 frontend/web 构建产物，只做桌面增量能力）",
+  "main": "src/main.js",
+  "scripts": {
+    "build:web": "node scripts/build-web.js",
+    "dev": "node src/dev-launcher.js",
+    "start": "electron .",
+    "serve": "node src/server-cli.js",
+    "smoke": "node scripts/smoke.js"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0"
+  }
+}

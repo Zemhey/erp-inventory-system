@@ -1,0 +1,13 @@
+# 本目录自己的依赖与产物（根 .gitignore 已覆盖 node_modules/ 与 dist/，这里只补本端专有的）
+node_modules/
+dist/
+out/
+.tmp/
+
+# 本机配置覆盖：端口/后端地址因人而异，模板是 desktop.config.example.json
+config/desktop.config.json
+
+# 打包产物与图标资产（安装包不入库）
+*.exe
+*.nsis
+*.portable
