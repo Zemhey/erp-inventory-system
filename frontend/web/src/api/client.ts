@@ -726,6 +726,10 @@ export interface Sku {
   bandCode?: string | null
   launchDate?: string | null
   seasonYear?: number | null
+  /** 安全库存下限（**件**，非分）；0 = 未设，不进库存预警 */
+  minLevel?: number
+  /** 补货上限（**件**，非分）；0 = 未设，不进补货建议 */
+  maxLevel?: number
 }
 
 export interface SkuCreate {
@@ -737,6 +741,10 @@ export interface SkuCreate {
   seasonCode?: string
   bandCode?: string
   launchDate?: string
+  /** 安全库存下限（件）；省略 = 0 未设 */
+  minLevel?: number
+  /** 补货上限（件）；省略 = 0 未设 */
+  maxLevel?: number
 }
 
 export interface SkuUpdate {
@@ -746,6 +754,10 @@ export interface SkuUpdate {
   seasonCode?: string
   bandCode?: string
   launchDate?: string
+  /** 下限（件）；省略 = 保持原值，0 = 清除阈值。校验：max=0 或 max>=min */
+  minLevel?: number
+  /** 上限（件）；同上 */
+  maxLevel?: number
 }
 
 export interface SkuMatrixCreate {
