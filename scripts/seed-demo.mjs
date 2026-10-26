@@ -80,6 +80,24 @@ async function call(method, path, body) {
 
 const yuan = (fen) => (fen / 100).toFixed(2)
 
+const unwrap = (d) => (Array.isArray(d) ? d : (d?.items ?? []))
+
+/**
+ * 建主数据；编码已存在就回库里那条。
+ * 这样 seeder 可以反复执行来追加单据，而不是第二次就撞 uq_*_code 全部失败。
+ */
+async function findOrCreate(createPath, body, listPath) {
+  try {
+    return await call('POST', createPath, body)
+  } catch (e) {
+    if (!/409|DUPL|已存在|重复/.test(e.message)) throw e
+    const rows = unwrap(await call('GET', listPath))
+    const hit = rows.find((r) => r.code === body.code)
+    if (!hit) throw e
+    return hit
+  }
+}
+
 async function main() {
   const login = await call('POST', '/auth/login', { username: USER, password: PASS })
   token = login.token
@@ -97,16 +115,16 @@ async function main() {
 
   const warehouses = []
   for (const w of PLAN.warehouses) {
-    warehouses.push(await call('POST', '/warehouses', w))
+    warehouses.push(await findOrCreate('/warehouses', w, '/warehouses?page=1&size=200'))
   }
   const suppliers = []
   for (const [i, name] of PLAN.suppliers.entries()) {
-    suppliers.push(await call('POST', '/suppliers', { code: `DM-SUP-${i + 1}`, name }))
+    suppliers.push(await findOrCreate('/suppliers', { code: `DM-SUP-${i + 1}`, name }, '/suppliers?page=1&size=200'))
   }
   const customers = []
   for (const [i, name] of PLAN.customers.entries()) {
     // discountRate=9000 即该客户默认 9 折，会体现在销售单折扣上
-    customers.push(await call('POST', '/customers', { code: `DM-CUS-${i + 1}`, name, discountRate: 9000 }))
+    customers.push(await findOrCreate('/customers', { code: `DM-CUS-${i + 1}`, name, discountRate: 9000 }, '/customers?page=1&size=200'))
   }
   console.log(`主数据：${warehouses.length} 仓 / ${suppliers.length} 供应商 / ${customers.length} 客户`)
 
@@ -116,14 +134,20 @@ async function main() {
     { code: 'DM-BANK-ICBC', name: '工商银行一般户', bankName: '工商银行广州分行', accountNo: '6222****3307', currency: 'CNY', initBalance: 120000, isDefault: false, enabled: true },
   ]
   for (const b of banks) {
-    await call('POST', '/fin/bank-accounts', b).catch((e) => note('银行账户', e))
+    await findOrCreate('/fin/bank-accounts', b, '/fin/bank-accounts?page=1&size=50')
+      .catch((e) => note('银行账户', e))
   }
 
   /** 一条演示商品线 = 1 商品 + 1 SKU + 固定供应商 + 固定仓 */
   const lines = []
   for (const [i, [name, color, size, retail, cost]] of PLAN.products.entries()) {
-    const product = await call('POST', '/products', { code: `DM-P-${i + 1}`, name })
-    const sku = await call('POST', '/skus', { productId: product.id, color, size, retailPriceAmount: retail })
+    const product = await findOrCreate('/products', { code: `DM-P-${i + 1}`, name }, '/products?page=1&size=200')
+    // SKU 没有 code，按 商品+颜色+尺码 找已有的，避免重跑撞唯一约束
+    const skuList = unwrap(await call('GET', '/skus?page=1&size=400'))
+    let sku = skuList.find((s) => Number(s.productId) === product.id && s.color === color && s.size === size)
+    if (!sku) {
+      sku = await call('POST', '/skus', { productId: product.id, color, size, retailPriceAmount: retail })
+    }
     lines.push({ name, product, sku, cost, retail, supplier: suppliers[i % suppliers.length], warehouse: warehouses[i % warehouses.length] })
     console.log(`商品 ${name}（${color}/${size}）零售 ${yuan(retail)} 元 / 成本 ${yuan(cost)} 元`)
   }
@@ -155,7 +179,26 @@ async function main() {
     }
   }
 
-  console.log(`\n建单完成：进货入库 ${purchaseCount} 张，销售出货 ${salesCount} 张`)
+  // 留几张停在中间态的单：待办中心、审批工作台、消息通知才有内容可看。
+  // 全推到 COMPLETED 的系统看起来像"跑完的批处理"，不像正在被用的系统。
+  let pendingCount = 0
+  for (const [i, line] of lines.entries()) {
+    if (i % 2 === 0) {
+      // 已提交待审批的进货单
+      await stockPending(line, 12 + rnd(20), day(1 + rnd(3)), 'submit').then(
+        () => pendingCount++, (e) => note(`待审进货 ${line.name}`, e))
+    }
+    // 已审核待收货的进货单
+    await stockPending(line, 8 + rnd(15), day(1 + rnd(4)), 'approve').then(
+      () => pendingCount++, (e) => note(`待收进货 ${line.name}`, e))
+  }
+  for (const [i, line] of lines.entries()) {
+    // 已审核待发货的出货单
+    await salesPending(line, customers[i % customers.length], 2 + rnd(3), day(1 + rnd(5))).then(
+      () => pendingCount++, (e) => note(`待发出货 ${line.name}`, e))
+  }
+
+  console.log(`\n建单完成：进货入库 ${purchaseCount} 张，销售出货 ${salesCount} 张，停留在中间态 ${pendingCount} 张`)
 
   // 成本引擎两步：不跑这两步的话 cost_layers 是空的 —— 毛利分析整页无行，
   // 周转/呆滞报表也拿不到金额。（自动凭证只带收入侧分录：凭证在出货那一刻生成，
@@ -212,6 +255,33 @@ async function shipOut(line, customer, qty, bizDate) {
   return call('POST', `/sales-orders/${order.id}/ship`)
 }
 
+/** 造一张停在指定状态的进货单：submit=待审批，approve=已审待收。 */
+async function stockPending(line, qty, bizDate, until) {
+  let order = await call('POST', '/purchase-orders', {
+    supplierId: line.supplier.id,
+    warehouseId: line.warehouse.id,
+    remark: `演示待办（${until === 'submit' ? '待审批' : '待收货'}）${line.name}`,
+    bizDate,
+    lines: [{ skuId: line.sku.id, qty, unitPriceAmount: line.cost }],
+  })
+  order = await call('POST', `/purchase-orders/${order.id}/submit`)
+  if (until === 'approve') order = await call('POST', `/purchase-orders/${order.id}/approve`)
+  return order
+}
+
+/** 造一张已审核待发货的出货单（预占已经产生，所以补货/发货台都有东西可点）。 */
+async function salesPending(line, customer, qty, bizDate) {
+  let order = await call('POST', '/sales-orders', {
+    customerId: customer.id,
+    warehouseId: line.warehouse.id,
+    remark: `演示待办（待发货）${line.name}`,
+    bizDate,
+    lines: [{ skuId: line.sku.id, qty, unitPriceAmount: line.retail, discountRate: 9000 }],
+  })
+  order = await call('POST', `/sales-orders/${order.id}/submit`)
+  return call('POST', `/sales-orders/${order.id}/approve`)
+}
+
 function note(where, err) {
   // 单笔失败不中断整批：让其余单据继续，最后统一列出来
   failed.push(`${where} -> ${err.message}`)
@@ -254,7 +324,9 @@ async function verify() {
     for (const f of failed.slice(0, 12)) console.log('  ' + f)
     if (failed.length > 12) console.log(`  ...另 ${failed.length - 12} 条`)
   }
-  console.log('\n打开 http://127.0.0.1:3000/ 看工作台 / 报表中心 / 数据大屏 / 财务中心。')
+  const host = (process.env.ERP_WEB ?? 'http://127.0.0.1:3030').replace(/\/$/, '')
+  console.log(`\n打开 ${host}/ 看工作台 / 报表中心 / 数据大屏 / 财务中心。` +
+    `（3000 若被 Windows 保留段 2904-3003 占了，dev server 就在 3030）`)
 }
 
 const fix = (v) => Number(v ?? 0).toFixed(2)
