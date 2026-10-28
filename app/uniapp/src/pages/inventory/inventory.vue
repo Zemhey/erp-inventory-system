@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { onPullDownRefresh, onReachBottom, onShow } from '@dcloudio/uni-app'
-import { invApi, type InventoryBalance, type LedgerEntry } from '@/api/client'
+import { invApi, type InventoryPageRow, type LedgerEntry } from '@/api/client'
 import { useDictionary } from '@/composables/useDictionary'
 import { hasPermission } from '@/stores/session'
 import { errorMessage } from '@/utils/error'
@@ -51,33 +51,42 @@ function onOnlyAvailableChange(event: unknown): void {
   applyFilters()
 }
 
-// ─────────────────────────── 余额 ───────────────────────────
+// ─────────────────────────── 余额（服务端分页） ───────────────────────────
 
-const balances = ref<InventoryBalance[]>([])
+const pageItems = ref<InventoryPageRow[]>([])
+const balanceTotal = ref(0)
+const balancePage = ref(0)
 const balanceLoading = ref(false)
 const balanceLoaded = ref(false)
 const balanceError = ref('')
+const keyword = ref('')
 
+/**
+ * "是否处于筛选态"：决定空态文案（"已过滤"还是"还没有库存"）。
+ * 比旧版多了关键字，因为现在靠关键字搜索而不是一次性全量。
+ */
 const balanceFiltered = computed(
   () =>
-    warehouseId.value !== undefined || batchNo.value.trim() !== '' || onlyAvailable.value,
+    warehouseId.value !== undefined ||
+    batchNo.value.trim() !== '' ||
+    onlyAvailable.value ||
+    keyword.value.trim() !== '',
 )
+
+/**
+ * 是否还有下一页：分页接口给的是总条数，按"已加载数 < 总数"判断，
+ * 不依赖 items.length 等于 size —— 末页不满时也别让用户一直"加载更多"。
+ */
+const balanceHasMore = computed(() => pageItems.value.length < balanceTotal.value)
 
 let balanceQueued = false
 
-const balanceTotals = computed(() => {
-  let onHand = 0
-  let reserved = 0
-  let available = 0
-  for (const row of balances.value) {
-    onHand += row.onHandQty
-    reserved += row.reservedQty
-    available += row.availableQty
-  }
-  return { onHand, reserved, available }
-})
+/** 本页可用合计：只看当前已加载这一页，不假装是全局可用（全量求和才准，但那正是要去掉的）。 */
+const pageAvailable = computed(() =>
+  pageItems.value.reduce((sum, row) => sum + row.availableQty, 0),
+)
 
-async function loadBalances(): Promise<void> {
+async function loadBalance(reset = true): Promise<void> {
   if (!allowed.value) return
   if (balanceLoading.value) {
     // 筛选在请求飞行中被再次修改：记住"还欠一次"，本次结束后补跑，避免界面与筛选不一致
@@ -86,20 +95,32 @@ async function loadBalances(): Promise<void> {
   }
 
   balanceLoading.value = true
-  balanceError.value = ''
+  if (reset) balanceError.value = ''
 
+  // 页码交给后端：分页行直接带 skuName/warehouseName，不再依赖本地 200 条字典翻译
+  const nextPage = reset ? 1 : balancePage.value + 1
   const result = await safe(
-    invApi.query({
+    invApi.page({
       warehouseId: warehouseId.value,
       batchNo: batchNo.value.trim() || undefined,
       onlyAvailable: onlyAvailable.value,
+      keyword: keyword.value.trim() || undefined,
+      page: nextPage,
+      size: PAGE_SIZE,
     }),
   )
 
   if (result.ok) {
-    balances.value = result.value
+    const incoming = result.value.items
+    pageItems.value = reset ? incoming : [...pageItems.value, ...incoming]
+    balanceTotal.value = result.value.total
+    balancePage.value = result.value.page
   } else {
-    balances.value = []
+    if (reset) {
+      pageItems.value = []
+      balanceTotal.value = 0
+      balancePage.value = 0
+    }
     balanceError.value = errorMessage(result.error)
   }
 
@@ -108,7 +129,7 @@ async function loadBalances(): Promise<void> {
 
   if (balanceQueued) {
     balanceQueued = false
-    void loadBalances()
+    void loadBalance(true)
   }
 }
 
@@ -188,13 +209,13 @@ function selectTab(next: InventoryTab): void {
   if (next === 'ledger') {
     loadLedger(true)
   } else {
-    loadBalances()
+    loadBalance(true)
   }
 }
 
 function applyFilters(): void {
   if (tab.value === 'balance') {
-    loadBalances()
+    loadBalance(true)
   } else {
     loadLedger(true)
   }
@@ -225,7 +246,7 @@ onShow(() => {
   if (tab.value === 'ledger') {
     loadLedger(true)
   } else {
-    loadBalances()
+    loadBalance(true)
   }
 })
 
@@ -236,7 +257,7 @@ onPullDownRefresh(() => {
       if (tab.value === 'ledger') {
         await loadLedger(true)
       } else {
-        await loadBalances()
+        await loadBalance(true)
       }
     }
     uni.stopPullDownRefresh()
@@ -244,8 +265,11 @@ onPullDownRefresh(() => {
 })
 
 onReachBottom(() => {
+  // 两个 tab 各自翻页：余额走服务端分页、流水走本地累积，互不干扰
   if (tab.value === 'ledger' && !ledgerLoading.value && hasMore.value) {
     loadLedger(false)
+  } else if (tab.value === 'balance' && !balanceLoading.value && balanceHasMore.value) {
+    loadBalance(false)
   }
 })
 </script>
@@ -278,6 +302,17 @@ onReachBottom(() => {
       </view>
 
       <view class="card filter-card">
+        <view v-if="tab === 'balance'" class="filter-row">
+          <text class="filter-label">关键字</text>
+          <input
+            v-model="keyword"
+            class="filter-input"
+            placeholder="商品名 / 款号 / SKU 名"
+            confirm-type="search"
+            @confirm="applyFilters"
+          />
+        </view>
+
         <view class="filter-row">
           <text class="filter-label">仓库</text>
           <picker
@@ -329,15 +364,15 @@ onReachBottom(() => {
         </view>
       </view>
 
-      <!-- ───────────── 余额 ───────────── -->
+      <!-- ───────────── 余额（服务端分页） ───────────── -->
       <template v-if="tab === 'balance'">
         <view v-if="balanceLoaded" class="summary row-between">
           <text class="summary-text">
-            当前筛选 {{ balances.length }} 行{{ balanceFiltered ? '（已过滤）' : '' }}
+            共 {{ balanceTotal }} 行{{ balanceFiltered ? '（已过滤）' : '' }}，已加载 {{ pageItems.length }} 行
           </text>
           <text class="summary-text">
-            可用合计
-            <text class="summary-strong">{{ balanceTotals.available }}</text>
+            本页可用
+            <text class="summary-strong">{{ pageAvailable }}</text>
             件
           </text>
         </view>
@@ -348,26 +383,26 @@ onReachBottom(() => {
 
         <view v-else-if="balanceError" class="card error-block">
           <text class="block-text">{{ balanceError }}</text>
-          <button class="btn-ghost block-btn" hover-class="none" @click="loadBalances">重试</button>
+          <button class="btn-ghost block-btn" hover-class="none" @click="loadBalance(true)">重试</button>
         </view>
 
-        <view v-else-if="!balances.length" class="card empty-block">
+        <view v-else-if="!pageItems.length" class="card empty-block">
           {{
             balanceFiltered
-              ? '当前筛选没有匹配的库存行。可以放宽批次或切换仓库再试。'
+              ? '当前筛选没有匹配的库存行。可以放宽关键字、批次或切换仓库再试。'
               : '还没有库存。完成进货入库后，这里会出现余额。'
           }}
         </view>
 
         <view v-else class="list">
           <view
-            v-for="row in balances"
+            v-for="row in pageItems"
             :key="`${row.skuId}-${row.warehouseId}-${row.batchNo}`"
             class="card balance-card"
             :data-balance-key="`${row.skuId}-${row.warehouseId}-${row.batchNo}`"
           >
             <view class="row-between card-head">
-              <text class="sku-name">{{ skuText(row.skuId) }}</text>
+              <text class="sku-name">{{ row.skuName }}</text>
               <text class="tag">{{ row.batchNo || '无批次' }}</text>
             </view>
 
@@ -387,9 +422,32 @@ onReachBottom(() => {
             </view>
 
             <view class="row-between card-foot">
-              <text class="meta">{{ warehouseText(row.warehouseId) }}</text>
+              <text class="meta">{{ row.warehouseName }}</text>
               <text class="meta">效期 {{ row.expiryDate ? formatDate(row.expiryDate) : '—' }}</text>
             </view>
+          </view>
+        </view>
+
+        <view v-if="tab === 'balance' && balanceLoaded" class="ledger-footer">
+          <!--
+            ★ 加载更多按钮在请求飞行中不能被 v-if 换掉：换成"加载中…"会让节点 detach，
+              连点会撞在重新挂载的节点上。保持同一节点，只切文案并禁用点击。
+          -->
+          <button
+            v-if="balanceHasMore || balanceLoading"
+            class="btn-ghost load-more"
+            hover-class="none"
+            :disabled="balanceLoading"
+            @click="loadBalance(false)"
+          >
+            {{ balanceLoading ? '加载中…' : `加载更多（${pageItems.length} / ${balanceTotal}）` }}
+          </button>
+          <text v-else-if="pageItems.length" class="footer-note">
+            已全部加载，共 {{ balanceTotal }} 行
+          </text>
+          <view v-if="balanceError && pageItems.length" class="inline-error">
+            <text class="block-text">{{ balanceError }}</text>
+            <text class="inline-retry" @click="loadBalance(false)">重试</text>
           </view>
         </view>
       </template>

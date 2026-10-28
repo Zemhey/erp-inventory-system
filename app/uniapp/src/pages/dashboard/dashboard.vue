@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { onPullDownRefresh, onShow } from '@dcloudio/uni-app'
-import { invApi, type InventoryBalance, type LedgerEntry } from '@/api/client'
+import { invApi, skeletonApi, type DashboardSummary, type LedgerEntry } from '@/api/client'
 import { useDictionary } from '@/composables/useDictionary'
 import { hasPermission, logout, session } from '@/stores/session'
 import { errorMessage } from '@/utils/error'
@@ -14,7 +14,7 @@ const loading = ref(false)
 const loadedOnce = ref(false)
 const loadError = ref('')
 
-const balances = ref<InventoryBalance[]>([])
+const summary = ref<DashboardSummary | null>(null)
 const recentLedger = ref<LedgerEntry[]>([])
 const consistent = ref<boolean | null>(null)
 const consistencyError = ref(false)
@@ -42,11 +42,23 @@ const greeting = computed(() => {
   return '晚上好'
 })
 
-const rowCount = computed(() => balances.value.length)
-const skuCount = computed(() => new Set(balances.value.map((row) => row.skuId)).size)
-const totalOnHand = computed(() => balances.value.reduce((sum, row) => sum + row.onHandQty, 0))
-const totalReserved = computed(() => balances.value.reduce((sum, row) => sum + row.reservedQty, 0))
-const totalAvailable = computed(() => balances.value.reduce((sum, row) => sum + row.availableQty, 0))
+/**
+ * 工作台 KPI 全部取后端 `/dashboard/summary` 的 `kpis`，不再前端全量求和。
+ * 原"可用库存合计"需要把全量余额拉下来 reduce，正是要去掉的慢路径；
+ * 现在改用后端聚合的库存行数 / 低库存数等，前端只复述。
+ */
+const kpiInventoryRows = computed(() => (loadedOnce.value ? summary.value?.kpis.inventoryRowTotal ?? '—' : '-'))
+const kpiProductTotal = computed(() => (loadedOnce.value ? summary.value?.kpis.productTotal ?? '—' : '-'))
+const kpiSkuTotal = computed(() => (loadedOnce.value ? summary.value?.kpis.skuTotal ?? '—' : '-'))
+const kpiPurchaseTotal = computed(() => (loadedOnce.value ? summary.value?.kpis.purchaseOrderTotal ?? '—' : '-'))
+const kpiSalesTotal = computed(() => (loadedOnce.value ? summary.value?.kpis.salesOrderTotal ?? '—' : '-'))
+const kpiLowStock = computed(() => (loadedOnce.value ? summary.value?.kpis.lowStockTotal ?? '—' : '-'))
+
+/** 四类待办计数直接来自 summary.todos，点击跳待办中心（四 tab 页面）。 */
+const todoApproval = computed(() => summary.value?.todos.approvalPending ?? 0)
+const todoReceipt = computed(() => summary.value?.todos.purchaseReceipt ?? 0)
+const todoShip = computed(() => summary.value?.todos.salesShip ?? 0)
+const todoLowStock = computed(() => summary.value?.todos.lowStock ?? 0)
 
 async function load(fromPull = false): Promise<void> {
   if (loading.value) {
@@ -65,8 +77,8 @@ async function load(fromPull = false): Promise<void> {
     return
   }
 
-  const [balanceResult, ledgerResult, consistencyResult] = await Promise.all([
-    safe(invApi.query({})),
+  const [summaryResult, ledgerResult, consistencyResult] = await Promise.all([
+    safe(skeletonApi.dashboardSummary()),
     safe(invApi.ledger({ page: 1, size: 5 })),
     safe(invApi.consistencyCheck()),
     safe(loadDictionary()),
@@ -75,12 +87,12 @@ async function load(fromPull = false): Promise<void> {
   const failed: string[] = []
   let firstError: unknown = null
 
-  if (balanceResult.ok) {
-    balances.value = balanceResult.value
+  if (summaryResult.ok) {
+    summary.value = summaryResult.value
   } else {
-    balances.value = []
-    failed.push('库存概览')
-    firstError = firstError ?? balanceResult.error
+    summary.value = null
+    failed.push('工作台汇总')
+    firstError = firstError ?? summaryResult.error
   }
 
   if (ledgerResult.ok) {
@@ -152,12 +164,12 @@ function openPage(path: string): void {
       <text class="hero-date">{{ todayText }} · {{ roleText }}</text>
 
       <view class="hero-metric">
-        <text class="hero-metric-label">可用库存合计</text>
+        <text class="hero-metric-label">库存行数</text>
         <view class="hero-metric-line">
-          <text class="hero-metric-value">{{ allowed && loadedOnce ? totalAvailable : '—' }}</text>
-          <text class="hero-metric-unit">件</text>
+          <text class="hero-metric-value">{{ allowed && loadedOnce ? kpiInventoryRows : '—' }}</text>
+          <text class="hero-metric-unit">行</text>
         </view>
-        <text class="hero-metric-hint">可用 = 实存 − 预占（由后端计算，前端只展示）</text>
+        <text class="hero-metric-hint">全系统库存余额行数（后端聚合，前端只展示）</text>
       </view>
     </view>
 
@@ -176,31 +188,56 @@ function openPage(path: string): void {
 
       <view class="grid">
         <view class="card stat">
-          <text class="stat-label">库存行</text>
-          <text class="stat-value">{{ loadedOnce ? rowCount : '-' }}</text>
-          <text class="stat-hint">SKU × 仓库 × 批次</text>
+          <text class="stat-label">商品数</text>
+          <text class="stat-value">{{ kpiProductTotal }}</text>
+          <text class="stat-hint">商品主数据总量</text>
         </view>
         <view class="card stat">
-          <text class="stat-label">有库存 SKU</text>
-          <text class="stat-value">{{ loadedOnce ? skuCount : '-' }}</text>
-          <text class="stat-hint">出现在余额表中的 SKU</text>
+          <text class="stat-label">SKU 数</text>
+          <text class="stat-value">{{ kpiSkuTotal }}</text>
+          <text class="stat-hint">SKU 主数据总量</text>
         </view>
       </view>
 
       <view class="card triple">
         <view class="triple-cell">
-          <text class="triple-value">{{ loadedOnce ? totalOnHand : '-' }}</text>
-          <text class="triple-label">实存</text>
+          <text class="triple-value">{{ kpiPurchaseTotal }}</text>
+          <text class="triple-label">进货单</text>
         </view>
         <view class="triple-divider" />
         <view class="triple-cell">
-          <text class="triple-value reserved">{{ loadedOnce ? totalReserved : '-' }}</text>
-          <text class="triple-label">预占</text>
+          <text class="triple-value reserved">{{ kpiSalesTotal }}</text>
+          <text class="triple-label">出货单</text>
         </view>
         <view class="triple-divider" />
         <view class="triple-cell">
-          <text class="triple-value available">{{ loadedOnce ? totalAvailable : '-' }}</text>
-          <text class="triple-label">可用</text>
+          <text class="triple-value available">{{ kpiLowStock }}</text>
+          <text class="triple-label">低库存</text>
+        </view>
+      </view>
+
+      <view class="card todo-overview" @click="openPage('/pages/approvals/approvals')">
+        <view class="row-between">
+          <text class="section-title">待办概览</text>
+          <text class="link">进待办中心 ›</text>
+        </view>
+        <view class="todo-grid">
+          <view class="todo-cell">
+            <text class="todo-num">{{ todoApproval }}</text>
+            <text class="todo-label">待审批</text>
+          </view>
+          <view class="todo-cell">
+            <text class="todo-num">{{ todoReceipt }}</text>
+            <text class="todo-label">待收货</text>
+          </view>
+          <view class="todo-cell">
+            <text class="todo-num">{{ todoShip }}</text>
+            <text class="todo-label">待发货</text>
+          </view>
+          <view class="todo-cell">
+            <text class="todo-num available">{{ todoLowStock }}</text>
+            <text class="todo-label">库存预警</text>
+          </view>
         </view>
       </view>
 
@@ -317,6 +354,11 @@ function openPage(path: string): void {
         <view class="card action" data-entry="approvals" @click="openPage('/pages/approvals/approvals')">
           <text class="action-title">待我审批</text>
           <text class="action-sub">按节点权限筛出的我的待办，可同意、驳回、撤回、转办</text>
+          <text class="action-arrow">›</text>
+        </view>
+        <view class="card action" data-entry="nl" @click="openPage('/pages/nl/command')">
+          <text class="action-title">自然语言操作</text>
+          <text class="action-sub">一句话查库存、建草稿，写操作需人确认后才落地</text>
           <text class="action-arrow">›</text>
         </view>
       </view>
@@ -682,5 +724,37 @@ function openPage(path: string): void {
   text-align: center;
   font-size: 21rpx;
   color: #a2a8b6;
+}
+
+.todo-overview {
+  margin-top: 20rpx;
+}
+
+.todo-grid {
+  display: flex;
+  margin-top: 18rpx;
+}
+
+.todo-cell {
+  flex: 1;
+  text-align: center;
+}
+
+.todo-num {
+  display: block;
+  font-size: 44rpx;
+  font-weight: 700;
+  color: #1c2230;
+}
+
+.todo-num.available {
+  color: #2f7d5b;
+}
+
+.todo-label {
+  display: block;
+  margin-top: 4rpx;
+  font-size: 22rpx;
+  color: #8a90a2;
 }
 </style>

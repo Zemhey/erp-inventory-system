@@ -8,7 +8,7 @@
  *   3. 建窗口，加载 http://127.0.0.1:<固定端口>/  ← 关键：**不是** loadFile()；
  *   4. 装托盘、菜单、打印、深链这些桌面增量能力。
  */
-const { app, BrowserWindow, Menu, Tray, ipcMain, dialog, shell, nativeImage, Notification } = require('electron')
+const { app, BrowserWindow, Menu, Tray, ipcMain, dialog, shell, nativeImage, nativeTheme, Notification } = require('electron')
 const http = require('node:http')
 const fs = require('node:fs')
 const path = require('node:path')
@@ -32,6 +32,16 @@ if (!app || typeof app.whenReady !== 'function') {
 
 const config = loadChecked()
 const PKG = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'))
+
+/**
+ * 无 GPU 的环境（远程桌面 / 云主机 / 无头 CI）会在建窗口时撞：
+ *   FATAL:gpu_data_manager_impl_private.cc(423) GPU process isn't usable. Goodbye.
+ * 表现是窗口根本不出现，只留下一行 FATAL —— 看着像程序崩了，其实是环境没有 GPU。
+ *
+ * ★ 为什么用开关而不是默认关掉硬件加速：本机演示要的是流畅度，默认保留；
+ *   只有在那种环境里才显式 `DESKTOP_DISABLE_GPU=1 npm start`，把渲染退回软件光栅。
+ */
+if (process.env.DESKTOP_DISABLE_GPU === '1') app.disableHardwareAcceleration()
 
 /** @type {BrowserWindow|null} */
 let win = null
@@ -58,6 +68,40 @@ if (!gotTheLock) {
 }
 
 // ───────────────────────────── 窗口 ─────────────────────────────
+/**
+ * 窗口自身露出来的那块底色。
+ *
+ * ★ 为什么不是随便一个灰：Web 端这一轮上了深色主题，页面底色不再是旧的冷灰
+ *   #f5f7fa，而是 theme.css 里的暖白 --ys-nuanbai (#f6f2ea) / 深色下 #14120f。
+ *   窗口底色和页面底色不一致时，拖动边框、或者页面切换的一瞬间，
+ *   会露出一条颜色不对的缝 —— 这是"壳没跟上界面"最容易被看见的地方。
+ * ★ 为什么主进程也要管：窗口在 ready-to-show 之前不可见，但那次 resize/重绘
+ *   用的是这里的 backgroundColor，渲染进程的 CSS 还轮不到。
+ */
+const WINDOW_BG_LIGHT = '#f6f2ea'
+const WINDOW_BG_DARK = '#14120f'
+
+/**
+ * 把窗口底色对齐到"用户真正选的主题"。
+ *
+ * 难点：主题存在 localStorage（键 erp.theme），而 localStorage 按 origin 隔离，
+ * 只有渲染进程读得到，主进程启动时拿不到。所以只能"先按系统偏好猜一个，
+ * 页面加载完再问渲染进程要真值"。用户没显式选过时（键不存在），才回落到系统偏好 ——
+ * 与 frontend/web/src/stores/theme.ts 的优先级保持一致，否则会出现
+ * "界面是深色、窗口边是浅色"的错位。
+ */
+async function syncWindowTheme() {
+  if (!win || win.isDestroyed()) return
+  let saved = null
+  try {
+    saved = await win.webContents.executeJavaScript("localStorage.getItem('erp.theme')")
+  } catch {
+    // 页面还没就绪、或被 CSP 拦住：按系统偏好走，不抛
+  }
+  const dark = saved === 'dark' || (saved !== 'light' && nativeTheme.shouldUseDarkColors)
+  win.setBackgroundColor(dark ? WINDOW_BG_DARK : WINDOW_BG_LIGHT)
+}
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1440,
@@ -65,7 +109,7 @@ function createWindow() {
     minWidth: 1024,
     minHeight: 640,
     title: 'ERP 进销存',
-    backgroundColor: '#f5f7fa',
+    backgroundColor: nativeTheme.shouldUseDarkColors ? WINDOW_BG_DARK : WINDOW_BG_LIGHT,
     show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -82,6 +126,13 @@ function createWindow() {
   win.once('ready-to-show', () => win.show())
 
   win.loadURL(`${config.origin}/`)
+
+  // 主题是页面自己管的；壳只负责在"页面说了算"之后把窗口底色追上去。
+  // 每次导航都同步一次：登录页与主框架可能是不同主题（首屏防闪脚本会重算）。
+  win.webContents.on('did-finish-load', () => void syncWindowTheme())
+
+  // 用户在 Web 端点过主题按钮（或系统切了深色）后，这里跟着变，不用等下次导航
+  nativeTheme.on('updated', () => void syncWindowTheme())
 
   // 关闭 → 隐藏到托盘（托盘常驻是这端的存在理由之一）
   win.on('close', (event) => {
@@ -200,6 +251,10 @@ function createTray() {
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: '显示主窗口', click: focusWindow },
     { type: 'separator' },
+    // AI 代操作的"签字台"放在托盘里：它在后台跑、需要人确认，正是托盘该管的事
+    { label: '待确认队列（AI 代操作）', click: () => navigate('/nl/pending') },
+    { label: 'AI 接入设置', click: () => navigate('/nl/settings') },
+    { type: 'separator' },
     { label: '打印当前页  Ctrl+P', click: () => printCurrentPage({}) },
     { label: '另存为 PDF  Ctrl+Shift+S', click: () => savePdf() },
     { type: 'separator' },
@@ -216,6 +271,23 @@ function quit() {
 }
 
 // ───────────────────────────── 菜单 ─────────────────────────────
+/**
+ * 菜单里的"跳到某页"。
+ *
+ * ★ 为什么由主进程 loadURL，而不是让页面自己 router.push：
+ *   web 端刻意没有引用 window.desktop（见 preload.js 顶部注释，那是业务侧改动），
+ *   壳也就没有"让页面导航"的通道。走 loadURL 最省事，也不用给网页多开一个注入口。
+ * ★ 只接受站内路径：拼出来的地址必须仍以 config.origin 开头 ——
+ *   与 will-navigate 同一道闸，菜单项写错了也不会把窗口带去外部站点。
+ */
+function navigate(routePath) {
+  if (!win || win.isDestroyed()) return
+  const dest = `${config.origin}${routePath.startsWith('/') ? routePath : `/${routePath}`}`
+  if (!dest.startsWith(config.origin)) return
+  win.loadURL(dest)
+  focusWindow()
+}
+
 function buildMenu() {
   const template = [
     {
@@ -225,6 +297,20 @@ function buildMenu() {
         { label: '另存为 PDF', accelerator: 'CmdOrCtrl+Shift+S', click: () => savePdf() },
         { type: 'separator' },
         { label: '退出', accelerator: process.platform === 'darwin' ? 'Cmd+Q' : 'Ctrl+Q', click: quit },
+      ],
+    },
+    {
+      // ★ 这一组是这一轮新增的：Web 端上了"自然语言操作"整条链路
+      //   （计划 → 待确认 → 执行 → 审计），桌面端原来只有 Ctrl+P 这类文档动作，
+      //   没有进 AI 相关页面的入口，相当于壳里少了新功能的一半。
+      label: '转到',
+      submenu: [
+        { label: '工作台', accelerator: 'CmdOrCtrl+1', click: () => navigate('/dashboard') },
+        { label: '待办中心', accelerator: 'CmdOrCtrl+2', click: () => navigate('/todos') },
+        { type: 'separator' },
+        { label: '自然语言 · 待确认队列', click: () => navigate('/nl/pending') },
+        { label: '自然语言 · 操作审计', click: () => navigate('/nl/audit') },
+        { label: '自然语言 · AI 接入', click: () => navigate('/nl/settings') },
       ],
     },
     {

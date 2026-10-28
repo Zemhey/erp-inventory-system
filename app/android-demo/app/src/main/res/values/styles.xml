@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="AppTheme" parent="@android:style/Theme.Material.Light">
+        <item name="android:colorPrimary">#1F3A5F</item>
+        <item name="android:colorPrimaryDark">#14283F</item>
+        <item name="android:colorAccent">#D4A64A</item>
+        <!-- 窗口底色引用颜色资源，由 values-night 同名资源在深色系统下覆盖 -->
+        <item name="android:windowBackground">@color/shell_window_bg</item>
+    </style>
+</resources>

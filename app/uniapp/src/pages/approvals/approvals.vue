@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { onPullDownRefresh, onReachBottom, onShow } from '@dcloudio/uni-app'
-import { approvalApi, iamApi, type ApprovalInstance, type IamUser } from '@/api/client'
+import { approvalApi, iamApi, skeletonApi, type ApprovalInstance, type IamUser, type TodoItem, type TodoType } from '@/api/client'
 import { hasPermission, session } from '@/stores/session'
 import { approvalStatusMeta, isPendingForMe } from '@/utils/approvalStatus'
 import { errorMessage } from '@/utils/error'
@@ -42,6 +42,63 @@ const PAGE_SIZE = 20
 const MINE_BATCH = 50
 
 const allowed = computed(() => hasPermission('aps:read'))
+
+// ─────────────────────────── 待办中心：四类 tab ───────────────────────────
+// 待审批沿用原有的"按节点权限本地筛 + 详情页"逻辑；其余三类直接走 /todos?type=。
+// 这样 Web 端的四类待办在移动端一一对应，不会让人看出"只同步了一半"。
+
+const TABS: { value: TodoType; label: string }[] = [
+  { value: 'approval', label: '待审批' },
+  { value: 'purchase-receipt', label: '待收货' },
+  { value: 'sales-ship', label: '待发货' },
+  { value: 'low-stock', label: '库存预警' },
+]
+
+const activeTab = ref<TodoType>('approval')
+
+const todoItems = ref<TodoItem[]>([])
+const todoLoaded = ref(false)
+const todoLoading = ref(false)
+const todoError = ref('')
+
+async function loadTodos(): Promise<void> {
+  if (activeTab.value === 'approval') return
+  todoLoading.value = true
+  todoError.value = ''
+  const result = await safe(skeletonApi.todos(activeTab.value, 50))
+  if (result.ok) {
+    todoItems.value = result.value.items
+  } else {
+    todoItems.value = []
+    todoError.value = errorMessage(result.error)
+  }
+  todoLoaded.value = true
+  todoLoading.value = false
+}
+
+/** 切 tab：待审批回到原逻辑，其余三类拉对应待办。 */
+function selectTodoTab(value: TodoType): void {
+  if (activeTab.value === value) return
+  activeTab.value = value
+  if (value === 'approval') {
+    void load(true)
+  } else {
+    void loadTodos()
+  }
+}
+
+/**
+ * 待办卡片点击：只有目标详情页真实存在才跳，否则只读。
+ * 待收货 → 进货单详情、待发货 → 出货单详情（pages.json 里都有）；
+ * 库存预警没有对应详情页，卡片只读，不造死链。
+ */
+function openTodo(item: TodoItem): void {
+  if (activeTab.value === 'purchase-receipt') {
+    uni.navigateTo({ url: `/pages/purchase/detail?id=${item.id}` })
+  } else if (activeTab.value === 'sales-ship') {
+    uni.navigateTo({ url: `/pages/sales/detail?id=${item.id}` })
+  }
+}
 
 const mineOnly = ref(true)
 const statusFilter = ref('PENDING')
@@ -206,12 +263,20 @@ onShow(() => {
   if (!ensureLoggedIn()) return
   if (!listAllowed.value) return
   void resolveMyUserId()
-  void load(true)
+  if (activeTab.value === 'approval') {
+    void load(true)
+  } else {
+    void loadTodos()
+  }
 })
 
 onPullDownRefresh(() => {
   void (async () => {
-    await load(true)
+    if (activeTab.value === 'approval') {
+      await load(true)
+    } else {
+      await loadTodos()
+    }
     uni.stopPullDownRefresh()
   })()
 })
@@ -231,7 +296,18 @@ onReachBottom(() => {
       </text>
     </view>
 
-    <template v-else>
+    <view v-else class="approvals-body">
+      <view class="tabs todo-tabs">
+        <view
+          v-for="t in TABS"
+          :key="t.value"
+          class="tab"
+          :class="{ active: activeTab === t.value }"
+          @click="selectTodoTab(t.value)"
+        >{{ t.label }}</view>
+      </view>
+
+      <template v-if="activeTab === 'approval'">
       <view class="card mode-card">
         <view class="row-between">
           <view>
@@ -341,7 +417,56 @@ onReachBottom(() => {
           <text class="inline-retry" @click="load(false)">重试</text>
         </view>
       </view>
-    </template>
+      </template>
+
+      <template v-else>
+        <view v-if="todoLoading && !todoLoaded" class="card loading-block">正在读取待办…</view>
+
+        <view v-else-if="todoError && !todoItems.length" class="card error-block">
+          <text class="block-text">{{ todoError }}</text>
+          <button class="btn-ghost block-btn" hover-class="none" @click="loadTodos">重试</button>
+        </view>
+
+        <view v-else-if="!todoItems.length" class="card empty-block">
+          {{ activeTab === 'low-stock' ? '没有低于下限的库存，所有 SKU 都在安全水位之上。' : '这一类暂时没有待办。' }}
+        </view>
+
+        <view v-else class="list">
+          <view
+            v-for="item in todoItems"
+            :key="item.id"
+            class="card todo-card"
+            :class="{ clickable: activeTab === 'purchase-receipt' || activeTab === 'sales-ship' }"
+            @click="openTodo(item)"
+          >
+            <!-- 待审批：保留跳详情；待收货/待发货：跳对应单据详情；库存预警：只读 -->
+            <view class="row-between todo-head">
+              <text class="todo-title">
+                {{ activeTab === 'low-stock' ? (item.productName || item.productCode || `SKU#${item.skuId}`) : (item.no || '单号缺失') }}
+              </text>
+              <text v-if="activeTab === 'low-stock'" class="status-tag atone-quiet">预警</text>
+              <text v-else class="status-tag atone-quiet">{{ item.status }}</text>
+            </view>
+
+            <view class="row-between todo-meta">
+              <text class="meta-text">{{ item.partyName || item.warehouseName || '-' }}</text>
+              <text v-if="item.bizDate" class="meta-text">{{ item.bizDate }}</text>
+            </view>
+
+            <view v-if="activeTab === 'low-stock'" class="todo-lowstock">
+              <text class="meta-text">下限 {{ item.minLevel ?? '-' }} · 可用 {{ item.availableQty ?? 0 }} · 实存 {{ item.onHandQty ?? 0 }}</text>
+              <text class="meta-text">{{ item.variant || '' }} · {{ item.warehouseName || '' }}</text>
+            </view>
+            <view v-else class="row-between todo-meta">
+              <text class="meta-text">{{ item.warehouseName || '-' }}</text>
+              <text class="meta-text amount">{{ formatFen(item.totalAmount ?? 0) }} · {{ item.totalQty ?? 0 }} 件</text>
+            </view>
+
+            <text v-if="activeTab === 'purchase-receipt' || activeTab === 'sales-ship'" class="arrow">查看单据 ›</text>
+          </view>
+        </view>
+      </template>
+    </view>
   </view>
 </template>
 
@@ -623,5 +748,72 @@ onReachBottom(() => {
   margin-left: 12rpx;
   font-weight: 600;
   text-decoration: underline;
+}
+
+/* ── 待办中心四 tab（与库存页双 tab 同一套视觉语言，但这里是横向四个）── */
+.todo-tabs {
+  display: flex;
+  padding: 6rpx;
+  margin-bottom: 20rpx;
+  background: #e9edf3;
+  border-radius: 18rpx;
+}
+
+.todo-tabs .tab {
+  flex: 1;
+  height: 72rpx;
+  line-height: 72rpx;
+  text-align: center;
+  border-radius: 14rpx;
+  font-size: 25rpx;
+  color: #6e7585;
+}
+
+.todo-tabs .tab.active {
+  background: #ffffff;
+  color: #1f3a63;
+  font-weight: 600;
+  box-shadow: 0 4rpx 14rpx rgba(31, 58, 99, 0.12);
+}
+
+.todo-card {
+  padding: 24rpx;
+}
+
+.todo-card.clickable:active {
+  background: #f2f5fa;
+}
+
+.todo-head {
+  margin-bottom: 12rpx;
+}
+
+.todo-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 27rpx;
+  font-weight: 700;
+  color: #1c2230;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.todo-meta {
+  margin-top: 6rpx;
+}
+
+.todo-lowstock {
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+  margin-top: 12rpx;
+  padding-top: 12rpx;
+  border-top: 1rpx solid #f0f2f6;
+}
+
+.amount {
+  font-weight: 700;
+  color: #b4702f;
 }
 </style>

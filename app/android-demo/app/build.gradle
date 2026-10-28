@@ -1,0 +1,27 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.yunshang.erp.demo'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.yunshang.erp.demo'
+        minSdk 23
+        targetSdk 34
+        versionCode 1
+        versionName '0.1.0-demo'
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

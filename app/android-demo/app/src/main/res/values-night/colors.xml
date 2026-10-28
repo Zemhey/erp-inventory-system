@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 壳层配色：夜间模式取值，覆盖 values 里的同名资源，使壳层跟随系统深色 -->
+<resources>
+    <!-- 用与 Web 深色主题一致的底色，避免深色系统下白得刺眼 -->
+    <color name="shell_bg">#14120F</color>
+    <!-- 用与 Web 深色主题一致的正文色 -->
+    <color name="shell_text">#F6F2EA</color>
+    <!-- 状态栏/导航栏与页面同为深色，保持浅色图标可见 -->
+    <color name="shell_status_bar">#14120F</color>
+    <color name="shell_nav_bar">#14120F</color>
+    <color name="shell_window_bg">#14120F</color>
+</resources>

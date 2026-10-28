@@ -23,8 +23,16 @@ const DEFAULTS = {
   port: 8788,
   /** 后端基址：与 frontend/web/vite.config.ts 的 proxy target 同一口径 */
   apiTarget: 'http://127.0.0.1:8080',
-  /** 要反代的路径前缀；与 web 端的 fetch('/api/...') 保持一致 */
-  apiPrefixes: ['/api'],
+  /**
+   * 要反代的路径前缀。
+   *
+   * ★ 为什么不止 /api：Web 端的"运行状态"面板直读 Spring Boot Actuator
+   *   （frontend/web/src/components/SystemStatusPanel.vue 里的 /actuator/health），
+   *   它挂在根路径、不在 /api/v1 下 —— vite dev 为此单独配了一条 proxy。
+   *   壳只转发 /api 时，桌面端这块面板会一直显示"后端不可达"，
+   *   而后端其实活得好好的。这类"看起来像故障、其实是代理少了一条"的现象最难解释。
+   */
+  apiPrefixes: ['/api', '/actuator'],
   /** SPA 构建产物目录（静态模式） */
   webDist: path.join(REPO_ROOT, 'frontend', 'web', 'dist'),
   /**

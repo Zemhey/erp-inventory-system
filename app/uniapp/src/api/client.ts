@@ -94,6 +94,12 @@ interface RequestOptions {
   method?: HttpMethod
   data?: unknown
   query?: Record<string, string | number | boolean | null | undefined>
+  /**
+   * 额外请求头（当前只用于自然语言写意图的 `X-Nl-Plan-Token` 回执）。
+   * 不在这里放鉴权/幂等键：token 与 X-Request-Id 由上面统一处理，
+   * 给调用方留口子只是为了"写意图二次确认"这种服务端强制带凭据的场景。
+   */
+  headers?: Record<string, string>
   /** 不弹全局 toast（登录页自己展示内联错误时用）。 */
   silent?: boolean
   /** 默认 true；登录请求不需要携带旧 token。 */
@@ -220,6 +226,11 @@ export function request<T>(path: string, options: RequestOptions = {}): Promise<
     if (options.auth !== false) {
       const token = getToken()
       if (token) header.Authorization = `Bearer ${token}`
+    }
+
+    // 调用方自定义的请求头最后覆盖：目前仅自然语言回执用到，不影响鉴权/幂等键的优先级
+    if (options.headers) {
+      Object.assign(header, options.headers)
     }
 
     // 幂等键只给写操作：GET 加了没意义，还会污染日志
@@ -406,6 +417,32 @@ export interface InventoryBalance {
   availableQty: number
 }
 
+/**
+ * 库存余额分页行（GET /inventory/page）。
+ *
+ * ★ 行里自带 `skuName / warehouseName`：后端按主数据拼好直接返回，
+ *   移动端不再依赖本地 200 条 SKU 字典翻译（字典外的行原来只能显示 `SKU#123`）。
+ *   字段名与全量接口保持对齐，多出来的可读名称只是"加分项"，前端用哪个都行。
+ */
+export interface InventoryPageRow {
+  skuId: number
+  productCode: string
+  productName: string
+  category?: string | null
+  color?: string | null
+  size?: string | null
+  barcode?: string | null
+  skuName: string
+  warehouseId: number
+  warehouseName: string
+  batchNo: string
+  expiryDate?: string | null
+  onHandQty: number
+  reservedQty: number
+  frozenQty: number
+  availableQty: number
+}
+
 export interface LedgerEntry {
   id: number
   skuId: number
@@ -425,6 +462,21 @@ export const invApi = {
     batchNo?: string
     onlyAvailable?: boolean
   } = {}) => request<InventoryBalance[]>('/inventory', { query: params }),
+  /**
+   * 服务端分页查询（GET /inventory/page）。
+   *
+   * 为什么不全量拉：库存行有上千条，首屏一次性返回会让前端渲染与逐行翻译一起卡住；
+   * 分页后一页 50 行 + 关键字过滤，首屏立刻出数。size 上限 200，移动端用 20 翻页即可。
+   */
+  page: (params: {
+    skuId?: number
+    warehouseId?: number
+    batchNo?: string
+    onlyAvailable?: boolean
+    keyword?: string
+    page?: number
+    size?: number
+  } = {}) => request<PageData<InventoryPageRow>>('/inventory/page', { query: params }),
   ledger: (params: {
     skuId?: number
     warehouseId?: number
@@ -901,4 +953,138 @@ export const stocktakeApi = {
   }) => request<Stocktake>('/inventory/stocktakes', { method: 'POST', data: body }),
   post: (id: number) =>
     request<Stocktake>(`/inventory/stocktakes/${id}/post`, { method: 'POST' }),
+}
+
+// ─────────────────────────── 工作台聚合（FR-V3-02） ───────────────────────────
+
+export interface DashboardKpis {
+  productTotal: number
+  skuTotal: number
+  customerTotal: number
+  supplierTotal: number
+  purchaseOrderTotal: number
+  salesOrderTotal: number
+  inventoryRowTotal: number
+  lowStockTotal: number
+}
+
+export interface DashboardTodos {
+  approvalPending: number
+  purchaseReceipt: number
+  salesShip: number
+  lowStock: number
+  items: unknown[]
+}
+
+export interface DashboardSummary {
+  kpis: DashboardKpis
+  /** 图表数据移动端不渲染，留作占位避免类型收窄报错 */
+  charts: Record<string, unknown>
+  todos: DashboardTodos
+  recentDocuments: unknown[]
+}
+
+// ─────────────────────────── 待办中心（FR-V3-03） ───────────────────────────
+
+/** 四种待办的字段并集，按 type 决定渲染哪一列，不每个 Tab 各定义一套。 */
+export interface TodoItem {
+  type?: string
+  id: number
+  no?: string
+  status?: string
+  bizDate?: string
+  partyName?: string
+  warehouseName?: string
+  totalQty?: number
+  totalAmount?: number
+  skuId?: number
+  warehouseId?: number
+  productCode?: string
+  productName?: string
+  variant?: string
+  minLevel?: number
+  onHandQty?: number
+  availableQty?: number
+  bizType?: string
+  bizId?: number
+  bizRefNo?: string
+  amount?: number
+  currentStep?: number
+  createdAt?: string
+}
+
+export type TodoType = 'approval' | 'purchase-receipt' | 'sales-ship' | 'low-stock'
+
+export const skeletonApi = {
+  /** 工作台聚合：KPI 与四类待办计数都来自后端，前端只复述不自算。 */
+  dashboardSummary: () => request<DashboardSummary>('/dashboard/summary'),
+  /** 待办中心：按 type 拉一类，limit 默认 50（与 Web 端一致）。 */
+  todos: (type: TodoType, limit = 50) =>
+    request<{ items: TodoItem[] }>('/todos', { query: { type, limit } }),
+}
+
+// ─────────────────────────── 自然语言操作（FR-SYS-04） ───────────────────────────
+
+export interface NlCommandResult {
+  intent: string
+  description: string
+  write: boolean
+  data: unknown
+}
+
+export interface NlPlanResult {
+  intent: string
+  write: boolean
+  /** 写意图必须为 true：执行前必须有人点确认，只读恒为 false。 */
+  requiresReview: boolean
+  reviewReason: string
+  executable: boolean
+  summary: string
+  steps: string[]
+  impact: { label: string; value: string }[]
+  warnings: string[]
+  blockers: string[]
+  args: Record<string, unknown>
+}
+
+export interface NlReview {
+  verdict: string
+  blocking: boolean
+  source: string
+  summary: string
+  findings: { level: string; source: string; message: string }[]
+}
+
+export interface NlConfirmation {
+  required: boolean
+  token: string | null
+  expiresAt: string | null
+  reason: string
+}
+
+export interface NlPlanResponse {
+  plan: NlPlanResult
+  review: NlReview
+  confirmation: NlConfirmation
+}
+
+export const nlApi = {
+  /**
+   * 只生成计划、跑复核、签发确认凭据；不执行任何写操作，可安全重复调用。
+   * 写意图会返回 `confirmation.token`，执行时随 `/nl/command` 带回服务端做二次校验。
+   * `silent` 让自然语言页自己展示内联错误，而不是只弹一个 toast code。
+   */
+  plan: (command: string, silent = false) =>
+    request<NlPlanResponse>('/nl/plan', { method: 'POST', data: { command }, silent }),
+  /**
+   * 执行。`planToken` 仅写意图需要：缺了服务端会 409 拒绝（闸门在服务端，绕过页面没用）。
+   * 只读意图传不传都一样 —— 读不审。同样支持 `silent` 以走内联报错。
+   */
+  command: (command: string, planToken?: string, silent = false) =>
+    request<NlCommandResult>('/nl/command', {
+      method: 'POST',
+      data: { command },
+      headers: planToken ? { 'X-Nl-Plan-Token': planToken } : undefined,
+      silent,
+    }),
 }

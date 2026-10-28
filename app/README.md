@@ -13,22 +13,25 @@
 2. **PC 端不重写 UI。** `app/desktop/` 走 Electron **包装 `frontend/web` 的构建产物**，
    只加窗口、托盘、离线与本地打印这些"只有桌面能做的事"。业务界面改动自动带到 PC 端。
 3. **接口只有主库一个来源。** 所有端调的都是 `packages/api-contract/openapi.yaml`（当前
-   250 操作）里的端点。任何一端都不许私自约定字段 —— 本项目已经因为"前端传了枚举里没有的
+   260 操作）里的端点。任何一端都不许私自约定字段 —— 本项目已经因为"前端传了枚举里没有的
    值"和"实现收参数、契约没声明"各炸过一次。
 4. 由此推论：**核心业务没稳定之前不开新端**。这条已经遵守了（V3/V4 八条泳道先做完）。
 
 ## 二、按 任务.md 的必做/可选清单，实测现状
 
+> 2026-10-28 复核。上一轮系统改进（自然语言全链路、深色主题、工作台/登录重做、库存服务端
+> 分页、员工档案）只落在后端与 Web 端；三端随后按新口径补齐，下表是补齐后重测的结果。
+
 | 端 | 必做? | 分值 | 实测状态 |
 |---|---|---|---|
-| 服务端 | 必做 | 25% 内 | ✅ 44+ 控制器，Flyway V23，契约 250 操作 |
-| Web 端 | 必做 | 25% 内 | ✅ 9 组 / 62 条路由，演示数据已灌 |
-| 微信小程序 | **必做** | 25% 内 | ⚠️ **配置齐了，卡在外部资源**：21 页，`build:mp-weixin` 通过；`manifest.json` 里 `appid` 仍是 `touristappid`（游客号）→ 传不上去、真机预览开不了。`npm run preflight` 会把这条连同"后端地址没配 HTTPS"一起报出来 |
-| 安卓 APP | **必做** | 25% 内 | ⚠️ **资源包能出、APK 差账号与证书**：`build:app` 通过；`packagename`（占位值，待按主体定稿）、`versionCode`、CAMERA 权限已补齐；图标缺主图（缺了会用 HBuilderX 默认图标，不阻塞）；云打包要 DCloud 账号 + `.jks` 证书 |
-| PC 端 | 可选 +5% | +5% | ✅ **壳能跑，业务界面零重复建设**：`app/desktop/` Electron 33 本地静态服务 + `/api` 反代，`npm run smoke` 12/12 通过，其中"壳→真实 8080 后端"一项实测拿到后端自己的 401 `IAM_BAD_CREDENTIALS`（说明转发生效）；窗口/托盘/`printToPDF` 实机自测通过。**未验**：物理打印机套打、深链系统注册、electron-builder 安装包、断网数据缓存 |
-| 自然语言操作 | 可选 +5% | +5% | ⚠️ 后端 `POST /api/v1/nl/command` 实测可跑，工作台已挂上入口卡片（V4-1 合并）；**只支持查询与建草稿两类意图**，不要当"什么都能干"讲 |
-| MCP 让 Agent 操作 | 加分 | 加分 | ✅ `packages/mcp-server`（`erp-inventory-mcp`，6 工具） |
-| 单机版 | 必做 | 10% | ⚠️ `infra/standalone/` 15 文件齐全，**从未真实离线环境验证过** |
+| 服务端 | 必做 | 25% 内 | ✅ 44+ 控制器，Flyway V29，契约 260 操作 |
+| Web 端 | 必做 | 25% 内 | ✅ 10 组路由（新增「自然语言」组），浅色/深色双主题，演示数据已灌 |
+| 微信小程序 | **必做** | 25% 内 | ⚠️ **配置齐了，卡在外部资源**：22 页，`build:mp-weixin` 通过。已按新口径补齐：库存页改服务端分页（行内直接带 `skuName`，不再靠 200 条字典翻名）、工作台接 `/dashboard/summary`、待办扩到四类、新增自然语言页。`manifest.json` 里 `appid` 仍是 `touristappid`（游客号）→ 传不上去、真机预览开不了 |
+| 安卓 APP | **必做** | 25% 内 | ⚠️ **已有本地演示 APK，正式云打包仍差账号与证书**：`app/yunshang-erp-demo.apk`（WebView 壳，加载 3008 手机预览，debug 签名）；壳层配色已跟随系统深色、返回键改为先回退。**未真机验证**；正式包仍需 DCloud 账号 + `.jks` + 图标主图 |
+| PC 端 | 可选 +5% | +5% | ✅ **壳能跑，业务界面零重复建设**：`app/desktop/` Electron 33 本地静态服务 + `/api` 反代，`npm run smoke` 12/12 通过；窗口底色跟随主题、菜单与托盘新增 AI 相关页面入口。**未验**：物理打印机套打、深链系统注册、electron-builder 安装包、断网数据缓存 |
+| 自然语言操作 | 可选 +5% | +5% | ✅ **不再只是"查库存 + 建草稿"**：`/nl/plan`（计划 + 复核 + 确认凭据）→ `/nl/pending`（人签字）→ `/nl/command`（执行）→ `/nl/audit`（审计），另有 SQL 沙箱与模型设置；Web 三个页面，移动端有入口，MCP 走同一条链路 |
+| MCP 让 Agent 操作 | 加分 | 加分 | ✅ `packages/mcp-server`（`erp-inventory-mcp`，9 工具，stdio + http 双传输） |
+| 单机版 | 必做 | 10% | ⚠️ `infra/standalone/` 15 文件齐全，根目录 `启动系统.cmd` 一键起后端与 Web，**仍未在真实离线环境验证过** |
 | 云托管 | 必做 | 15% | ⚠️ CI/CD 有 `.github/workflows/{ci,deploy}.yml`；**域名与备案一项未动** |
 
 ## 三、关键路径不在代码上，在备案上
@@ -76,7 +79,20 @@
       HBuilderX 会用它的默认图标，只是图标不是我们的
 - [ ] 注册/取得正式小程序 `appid`，替换 `touristappid` → 拿到就跑 `node scripts/set-appid.mjs <AppID>`
       （脚本已用格式合法的假号验过：写入 → `build:mp-weixin` 通过 → 产物 `project.config.json` 带上新号）
+- [x] **本地 WebView 演示包**：`app/android-demo/` + `app/yunshang-erp-demo.apk`（加载 3008 的 H5 预览；
+      不是 HBuilderX 正式包，未真机验证）
 - [ ] HBuilderX 云打包出 APK（要 DCloud 账号 + `.jks` 签名证书，都是外部资源）
+
+### 本地 Android 演示包（2026-10-26）
+
+正式云打包拿不到，但先做了一个能装的演示壳：
+
+- 位置：`app/yunshang-erp-demo.apk`（源码 `app/android-demo/`，包名 `com.yunshang.erp.demo`）
+- 原理：WebView 加载 `scripts/mobile-preview.mjs` 在 3008 托管的 H5 产物，`/api` 同源反代到 8080
+- 用法：电脑运行根目录 `启动系统.cmd` → 手机连同一 Wi-Fi → 安装 APK → 默认地址是电脑局域网 IP，
+  可在右上角菜单「设置服务器」或长按页面修改
+- 限制：电脑上的预览服务必须开着；H5 扫码页走手输降级，不调摄像头；未在真机上安装验证
+- 正式 APK 仍需 DCloud 账号 + 签名证书 + 图标主图，步骤见 `app/uniapp/README.md` §6
 
 ### P2 · 联调与验收（依赖 P1，不依赖公网）
 
@@ -84,7 +100,8 @@
       （合并后一直没验过小程序侧；web 侧普查过 62 条路由，小程序一条都没有）
 - [ ] 微信开发者工具导入 `dist/build/mp-weixin`，勾掉域名校验跑通主链路：
       登录 → 工作台 → 库存查询 → 收货/发货 → 审批
-- [ ] 安卓用 HBuilderX 云打包出 APK，真机装一次，验登录 + 一个写操作
+- [ ] 安装 `app/yunshang-erp-demo.apk` 到安卓真机，验登录 + 一个写操作（本机无 adb 设备，尚未验证）
+- [ ] 正式包：HBuilderX 云打包出 APK，真机装一次，验登录 + 一个写操作
 
 ### P3 · 备案与 HTTPS（与 P1/P2 并行启动，谁先好谁先用）
 

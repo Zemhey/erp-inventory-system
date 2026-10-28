@@ -166,6 +166,14 @@
         "enablePullDownRefresh": true,
         "backgroundTextStyle": "dark"
       }
+    },
+    {
+      "path": "pages/nl/command",
+      "style": {
+        "navigationBarTitleText": "自然语言操作",
+        "enablePullDownRefresh": false,
+        "backgroundTextStyle": "dark"
+      }
     }
   ],
   "globalStyle": {
