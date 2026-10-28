@@ -324,6 +324,47 @@ public class AppUserRepository {
     }
 
     /** 员工档案行（列表用）：账号信息 + 人事字段 + 部门/岗位名称 + 角色。 */
+    /**
+     * 本人的人事档案（移动端"我的"页用）。
+     *
+     * <p><b>为什么不能复用 {@link #page} 那条查询</b>：花名册要 {@code iam:read} 权限，
+     * 而一线业务员（仓管、销售）通常拿不到 —— 但他们看自己的工号、部门、入职日
+     * 天经地义。自服务能力不该靠管理权限开。
+     *
+     * <p><b>为什么返回 Optional 而不是抛异常</b>：还没录人事信息的账号是正常状态
+     * （V29 之前创建的用户就是如此），页面应该显示"未填写"而不是一个 500。
+     */
+    public java.util.Optional<EmployeeRow> findEmployeeProfile(long userId) {
+        return jdbc.query("""
+                SELECT u.id, u.username, u.display_name, u.employee_no, u.phone, u.email,
+                       u.hire_date, u.remark, u.department_id, d.name AS department_name,
+                       u.position_id, ps.name AS position_name,
+                       u.enabled, u.locked_until, u.must_change_password
+                  FROM app_users u
+                  LEFT JOIN sys_department d ON d.id = u.department_id
+                  LEFT JOIN sys_position ps ON ps.id = u.position_id
+                 WHERE u.id = ?
+                """,
+                (rs, i) -> new EmployeeRow(
+                        rs.getLong("id"),
+                        rs.getString("username"),
+                        rs.getString("display_name"),
+                        rs.getString("employee_no"),
+                        rs.getString("phone"),
+                        rs.getString("email"),
+                        rs.getObject("hire_date", java.time.LocalDate.class),
+                        rs.getString("remark"),
+                        rs.getObject("department_id", Long.class),
+                        rs.getString("department_name"),
+                        rs.getObject("position_id", Long.class),
+                        rs.getString("position_name"),
+                        rs.getBoolean("enabled"),
+                        toInstant(rs.getObject("locked_until", java.time.OffsetDateTime.class)),
+                        rs.getBoolean("must_change_password"),
+                        List.of()),
+                userId).stream().findFirst();
+    }
+
     public record EmployeeRow(long id, String username, String displayName, String employeeNo,
                               String phone, String email, java.time.LocalDate hireDate,
                               String remark, Long departmentId, String departmentName,

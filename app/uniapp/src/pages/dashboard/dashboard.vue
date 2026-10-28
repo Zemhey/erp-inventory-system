@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import { onPullDownRefresh, onShow } from '@dcloudio/uni-app'
 import { invApi, skeletonApi, type DashboardSummary, type LedgerEntry } from '@/api/client'
 import { useDictionary } from '@/composables/useDictionary'
-import { hasPermission, logout, session } from '@/stores/session'
+import { hasPermission, session } from '@/stores/session'
 import { errorMessage } from '@/utils/error'
 import { bizTypeLabel, formatDateTime, signedQty } from '@/utils/format'
 import { openInventory } from '@/utils/navigation'
@@ -129,16 +129,6 @@ onPullDownRefresh(() => {
   load(true)
 })
 
-function confirmLogout(): void {
-  uni.showModal({
-    title: '退出登录',
-    content: '确定退出当前账号？',
-    success: (result) => {
-      if (result.confirm) logout()
-    },
-  })
-}
-
 function openTab(path: string): void {
   uni.switchTab({ url: path })
 }
@@ -156,7 +146,8 @@ function openPage(path: string): void {
         <text class="hero-kicker">云裳 · 移动工作台</text>
         <view class="hero-actions">
           <text class="hero-action" @click="load()">刷新</text>
-          <text class="hero-action" @click="confirmLogout">退出</text>
+          <!-- 退出挪到「我的」页：退出是低频破坏性操作，不该摆在每屏都能点到的地方 -->
+          <text class="hero-action" @click="openPage('/pages/me/me')">我的</text>
         </view>
       </view>
 

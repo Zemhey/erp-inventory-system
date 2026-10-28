@@ -293,11 +293,28 @@ export interface LoginResult {
   permissions: string[]
 }
 
+/** 本人人事档案：V29 之后 /auth/me 会带；没录人事信息的账号为 null，页面显示"未填写"。 */
+export interface EmployeeProfile {
+  employeeNo: string | null
+  phone: string | null
+  email: string | null
+  hireDate: string | null
+  remark: string | null
+  departmentId: number | null
+  departmentName: string | null
+  positionId: number | null
+  positionName: string | null
+}
+
 export interface MeResult {
   username: string
   displayName: string
   roles: string[]
   permissions: string[]
+  tenantId?: number
+  tenantCode?: string
+  tenantName?: string
+  employee?: EmployeeProfile | null
 }
 
 export const authApi = {
@@ -309,6 +326,18 @@ export const authApi = {
       silent: true,
     }),
   me: () => request<MeResult>('/auth/me'),
+  /**
+   * 改自己的密码。
+   *
+   * silent：改密失败的提示必须显示在表单旁边（"原密码错误"要人对着输入框看），
+   * 弹一个转瞬即逝的 toast 等于让他重输一遍才发现。
+   */
+  changePassword: (oldPassword: string, newPassword: string) =>
+    request<{ changed: boolean }>('/auth/change-password', {
+      method: 'POST',
+      data: { oldPassword, newPassword },
+      silent: true,
+    }),
 }
 
 export interface Warehouse {

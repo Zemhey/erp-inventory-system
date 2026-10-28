@@ -3,6 +3,7 @@ package com.erp.iam.api;
 import com.erp.iam.application.AuthenticationService;
 import com.erp.iam.application.SecurityActorContext;
 import com.erp.iam.domain.AppUser;
+import com.erp.iam.repository.AppUserRepository;
 import com.erp.iam.security.JwtAuthenticationFilter;
 import com.erp.shared.error.BusinessException;
 import com.erp.shared.error.ErrorCode;
@@ -41,10 +42,13 @@ public class AuthController {
 
     private final AuthenticationService authentication;
     private final SecurityActorContext actors;
+    private final AppUserRepository users;
 
-    public AuthController(AuthenticationService authentication, SecurityActorContext actors) {
+    public AuthController(AuthenticationService authentication, SecurityActorContext actors,
+                          AppUserRepository users) {
         this.authentication = authentication;
         this.actors = actors;
+        this.users = users;
     }
 
     public record LoginRequest(
@@ -184,6 +188,21 @@ public class AuthController {
             tenantItems.add(item);
         }
         data.put("tenants", tenantItems);
+        // 本人人事档案（V29）。放在 /auth/me 而不是再开一个 /iam/me：
+        // 这是"我是谁"的一部分，与 token 一起回来，前端不必为了显示工号再多跑一次请求。
+        users.findEmployeeProfile(user.id()).ifPresentOrElse(row -> {
+            Map<String, Object> employee = new LinkedHashMap<>();
+            employee.put("employeeNo", row.employeeNo());
+            employee.put("phone", row.phone());
+            employee.put("email", row.email());
+            employee.put("hireDate", row.hireDate() == null ? null : row.hireDate().toString());
+            employee.put("remark", row.remark());
+            employee.put("departmentId", row.departmentId());
+            employee.put("departmentName", row.departmentName());
+            employee.put("positionId", row.positionId());
+            employee.put("positionName", row.positionName());
+            data.put("employee", employee);
+        }, () -> data.put("employee", null));
         return ResponseEntity.ok(ApiResponses.ok(data));
     }
 
