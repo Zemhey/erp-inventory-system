@@ -51,6 +51,9 @@ public class StubNlCommandParser implements NlCommandParser {
     private static final Pattern LINE_DISCOUNT = Pattern.compile("折扣\\s*[:：=]?\\s*(\\d+)");
     private static final Pattern BIZ_DATE = Pattern.compile("(?:日期|业务日期)\\s*[:：=]?\\s*(\\d{4}-\\d{2}-\\d{2})");
     private static final Pattern REMARK = Pattern.compile("备注\\s*[:：=]?\\s*([^\\s,，;；]+)");
+    /** 单据号后面的数字：「提交进货单 12」「采购单 #12」——只在"提交"分支用，别处会误伤数量。 */
+    private static final Pattern NUMBER_AFTER_DOC = Pattern.compile(
+            "(?:进货单|采购单|出货单|销售单|退货单|单据|订单)\\s*(?:id)?\\s*[#:：=]?\\s*(\\d+)");
 
     private static final String SUPPORTED = String.join(" / ", NlIntent.allCodes());
 
@@ -82,13 +85,39 @@ public class StubNlCommandParser implements NlCommandParser {
             return NlCommand.of(NlIntent.HELP);
         }
 
-        boolean create = lower.contains("创建") || lower.contains("新建") || lower.contains("建单")
-                || lower.contains("create");
+        // ②.2 自述（"你是什么模型 / 你是谁"）。
+        //     关键词模式下同样要能答 —— 否则用户会得到"无法识别"，反而更像系统坏了。
+        if (lower.contains("什么模型") || lower.contains("哪个模型") || lower.contains("你是谁")
+                || lower.contains("什么ai") || lower.contains("什么 ai") || lower.contains("用的什么")) {
+            return NlCommand.of(NlIntent.WHO_AM_I);
+        }
+
+        // ★ "建"字单独出现也算创建意图 —— 这是口语里最常见的说法（"帮我建一张进货单"
+        //   "建个进货单"），但它不含"创建/新建/建单"任何一个词，早期只认那三个词时
+        //   这类句子会掉到 ④ 的"进货单列表"分支：用户说"建"，系统回一张列表，
+        //   看起来就像"自然语言根本没生效"。排除"建议"（补货建议是查询意图）。
+        boolean createWord = lower.contains("建") && !lower.contains("建议");
+        boolean create = createWord || lower.contains("创建") || lower.contains("新建")
+                || lower.contains("建单") || lower.contains("create");
         if (create && (lower.contains("进货") || lower.contains("采购") || lower.contains("purchase"))) {
             return purchaseOrder(input, kv);
         }
         if (create && (lower.contains("出货") || lower.contains("销售") || lower.contains("sales"))) {
             return salesOrder(input, kv);
+        }
+
+        // ②.5 提交单据（受限 L2）。必须放在"单据列表/详情"之前：
+        //     否则"提交进货单 12"会被 ④ 当成"进货单详情"（因为含"进货单"+数字）。
+        //     也刻意放在"创建"之后：避免"创建进货单并提交"被理解成对某张已有单的提交。
+        if ((lower.contains("提交") || lower.contains("submit")) && !create) {
+            String submitType = detectDocType(lower);
+            if (submitType != null) {
+                Map<String, Object> args = new LinkedHashMap<>();
+                args.put("docType", submitType);
+                putIfPresent(args, "id", first(kv, "id",
+                        first(kv, "orderId", number(NUMBER_AFTER_DOC, input))));
+                return new NlCommand(NlIntent.SUBMIT_DOCUMENT, args);
+            }
         }
 
         // ③ 进销存汇总（先于"库存"判断，避免"进销存"被当成库存查询）
@@ -104,7 +133,18 @@ public class StubNlCommandParser implements NlCommandParser {
             return detail ? documentDetail(input, kv, docType) : documentList(input, kv, docType);
         }
 
-        // ⑤ 库存
+        // ⑤ 补货建议（目标级意图）。
+        //   放在单据判断之后：避免"补货单"这类说法被误判；
+        //   放在库存判断之前：因为"补货建议"往往也提到库存，先匹配目标级意图才对。
+        if (lower.contains("补货") || lower.contains("该补") || lower.contains("要补")
+                || lower.contains("需补") || lower.contains("补什么") || lower.contains("replenish")) {
+            Map<String, Object> args = new LinkedHashMap<>();
+            putIfPresent(args, "warehouseId",
+                    first(kv, "warehouseId", number(NUMBER_AFTER_WAREHOUSE, input)));
+            return new NlCommand(NlIntent.REPLENISH_ADVICE, args);
+        }
+
+        // ⑥ 库存
         if (lower.contains("库存") || lower.contains("stock") || lower.contains("inventory")) {
             Map<String, Object> args = new LinkedHashMap<>();
             putIfPresent(args, "skuId", first(kv, "skuId", number(NUMBER_AFTER_SKU, input)));
@@ -116,7 +156,7 @@ public class StubNlCommandParser implements NlCommandParser {
             return new NlCommand(NlIntent.QUERY_INVENTORY, args);
         }
 
-        // ⑥ 主数据
+        // ⑦ 主数据
         String mdmType = detectMasterDataType(lower);
         if (mdmType != null) {
             Map<String, Object> args = new LinkedHashMap<>();

@@ -2,11 +2,13 @@ package com.erp.rma.repository;
 
 import com.erp.rma.domain.ReturnOrder;
 import com.erp.rma.domain.ReturnOrderLine;
+import com.erp.shared.db.SortColumns;
 import com.erp.shared.document.DocumentStatus;
 import com.erp.shared.web.PageResult;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -159,8 +161,30 @@ public class ReturnOrderRepository {
                 """, receiveRequestId, id, from.name(), expectedVersion) == 1;
     }
 
+    /** 可排序列白名单（键小写 + 真实列名），理由见 PurchaseOrderRepository 同名常量。 */
+    private static final Map<String, String> SORTABLE = Map.of(
+            "id", "id",
+            "orderno", "order_no",
+            "bizdate", "biz_date",
+            "totalamount", "total_amount",
+            "totalqty", "total_qty");
+
     public PageResult<ReturnOrder> page(DocumentStatus status, Long customerId,
                                         Long originSalesOrderId, int page, int size) {
+        return page(status, customerId, originSalesOrderId, null, null, null, false, page, size);
+    }
+
+    /**
+     * 带日期区间与排序的分页。
+     *
+     * @param dateFrom 起始日（含），作用在 {@code biz_date}，null 表示不限
+     * @param dateTo   截止日（含），null 表示不限
+     * @param orderBy  排序键，见 {@link #SORTABLE}；非法值退回 id
+     */
+    public PageResult<ReturnOrder> page(DocumentStatus status, Long customerId,
+                                        Long originSalesOrderId,
+                                        LocalDate dateFrom, LocalDate dateTo,
+                                        String orderBy, boolean ascending, int page, int size) {
         int p = PageResult.normalizePage(page);
         int s = PageResult.normalizeSize(size);
         List<Object> args = new ArrayList<>();
@@ -177,14 +201,23 @@ public class ReturnOrderRepository {
             where.append(" AND origin_sales_order_id = ?");
             args.add(originSalesOrderId);
         }
+        if (dateFrom != null) {
+            where.append(" AND biz_date >= ?");
+            args.add(dateFrom);
+        }
+        if (dateTo != null) {
+            where.append(" AND biz_date <= ?");
+            args.add(dateTo);
+        }
         where.append(scope.predicates("warehouse_id", "created_by", args));
         Long total = jdbc.queryForObject("SELECT COUNT(*) FROM return_orders" + where,
                 Long.class, args.toArray());
         List<Object> pageArgs = new ArrayList<>(args);
         pageArgs.add(s);
         pageArgs.add(PageResult.offset(p, s));
+        String order = SortColumns.orderBy(orderBy, ascending, SORTABLE, "id");
         List<ReturnOrder> headers = jdbc.query("SELECT " + HEADER_COLUMNS
-                + " FROM return_orders" + where + " ORDER BY id DESC LIMIT ? OFFSET ?",
+                + " FROM return_orders" + where + " ORDER BY " + order + ", id DESC LIMIT ? OFFSET ?",
                 ORDER_MAPPER, pageArgs.toArray());
         List<ReturnOrder> items = headers.stream()
                 .map(h -> withLines(h, findLines(h.id())))

@@ -154,6 +154,14 @@ cd D:\erp-build\backend\server
 ## 快速开始
 
 ```powershell
+# 0. 一键启动（Windows，需 Docker Desktop；已在跑的服务会复用，不会杀进程）
+#    只起两件事：后端 :8080 + Web :3030。不启动 app/（安卓）、小程序 / H5、桌面端。
+#    Web: http://127.0.0.1:3030/    账号: admin / Admin@12345
+.\启动系统.cmd
+
+#    AI Agent 接入（可选）：见 docs/MCP-接入指南.md
+#    MCP 不常驻、也不随上个脚本启动 —— Agent 用的时候才连它。
+
 # 1. 起依赖环境（PostgreSQL 16 + Redis + RabbitMQ，等健康检查通过才返回）
 #    注：宿主 PostgreSQL 端口是 15432（本机 5432 落在 Windows 保留段内，见 compose 注释）
 .\scripts\dev-up.ps1

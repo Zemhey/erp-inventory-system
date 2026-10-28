@@ -79,6 +79,25 @@
 | GET | `/reports/inventory-turnover/export` | `inventoryTurnoverExportReport` | 库存周转与呆滞导出 CSV（与页面同一查询、同一舍入） |
 | GET | `/reports/customer-contribution/export` | `customerContributionExportReport` | 客户贡献与复购导出 CSV（含全量汇总） |
 | GET | `/reports/aging/export` | `agingExportReport` | 应收/应付账龄导出 CSV（含守恒汇总） |
+| GET | `/reports/slow-moving` | `slowMovingReport` | 呆滞分析（服务端过滤，行形状与库存周转一致） |
+| GET | `/reports/slow-moving/export` | `slowMovingExportReport` | 呆滞分析导出 CSV |
+| GET | `/reports/inventory-value` | `inventoryValueReport` | 库存金额（库存总值） |
+| GET | `/reports/inventory-value/export` | `inventoryValueExportReport` | 库存金额导出 CSV（金额列标（元），未月结显示 -） |
+| GET | `/reports/purchase-detail` | `purchaseDetailReport` | 进货明细（按单据展开，分页） |
+| GET | `/reports/purchase-detail/export` | `purchaseDetailExportReport` | 进货明细导出 CSV（全量、不带分页） |
+| GET | `/reports/sales-detail` | `salesDetailReport` | 销售明细（按单据展开，分页） |
+| GET | `/reports/sales-detail/export` | `salesDetailExportReport` | 销售明细导出 CSV（全量、不带分页） |
+| GET | `/reports/profit/export` | `profitExportReport` | 毛利分析导出 CSV（补 FR-RPT-09 缺的最后一张） |
+| GET | `/nl/pending` | `nlPending` | 待确认队列（FR-V4-03 · S5） |
+| POST | `/nl/pending/{id}/execute` | `nlPendingExecute` | 在队列里确认执行（FR-V4-03 · S5） |
+| POST | `/nl/pending/{id}/dismiss` | `nlPendingDismiss` | 驳回一条待确认指令（FR-V4-03 · S5） |
+| GET | `/nl/audit` | `nlAuditPage` | 自然语言操作审计（FR-V4-03 · S6） |
+| GET | `/nl/audit/{id}` | `nlAuditDetail` | 单条操作记录（FR-V4-03 · S6） |
+| POST | `/nl/review` | `nlReview` | 单独复核一条指令（FR-V4-03 · S4） |
+| GET | `/nl/settings` | `getNlSettings` | 读取 AI 接入配置（FR-SYS-04） |
+| PUT | `/nl/settings` | `updateNlSettings` | 保存 AI 接入配置（保存即生效） |
+| POST | `/nl/settings/test` | `testNlSettings` | 测试模型连接（不落库） |
+| POST | `/nl/plan` | `nlPlan` | 生成执行计划（FR-V4-03 · S3） |
 | POST | `/nl/command` | `nlCommand` | 自然语言操作入口（FR-SYS-04） |
 | POST | `/cost/recalculate` | `recalculateCost` | 全量重算成本层（FR-CST-01，INV-11） |
 | POST | `/cost/monthly` | `runCostMonthly` | 成本月结（FR-CST-02，幂等） |
@@ -176,4 +195,73 @@
 | GET | `/customer-receipts/{id}` | `getCustomerReceipt` | 收款单详情（含核销明细） |
 | GET | `/customers/{id}/credit` | `getCustomerCredit` | 客户信用视图（额度、敞口、可用额度、逾期） |
 | PUT | `/customers/{id}/credit` | `updateCustomerCredit` | 调整客户信用额度与账期 |
+| POST | `/auth/switch-tenant` | `switchTenant` | 切换本次会话的行动租户（重新签发 JWT） |
+| GET | `/tenants` | `listTenants` | 租户清单（平台租户元数据，不分页） |
+| POST | `/tenants/{id}/enabled` | `setTenantEnabled` | 启用 / 停用租户（平台元数据） |
+| GET | `/dashboard/summary` | `dashboardSummary` | 工作台聚合数据（FR-V3-02） |
+| GET | `/todos` | `listTodos` | 待办中心列表（FR-V3-03） |
+| GET | `/search` | `globalSearch` | 全局搜索（FR-V3-05） |
+| GET | `/documents/{type}/{id}` | `documentDetail` | 单据详情（FR-V3-04） |
+| GET | `/org/departments` | `departmentTree` | 部门树（FR-V3-23） |
+| POST | `/org/departments` | `createDepartment` | 新建部门（FR-V3-23） |
+| PUT | `/org/departments` | `updateDepartment` | 更新部门（FR-V3-23） |
+| DELETE | `/org/departments` | `deleteDepartment` | 删除部门（FR-V3-23） |
+| GET | `/org/positions` | `listPositions` | 岗位列表（FR-V3-23） |
+| POST | `/org/positions` | `createPosition` | 新建岗位（FR-V3-23） |
+| PUT | `/org/positions` | `updatePosition` | 更新岗位（FR-V3-23） |
+| DELETE | `/org/positions` | `deletePosition` | 删除岗位（FR-V3-23） |
+| GET | `/sys-config` | `listSystemConfig` | 系统参数列表（FR-V3-24） |
+| PUT | `/sys-config` | `updateSystemConfig` | 修改系统参数值（FR-V3-24） |
+| GET | `/number-rules` | `listNumberRules` | 单号规则列表（FR-V3-25） |
+| PUT | `/number-rules` | `updateNumberRule` | 更新单号规则（FR-V3-25） |
+| POST | `/number-rules` | `previewNumberRule` | 预览下一张单号（不消费流水，FR-V3-25） |
+| GET | `/login-logs` | `listLoginLogs` | 登录日志列表（FR-V3-29） |
+| GET | `/login-logs/online` | `onlineLoginLogs` | 当前在线用户（最近 N 分钟成功登录，FR-V3-29） |
+| GET | `/fin/accounts` | `listFinAccounts` | 会计科目平铺列表（fin:read；新租户首次访问自动补种标准科目模板） |
+| POST | `/fin/accounts` | `createFinAccount` | 新建科目（fin:account:write；编码在本租户内唯一） |
+| GET | `/fin/accounts/tree` | `getFinAccountTree` | 科目树（一级科目为根，children 递归；页面按 category 六大类分组渲染） |
+| PUT | `/fin/accounts/{id}` | `updateFinAccount` | 修改科目（编码与父级创建后不可改；停用被引用科目允许、删除不允许） |
+| DELETE | `/fin/accounts/{id}` | `deleteFinAccount` | 删除科目（被凭证分录引用或有子科目 → 409 FIN_ACCOUNT_IN_USE） |
+| GET | `/fin/vouchers` | `pageFinVouchers` | 凭证分页列表（status / sourceType / period / from / to / keyword 过滤） |
+| POST | `/fin/vouchers` | `createFinVoucher` | 手工录凭证（借贷必须相等；不等 400 FIN_VOUCHER_UNBALANCED，details 带差额） |
+| GET | `/fin/vouchers/{id}` | `getFinVoucher` | 凭证详情（头 + 全部分录） |
+| PUT | `/fin/vouchers/{id}` | `updateFinVoucher` | 修改凭证（仅 DRAFT；分录整单替换，借贷平衡校验同 POST） |
+| DELETE | `/fin/vouchers/{id}` | `deleteFinVoucher` | 删除凭证（仅 DRAFT；分录连带清除，跨租户 id 只会得到"未删除"） |
+| POST | `/fin/vouchers/{id}/audit` | `auditFinVoucher` | 审核凭证（DRAFT → AUDITED） |
+| POST | `/fin/vouchers/{id}/post` | `postFinVoucher` | 过账凭证（AUDITED → POSTED；报表只统计 POSTED） |
+| GET | `/fin/bank-accounts` | `listBankAccounts` | 银行账户列表（默认账户排首位） |
+| POST | `/fin/bank-accounts` | `createBankAccount` | 新建银行账户（本租户第一个账户自动成为默认入账账户） |
+| PUT | `/fin/bank-accounts/{id}` | `updateBankAccount` | 修改银行账户（balance 字段是账面余额，手工调整仅初始化时使用） |
+| DELETE | `/fin/bank-accounts/{id}` | `deleteBankAccount` | 删除银行账户（已有日记账流水 → 409，请停用而不是删除） |
+| POST | `/fin/bank-accounts/{id}/default` | `setDefaultBankAccount` | 设为默认账户（同租户其余账户自动取消默认；收付款自动日记账的落点） |
+| GET | `/fin/cash-journal` | `queryCashJournal` | 现金/银行日记账（当日余额 = 上日余额 + 借 − 贷，余额逐笔连续） |
+| POST | `/fin/cash-journal` | `addCashJournalEntry` | 手工补录日记账（利息 / 银行间调拨等；自动延续余额链并回写账户余额） |
+| GET | `/fin/expenses` | `pageFinExpenses` | 报销单分页（status / keyword 过滤） |
+| POST | `/fin/expenses` | `createFinExpense` | 新建报销单（明细合计 = 主表金额，落 DRAFT） |
+| GET | `/fin/expenses/{id}` | `getFinExpense` | 报销单详情（含明细行） |
+| PUT | `/fin/expenses/{id}` | `updateFinExpense` | 修改报销单（仅 DRAFT；驳回后同样是 DRAFT + rejectReason） |
+| DELETE | `/fin/expenses/{id}` | `deleteFinExpense` | 删除报销单（仅 DRAFT） |
+| POST | `/fin/expenses/{id}/submit` | `submitFinExpense` | 提交审批（DRAFT → SUBMITTED） |
+| POST | `/fin/expenses/{id}/approve` | `approveFinExpense` | 审批通过（SUBMITTED → APPROVED；权限 fin:expense:approve，与申请人分离） |
+| POST | `/fin/expenses/{id}/reject` | `rejectFinExpense` | 驳回（SUBMITTED → DRAFT，原因写 reject_reason，必填） |
+| POST | `/fin/expenses/{id}/pay` | `payFinExpense` | 付款（APPROVED → PAID，自动生成凭证 借6602/贷1002 并落银行日记账） |
+| GET | `/fin/invoices` | `pageFinInvoices` | 发票台账分页（type = OUTPUT 销项 / INPUT 进项，页面两个 Tab） |
+| POST | `/fin/invoices` | `createFinInvoice` | 登记发票（可关联进货单/出货单；同一单据累计开票不得超过单据金额） |
+| GET | `/fin/invoices/{id}` | `getFinInvoice` | 发票详情 |
+| PUT | `/fin/invoices/{id}` | `updateFinInvoice` | 修改发票（仅 NORMAL；改额同样受"同一单据不超额"约束） |
+| DELETE | `/fin/invoices/{id}` | `deleteFinInvoice` | 删除发票（台账订正用；业务作废走 /void） |
+| POST | `/fin/invoices/{id}/void` | `voidFinInvoice` | 作废发票（释放该单据的已开额度；超额校验只统计 NORMAL） |
+| GET | `/fin/reports/balance-sheet` | `getBalanceSheet` | 资产负债表（只统计 POSTED 凭证；资产 = 负债 + 权益，diff 必须回传） |
+| GET | `/fin/reports/income-statement` | `getIncomeStatement` | 利润表（本期：营业收入 − 营业成本 − 费用 = 净利润；同时给出毛利） |
+| GET | `/fin/overview` | `getFinanceOverview` | 财务中心首页（资金余额 / 应收总额 / 应付总额 / 本月收支 + 近 6 个月现金流） |
+| GET | `/prm/price-plans` | `listPricePlans` | 价格方案列表（含明细行） |
+| POST | `/prm/price-plans` | `createPricePlan` | 新建价格方案（AGREEMENT/CUSTOMER/CUSTOMER_LEVEL） |
+| GET | `/prm/price-plans/{id}` | `getPricePlan` | 价格方案详情 |
+| PUT | `/prm/price-plans/{id}` | `updatePricePlan` | 全量替换方案头与明细 |
+| POST | `/prm/price-plans/{id}/disable` | `disablePricePlan` | 停用方案 |
+| GET | `/prm/price` | `resolvePrice` | 取价试算（协议价>专属价>等级价>标准售价；纯查询幂等） |
+| GET | `/prm/promotions` | `listPromotions` | 促销活动列表（台账；规则 JSON 原样回显，不参与算价） |
+| POST | `/prm/promotions` | `createPromotion` | 新建促销活动（初始 DRAFT） |
+| POST | `/prm/promotions/{id}/activate` | `activatePromotion` | DRAFT/STOPPED → ACTIVE |
+| POST | `/prm/promotions/{id}/stop` | `stopPromotion` | ACTIVE → STOPPED |
 

@@ -63,7 +63,41 @@ public class IamAdminController {
             @NotBlank @Size(min = 8, max = 128) String password,
             @Size(max = 64) String displayName,
             Boolean enabled,
-            List<String> roles) {
+            List<String> roles,
+            // ── 人事档案（都可选：只建账号、不填档案也能用）──
+            @Size(max = 32) String employeeNo,
+            Long departmentId,
+            Long positionId,
+            @Size(max = 32) String phone,
+            @Size(max = 128) String email,
+            java.time.LocalDate hireDate,
+            @Size(max = 255) String remark) {
+
+        /** 是否带了任何人事信息 —— 决定建号后要不要再写一次档案。 */
+        boolean hasProfile() {
+            return (employeeNo != null && !employeeNo.isBlank())
+                    || departmentId != null || positionId != null
+                    || (phone != null && !phone.isBlank())
+                    || (email != null && !email.isBlank())
+                    || hireDate != null
+                    || (remark != null && !remark.isBlank());
+        }
+
+        UserAdminService.EmployeeProfile toProfile() {
+            return new UserAdminService.EmployeeProfile(employeeNo, departmentId, positionId,
+                    phone, email, hireDate, remark);
+        }
+    }
+
+    /** 改档案请求：与建号的档案字段一致，但不含账号与密码。 */
+    public record UpdateEmployeeRequest(
+            @Size(max = 32) String employeeNo,
+            Long departmentId,
+            Long positionId,
+            @Size(max = 32) String phone,
+            @Size(max = 128) String email,
+            java.time.LocalDate hireDate,
+            @Size(max = 255) String remark) {
     }
 
     public record UpdateRolesRequest(@NotNull List<String> roles) {
@@ -101,9 +135,44 @@ public class IamAdminController {
     public ResponseEntity<Map<String, Object>> createUser(
             @Valid @RequestBody CreateUserRequest req) {
         long id = users.createUser(req.username(), req.password(), req.displayName(),
-                req.enabled() == null || req.enabled(), req.roles());
+                req.enabled() == null || req.enabled(), req.roles(),
+                req.hasProfile() ? req.toProfile() : null);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponses.ok(toUserMap(users.requireUser(id))));
+    }
+
+    /**
+     * 员工档案列表（人事视角）。
+     *
+     * <p>与 {@code GET /iam/users} 的区别：那个是"账号清单"（登录、角色、锁定状态），
+     * 这个是"花名册"（工号、部门、岗位、联系方式、入职日期 + 角色）。
+     * 两个接口查同一张表，但给人的是两件事，权限码各自独立。
+     */
+    @GetMapping("/employees")
+    @RequirePermission("iam:read")
+    public ResponseEntity<Map<String, Object>> listEmployees(
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) Long departmentId,
+            @RequestParam(required = false) Boolean enabled,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        var found = users.pageEmployees(keyword, departmentId, enabled, page, size);
+        List<Map<String, Object>> items = new ArrayList<>(found.items().size());
+        for (var row : found.items()) {
+            items.add(toEmployeeMap(row));
+        }
+        return ResponseEntity.ok(ApiResponses.page(new com.erp.shared.web.PageResult<>(
+                items, found.total(), found.page(), found.size())));
+    }
+
+    @PutMapping("/employees/{id}")
+    @RequirePermission("iam:user:write")
+    public ResponseEntity<Map<String, Object>> updateEmployee(
+            @PathVariable long id, @Valid @RequestBody UpdateEmployeeRequest req) {
+        users.updateEmployeeProfile(id, new UserAdminService.EmployeeProfile(
+                req.employeeNo(), req.departmentId(), req.positionId(),
+                req.phone(), req.email(), req.hireDate(), req.remark()));
+        return ResponseEntity.ok(ApiResponses.ok(toUserMap(users.requireUser(id))));
     }
 
     /**
@@ -247,6 +316,29 @@ public class IamAdminController {
     }
 
     /** 账号 DTO —— <b>绝不含 passwordHash</b>（这是唯一不能犯的错）。 */
+    /** 员工档案行 → 响应体。名称由后端拼好，前端不再查组织架构字典。 */
+    private static Map<String, Object> toEmployeeMap(
+            com.erp.iam.repository.AppUserRepository.EmployeeRow r) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", r.id());
+        m.put("username", r.username());
+        m.put("displayName", r.displayName());
+        m.put("employeeNo", r.employeeNo());
+        m.put("phone", r.phone());
+        m.put("email", r.email());
+        m.put("hireDate", r.hireDate() == null ? null : r.hireDate().toString());
+        m.put("remark", r.remark());
+        m.put("departmentId", r.departmentId());
+        m.put("departmentName", r.departmentName());
+        m.put("positionId", r.positionId());
+        m.put("positionName", r.positionName());
+        m.put("enabled", r.enabled());
+        m.put("lockedUntil", r.lockedUntil() == null ? null : r.lockedUntil().toString());
+        m.put("mustChangePassword", r.mustChangePassword());
+        m.put("roles", r.roles());
+        return m;
+    }
+
     private static Map<String, Object> toUserMap(AppUser u) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("id", u.id());

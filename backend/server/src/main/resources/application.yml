@@ -72,15 +72,31 @@ erp:
   settlement:
     # 账期锁账后是否允许财务强制解锁（生产建议 false）
     allow-unlock-closed-period: false
+  demo:
+    # ★ 演示/回填专用：允许已认证请求用 X-Demo-Biz-Time 指定"业务现在几点"。
+    #   默认 false —— 生产配置不打开时，请求头被完全忽略，时钟就是真实系统时间。
+    #   打开它才可能让库存流水/应收到期日/成本层落在历史月份上（见 shared.time.DemoClockOverride）。
+    #   生产部署务必保持默认：这个能力会让调用方自行决定账目归属期间。
+    clock-override-enabled: ${ERP_DEMO_CLOCK_OVERRIDE:false}
   nl:
-    # 自然语言解析器（FR-SYS-04）：stub = 确定性规则，离线/测试/CI 默认；
-    # openai = OpenAI 兼容端点 + function calling（key 只从环境变量注入，绝不入库）。
-    parser: ${ERP_NL_PARSER:stub}
+    # ★ 解析方式 / 复核方式 / 接口地址 / 模型名 / API Key **一律在页面里配**
+    #   （系统 → 自然语言 → AI 接入），存在 sys_config 的 nl 组：租户级、密钥加密、保存即生效。
+    #   这里刻意不再保留 parser / base-url / api-key / model 的同名 yml 项 ——
+    #   两处都能配会让人分不清"我改的到底生效没有"，而且 yml 里的 key 会跟着仓库泄露。
+    confirm:
+      # 写意图必须带 /nl/plan 签发的回执（X-Nl-Plan-Token）。关掉只用于临时兼容旧调用方。
+      required: ${ERP_NL_CONFIRM_REQUIRED:true}
+      # 回执签名密钥。**多实例部署必须配置同一个值**，否则 A 签的回执在 B 上会被判伪造。
+      # 留空则进程启动随机生成（单机开发够用，重启后旧回执自动失效）。
+      secret: ${ERP_NL_CONFIRM_SECRET:}
+      ttl-seconds: 300
+    # 页面里配置的 API Key 在落库前用它加密（AES-256-GCM）。
+    # 留空 → 退化为内置常量派生的密钥：只能挡住"直接翻库看到明文"，不算真安全。
+    # 生产必须显式设置；**多实例必须一致**，否则 A 实例存的 key 在 B 实例上解不开。
+    secret: ${ERP_NL_SECRET:}
     openai:
-      base-url: ${ERP_NL_BASE_URL:https://api.openai.com/v1}
-      api-key: ${ERP_NL_API_KEY:}
-      model: ${ERP_NL_MODEL:gpt-4o-mini}
-      timeout-seconds: 30
+      # 只剩超时：它不是业务参数，而是"等多久算超时"的运行时约束，放配置里更合适。
+      timeout-seconds: ${ERP_NL_TIMEOUT:30}
 
 logging:
   level:

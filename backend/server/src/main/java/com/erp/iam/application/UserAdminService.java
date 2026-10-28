@@ -77,6 +77,21 @@ public class UserAdminService {
     @Transactional
     public long createUser(String username, String rawPassword, String displayName,
                            boolean enabled, Collection<String> roleCodes) {
+        return createUser(username, rawPassword, displayName, enabled, roleCodes, null);
+    }
+
+    /**
+     * 建员工账号：账号 + 人事档案一次建完。
+     *
+     * <p>为什么档案要在同一个事务里写：页面上是"新建员工"一张表单，
+     * 只建成账号、档案留空的话，列表里会出现一排"没有部门没有工号"的账号，
+     * 还得再逐个人工补 —— 那才是真正费事的做法。
+     *
+     * @param profile 人事档案（工号/部门/岗位/联系方式/入职日期），可为 null
+     */
+    @Transactional
+    public long createUser(String username, String rawPassword, String displayName,
+                           boolean enabled, Collection<String> roleCodes, EmployeeProfile profile) {
         String name = username == null ? "" : username.trim();
         if (name.isEmpty()) {
             throw new BusinessException(ErrorCode.SYS_VALIDATION_ERROR, "用户名不能为空");
@@ -101,7 +116,56 @@ public class UserAdminService {
         users.updatePassword(userId, encoder.encode(rawPassword),
                 authentication.passwordPolicy().expiryOf(nowInstant()), true);
         assignRoles(userId, roleCodes, -1);
+        if (profile != null) {
+            writeProfile(userId, profile);
+        }
         return userId;
+    }
+
+    /**
+     * 更新员工档案（不动账号与角色）。
+     *
+     * <p>与"改角色"分开是刻意的：改角色影响权限、需要留痕说明；
+     * 改工号/换部门只是人事信息，两者混在一个接口里，审计日志就分不清
+     * 这次保存到底是"调岗"还是"提权"。
+     */
+    @Transactional
+    public void updateEmployeeProfile(long userId, EmployeeProfile profile) {
+        requireUser(userId);
+        writeProfile(userId, profile);
+    }
+
+    private void writeProfile(long userId, EmployeeProfile p) {
+        String employeeNo = p.employeeNo() == null || p.employeeNo().isBlank()
+                ? null : p.employeeNo().trim();
+        try {
+            users.updateProfile(userId, employeeNo, p.departmentId(), p.positionId(),
+                    blankToNull(p.phone()), blankToNull(p.email()), p.hireDate(),
+                    blankToNull(p.remark()));
+        } catch (DataIntegrityViolationException ex) {
+            var translated = DbErrors.translate(ex, "uq_app_user_employee_no",
+                    ErrorCode.SYS_VALIDATION_ERROR, "工号已存在：%s".formatted(employeeNo));
+            if (translated != null) {
+                throw translated;
+            }
+            throw ex;
+        }
+    }
+
+    private static String blankToNull(String v) {
+        return v == null || v.isBlank() ? null : v.trim();
+    }
+
+    /** 员工人事档案（与账号、角色分开的三块信息之一）。 */
+    public record EmployeeProfile(String employeeNo, Long departmentId, Long positionId,
+                                  String phone, String email, java.time.LocalDate hireDate,
+                                  String remark) {
+    }
+
+    @Transactional(readOnly = true)
+    public PageResult<AppUserRepository.EmployeeRow> pageEmployees(
+            String keyword, Long departmentId, Boolean enabled, int page, int size) {
+        return users.pageEmployees(keyword, departmentId, enabled, page, size);
     }
 
     /**

@@ -500,6 +500,20 @@ public class SalesOrderApplicationService {
         return orders.page(status, customerId, page, size);
     }
 
+    /** 带业务日期区间与排序的分页（"最近一个月的出货单，按时间排序"用）。 */
+    @Transactional(readOnly = true)
+    public PageResult<SalesOrder> page(DocumentStatus status, Long customerId,
+                                       LocalDate dateFrom, LocalDate dateTo,
+                                       String orderBy, boolean ascending, int page, int size) {
+        return orders.page(status, customerId, dateFrom, dateTo, orderBy, ascending, page, size);
+    }
+
+    /** 客户的销售画像（"这个客户跟我做了多少生意"用），统计口径与列表页一致。 */
+    @Transactional(readOnly = true)
+    public com.erp.shared.document.PartyDealSummary summaryByCustomer(long customerId) {
+        return orders.summaryByCustomer(customerId);
+    }
+
     // ─────────────────────────── 金额 ───────────────────────────
 
     /**

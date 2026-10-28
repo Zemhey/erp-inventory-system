@@ -55,6 +55,23 @@ public class InventoryApplicationService {
         return balances.query(skuId, warehouseId, batchNo, onlyAvailable);
     }
 
+    /**
+     * 分页查询库存余额（库存查询页）。
+     *
+     * <p>page/size 在这里收敛：page 最小 1、size 落在 1~200。
+     * 不收敛的话，前端传 size=100000 就等于绕过了分页，
+     * 这正是这次要修的问题。
+     */
+    @Transactional(readOnly = true)
+    public InventoryBalanceRepository.PageSlice<InventoryBalanceRepository.BalanceRow> pageQuery(
+            Long skuId, Long warehouseId, String batchNo, boolean onlyAvailable,
+            String keyword, int page, int size) {
+        int safeSize = Math.min(Math.max(size, 1), 200);
+        int safePage = Math.max(page, 1);
+        return balances.pageQuery(skuId, warehouseId, batchNo, onlyAvailable, keyword,
+                (safePage - 1) * safeSize, safeSize);
+    }
+
     /** 库存流水查询（FR-INV-02）：可按来源单据号反查某笔出入库。 */
     @Transactional(readOnly = true)
     public PageResult<InventoryLedgerEntry> queryLedger(Long skuId, Long warehouseId, String bizRefNo,

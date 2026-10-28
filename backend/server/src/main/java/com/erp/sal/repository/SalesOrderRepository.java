@@ -3,11 +3,14 @@ package com.erp.sal.repository;
 import com.erp.sal.domain.LineReservation;
 import com.erp.sal.domain.SalesOrder;
 import com.erp.sal.domain.SalesOrderLine;
+import com.erp.shared.db.SortColumns;
 import com.erp.shared.document.DocumentStatus;
+import com.erp.shared.document.PartyDealSummary;
 import com.erp.shared.web.PageResult;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -312,7 +315,28 @@ public class SalesOrderRepository {
      * <p>"列表注入"防线的关键：仓库过滤<b>不接受外部输入</b>，只认当前登录人的
      * 数据权限配置。攻击者把别仓的 warehouseId 塞进查询参数也不会影响这里。
      */
+    /** 可排序列白名单（键小写 + 真实列名），理由见 PurchaseOrderRepository 同名常量。 */
+    private static final Map<String, String> SORTABLE = Map.of(
+            "id", "id",
+            "orderno", "order_no",
+            "bizdate", "biz_date",
+            "totalamount", "total_amount",
+            "totalqty", "total_qty");
+
     public PageResult<SalesOrder> page(DocumentStatus status, Long customerId, int page, int size) {
+        return page(status, customerId, null, null, null, false, page, size);
+    }
+
+    /**
+     * 带日期区间与排序的分页（自然语言"一个月内的出货单，按时间排序"用它）。
+     *
+     * @param dateFrom  起始日（含），作用在 {@code biz_date}，null 表示不限
+     * @param dateTo    截止日（含），null 表示不限
+     * @param orderBy   排序键，见 {@link #SORTABLE}；非法值退回 id
+     */
+    public PageResult<SalesOrder> page(DocumentStatus status, Long customerId,
+                                       LocalDate dateFrom, LocalDate dateTo,
+                                       String orderBy, boolean ascending, int page, int size) {
         int p = PageResult.normalizePage(page);
         int s = PageResult.normalizeSize(size);
         List<Object> args = new ArrayList<>();
@@ -325,17 +349,27 @@ public class SalesOrderRepository {
             where.append(" AND customer_id = ?");
             args.add(customerId);
         }
+        if (dateFrom != null) {
+            where.append(" AND biz_date >= ?");
+            args.add(dateFrom);
+        }
+        if (dateTo != null) {
+            where.append(" AND biz_date <= ?");
+            args.add(dateTo);
+        }
         where.append(scope.predicates("warehouse_id", "created_by", args));
         Long total = jdbc.queryForObject("SELECT COUNT(*) FROM sales_orders" + where,
                 Long.class, args.toArray());
         List<Object> pageArgs = new ArrayList<>(args);
         pageArgs.add(s);
         pageArgs.add(PageResult.offset(p, s));
+        String order = SortColumns.orderBy(orderBy, ascending, SORTABLE, "id");
         List<SalesOrder> headers = jdbc.query("""
                 SELECT id, order_no, status, customer_id, warehouse_id, biz_date,
                        total_amount, total_qty, period, remark, version
                   FROM sales_orders
-                """ + where + " ORDER BY id DESC LIMIT ? OFFSET ?", ORDER_MAPPER, pageArgs.toArray());
+                """ + where + " ORDER BY " + order + ", id DESC LIMIT ? OFFSET ?",
+                ORDER_MAPPER, pageArgs.toArray());
         List<SalesOrder> items = headers.stream()
                 .map(h -> new SalesOrder(h.id(), h.orderNo(), h.status(), h.customerId(),
                         h.warehouseId(), h.bizDate(), h.totalAmount(), h.totalQty(),
@@ -377,5 +411,30 @@ public class SalesOrderRepository {
                         h.period(), h.remark(), h.version(), findLines(h.id())))
                 .toList();
         return new PageResult<>(items, total == null ? 0 : total, p, s);
+    }
+
+    /**
+     * 某客户的销售画像：单数 / 累计金额 / 最近交易日 / 待审单数。
+     *
+     * <p>排除作废单，理由同采购侧：作废的生意不算业绩。
+     */
+    public PartyDealSummary summaryByCustomer(long customerId) {
+        List<Object> args = new ArrayList<>();
+        args.add(customerId);
+        StringBuilder where = new StringBuilder(
+                " WHERE customer_id = ? AND status <> 'VOIDED'");
+        where.append(scope.predicates("warehouse_id", "created_by", args));
+        PartyDealSummary summary = jdbc.queryForObject("""
+                SELECT COUNT(*) AS cnt,
+                       COALESCE(SUM(total_amount), 0) AS amt,
+                       MAX(biz_date) AS last_date,
+                       COUNT(*) FILTER (WHERE status = 'SUBMITTED') AS pending
+                  FROM sales_orders
+                """ + where, (rs, i) -> new PartyDealSummary(
+                        rs.getInt("cnt"),
+                        rs.getLong("amt"),
+                        rs.getObject("last_date", LocalDate.class),
+                        rs.getInt("pending")), args.toArray());
+        return summary == null ? PartyDealSummary.none() : summary;
     }
 }

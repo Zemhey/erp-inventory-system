@@ -37,6 +37,16 @@
 | `TC-API-008` | ★ 客户折扣率：越界 400（契约层校验），合法 9 折成功 | `backend/server/src/test/java/com/erp/api/MasterDataApiIT.java` |
 | `TC-API-009` | 仓库：列表返回数组（非分页）；onlyEnabled 过滤生效 | `backend/server/src/test/java/com/erp/api/MasterDataApiIT.java` |
 | `TC-API-010` | 缺少 X-Request-Id 的写接口 → 400（契约要求写操作必须带幂等键） | `backend/server/src/test/java/com/erp/api/MasterDataApiIT.java` |
+| `TC-API-155` | 地址：建（首条默认）→ 列表 → 建第二条 → 切换默认，响应包络齐全 | `backend/server/src/test/java/com/erp/api/MdmFieldsApiIT.java` |
+| `TC-API-156` | 地址校验：缺收件人 400；首条自动默认；停用默认自动提升；停用地址不能设默认 | `backend/server/src/test/java/com/erp/api/MdmFieldsApiIT.java` |
+| `TC-API-157` | 地址：重复键 409；地址不存在 404；客户不存在 404 | `backend/server/src/test/java/com/erp/api/MdmFieldsApiIT.java` |
+| `TC-API-158` | 库位：建 40+60，仓库容量 100，列表与核对端点守恒（差 0） | `backend/server/src/test/java/com/erp/api/MdmFieldsApiIT.java` |
+| `TC-API-159` | 库位边界：超容量 409、编码重复 409、收缩仓库容量低于已分配 409 | `backend/server/src/test/java/com/erp/api/MdmFieldsApiIT.java` |
+| `TC-API-160` | 库位：仓库/库位不存在 404；停用后核对报差额，启用恢复一致 | `backend/server/src/test/java/com/erp/api/MdmFieldsApiIT.java` |
+| `TC-API-161` | 属性：PUT 全量替换 → GET 一致 → PUT 空数组清空 → 重复 PUT 幂等 | `backend/server/src/test/java/com/erp/api/MdmFieldsApiIT.java` |
+| `TC-API-162` | 属性校验：重复键 400、空键 400、商品不存在 404 | `backend/server/src/test/java/com/erp/api/MdmFieldsApiIT.java` |
+| `TC-API-163` | ★ 租户 2 访问租户 1 的地址/库位/属性一律 404；租户 1 自身 200 | `backend/server/src/test/java/com/erp/api/MdmFieldsApiIT.java` |
+| `TC-API-164` | ★ 反向跨租户：租户 1 访问租户 2 地址/库位/属性同样 404，租户 2 自身 200 | `backend/server/src/test/java/com/erp/api/MdmFieldsApiIT.java` |
 | `TC-API-085` | POST /warehouses：同键重放返回同一 id，表里只有一行 | `backend/server/src/test/java/com/erp/api/MdmIdempotencyIT.java` |
 | `TC-API-086` | POST /suppliers：同键重放返回同一 id，表里只有一行 | `backend/server/src/test/java/com/erp/api/MdmIdempotencyIT.java` |
 | `TC-API-087` | POST /customers：同键重放返回同一 id，表里只有一行 | `backend/server/src/test/java/com/erp/api/MdmIdempotencyIT.java` |
@@ -49,7 +59,7 @@
 | `TC-API-094` | ★ 重放不重复写 audit_logs：5 个创建端点各 1 条 CREATE，重放后仍是 1 条 | `backend/server/src/test/java/com/erp/api/MdmIdempotencyIT.java` |
 | `TC-MDM-027` | ★ 重放返回资源的当前状态，不是当时的响应快照（选方案 b 的理由） | `backend/server/src/test/java/com/erp/api/MdmIdempotencyIT.java` |
 | `TC-MDM-028` | ★ 同键第二次 INSERT 被数据库唯一索引拦住（绕过应用层，证明守卫不活在进程里） | `backend/server/src/test/java/com/erp/api/MdmIdempotencyIT.java` |
-| `TC-MDM-029` | V15 的 8 个局部唯一索引真实存在，且都带 IS NOT NULL 谓词 | `backend/server/src/test/java/com/erp/api/MdmIdempotencyIT.java` |
+| `TC-MDM-029` |  | `backend/server/src/test/java/com/erp/api/MdmIdempotencyIT.java` |
 | `TC-MDM-030` | 幂等键不稀释编码唯一：不同键 + 同编码，仍然 409 MDM_CODE_DUPLICATED | `backend/server/src/test/java/com/erp/api/MdmIdempotencyIT.java` |
 | `TC-MDM-031` | 同键 + 不同编码：返回首次那一行（重放语义优先于业务字段差异） | `backend/server/src/test/java/com/erp/api/MdmIdempotencyIT.java` |
 | `TC-MDM-032` | 不带键的内部写入彼此永不冲突（局部索引不约束 NULL） | `backend/server/src/test/java/com/erp/api/MdmIdempotencyIT.java` |
@@ -81,13 +91,13 @@
 | `TC-API-142` | 鉴权：未登录 401；有登录但无 rpt:read 的角色 403 | `backend/server/src/test/java/com/erp/api/ReportV28ApiIT.java` |
 | `TC-API-143` | ★ 全部新报表 + 导出跑完后，单据/流水/余额/应收应付计数零变化 | `backend/server/src/test/java/com/erp/api/ReportV28ApiIT.java` |
 | `TC-API-144` | 空区间/无数据：四个报表 200，不 500；经营报表按分桶返回零行 | `backend/server/src/test/java/com/erp/api/ReportV28ApiIT.java` |
-| `TC-API-014` | ★ 退货 HTTP 端到端：建单→提交→审核→入库，响应字段符合契约；出货明细露出 returnedQty | `backend/server/src/test/java/com/erp/api/ReturnOrderApiIT.java` |
-| `TC-API-015` | 退货接口守卫：缺 X-Request-Id → 400（不是 500）；VIEWER 可查不可建；未登录 401 | `backend/server/src/test/java/com/erp/api/ReturnOrderApiIT.java` |
 | `TC-RMA-013` | ★ 只有 rma:read 的临时账号也能拿到非空可退列表；同一账号读 /sales-orders 仍然 403 | `backend/server/src/test/java/com/erp/api/ReturnableOrderApiIT.java` |
 | `TC-RMA-014` | 已全部退完的出货单不出现在可退列表；未出货的 DRAFT/SUBMITTED/APPROVED 也不出现 | `backend/server/src/test/java/com/erp/api/ReturnableOrderApiIT.java` |
 | `TC-RMA-015` | ★ returnableQty = shippedQty − returnedQty，且与退货建单预检同口径（超 1 件即 409） | `backend/server/src/test/java/com/erp/api/ReturnableOrderApiIT.java` |
 | `TC-RMA-016` | 可退列表是只读接口：GET 不要求 X-Request-Id，也不得留下任何写痕迹 | `backend/server/src/test/java/com/erp/api/ReturnableOrderApiIT.java` |
 | `TC-RMA-017` | ★ 分页口径：total 是单据张数、翻页取得后面的单，size 越界只钳制不当全量 | `backend/server/src/test/java/com/erp/api/ReturnableOrderApiIT.java` |
+| `TC-API-014` | ★ 退货 HTTP 端到端：建单→提交→审核→入库，响应字段符合契约；出货明细露出 returnedQty | `backend/server/src/test/java/com/erp/api/ReturnOrderApiIT.java` |
+| `TC-API-015` | 退货接口守卫：缺 X-Request-Id → 400（不是 500）；VIEWER 可查不可建；未登录 401 | `backend/server/src/test/java/com/erp/api/ReturnOrderApiIT.java` |
 | `TC-SAL-024` | ★ 出货 void：缺幂等键 400；红冲 200 + 库存回补；同键重放 200；新键 409 | `backend/server/src/test/java/com/erp/api/ReversalApiIT.java` |
 | `TC-PUR-023` | ★ 进货 void：缺幂等键 400；红冲 200 + 库存回退；同键重放 200；新键 409 | `backend/server/src/test/java/com/erp/api/ReversalApiIT.java` |
 | `TC-API-070` | 报价 HTTP：建单 201 → 提交/审核 → 转化 200，报价 COMPLETED 且订单已预占 | `backend/server/src/test/java/com/erp/api/SalesClosedLoopApiIT.java` |
@@ -177,15 +187,6 @@
 | `TC-CST-046` | 无流水账期：月结成功但无行，duplicate=true | `backend/server/src/test/java/com/erp/cst/CostMonthlyIT.java` |
 | `TC-CST-055` | 月结重算后不再有流水的池：旧月结行被删除 | `backend/server/src/test/java/com/erp/cst/CostMonthlyIT.java` |
 | `TC-CST-062` | 真实调拨（无 unitCostAmount）：调入成本=调出成本，两仓合计守恒，调拨后出库成本正确 | `backend/server/src/test/java/com/erp/cst/CostTransferIT.java` |
-| `TC-CST-047` | 成本月结生成毛利记录：收入、成本、毛利与毛利率 | `backend/server/src/test/java/com/erp/cst/MarginAnalysisIT.java` |
-| `TC-CST-048` | 毛利成本 = SALES_OUT 成本层合计 | `backend/server/src/test/java/com/erp/cst/MarginAnalysisIT.java` |
-| `TC-CST-049` | 按商品聚合：同 SKU 多张出货单合并，orderCount 去重 | `backend/server/src/test/java/com/erp/cst/MarginAnalysisIT.java` |
-| `TC-CST-050` | 按客户聚合：不同客户各一行，金额按客户分组 | `backend/server/src/test/java/com/erp/cst/MarginAnalysisIT.java` |
-| `TC-CST-051` | 按期间聚合：两个账期各一行，收入按期间归属 | `backend/server/src/test/java/com/erp/cst/MarginAnalysisIT.java` |
-| `TC-CST-052` | 退货净额：数量、收入、成本同时冲减，毛利率按净额重算 | `backend/server/src/test/java/com/erp/cst/MarginAnalysisIT.java` |
-| `TC-CST-053` | 毛利查询：空账期返回空；区间/维度非法返回 400 | `backend/server/src/test/java/com/erp/cst/MarginAnalysisIT.java` |
-| `TC-CST-054` | 收入为 0：毛利率记 0，但成本与毛利按实际金额保留 | `backend/server/src/test/java/com/erp/cst/MarginAnalysisIT.java` |
-| `TC-CST-056` | 完全退货：净数量为 0 的毛利记录被删除 | `backend/server/src/test/java/com/erp/cst/MarginAnalysisIT.java` |
 | `TC-CST-006` | 空流水 → 全零且守恒 | `backend/server/src/test/java/com/erp/cst/domain/MovingAverageCostCalculatorTest.java` |
 | `TC-CST-007` | 单笔入库：成本层单位成本 = 进货单价，池状态正确 | `backend/server/src/test/java/com/erp/cst/domain/MovingAverageCostCalculatorTest.java` |
 | `TC-CST-008` | 两笔入库加权平均：10@100 + 10@200 → 均价 150 | `backend/server/src/test/java/com/erp/cst/domain/MovingAverageCostCalculatorTest.java` |
@@ -207,10 +208,31 @@
 | `TC-CST-058` | 调拨：目标仓已有不同均价时，调入仍按源仓成本，不被目标均价重估 | `backend/server/src/test/java/com/erp/cst/domain/MovingAverageCostCalculatorTest.java` |
 | `TC-CST-059` | 多批次/部分调拨：每个批次各自配对，未带 unitCostAmount 仍守恒 | `backend/server/src/test/java/com/erp/cst/domain/MovingAverageCostCalculatorTest.java` |
 | `TC-CST-060` | 调拨后再出库：目标仓出库成本沿用源仓成本，外部出库 + 两仓期末守恒 | `backend/server/src/test/java/com/erp/cst/domain/MovingAverageCostCalculatorTest.java` |
+| `TC-CST-047` | 成本月结生成毛利记录：收入、成本、毛利与毛利率 | `backend/server/src/test/java/com/erp/cst/MarginAnalysisIT.java` |
+| `TC-CST-048` | 毛利成本 = SALES_OUT 成本层合计 | `backend/server/src/test/java/com/erp/cst/MarginAnalysisIT.java` |
+| `TC-CST-049` | 按商品聚合：同 SKU 多张出货单合并，orderCount 去重 | `backend/server/src/test/java/com/erp/cst/MarginAnalysisIT.java` |
+| `TC-CST-050` | 按客户聚合：不同客户各一行，金额按客户分组 | `backend/server/src/test/java/com/erp/cst/MarginAnalysisIT.java` |
+| `TC-CST-051` | 按期间聚合：两个账期各一行，收入按期间归属 | `backend/server/src/test/java/com/erp/cst/MarginAnalysisIT.java` |
+| `TC-CST-052` | 退货净额：数量、收入、成本同时冲减，毛利率按净额重算 | `backend/server/src/test/java/com/erp/cst/MarginAnalysisIT.java` |
+| `TC-CST-053` | 毛利查询：空账期返回空；区间/维度非法返回 400 | `backend/server/src/test/java/com/erp/cst/MarginAnalysisIT.java` |
+| `TC-CST-054` | 收入为 0：毛利率记 0，但成本与毛利按实际金额保留 | `backend/server/src/test/java/com/erp/cst/MarginAnalysisIT.java` |
+| `TC-CST-056` | 完全退货：净数量为 0 的毛利记录被删除 | `backend/server/src/test/java/com/erp/cst/MarginAnalysisIT.java` |
 | `TC-IAM-024` | ★ 越权矩阵：单据直查 404、列表类 200 只见本仓（不出现 B 仓数据）、主数据作对照 | `backend/server/src/test/java/com/erp/iam/DataScopeMatrixIT.java` |
 | `TC-IAM-043` | ★ 矩阵期望表自检：404 / 只见本仓 / 主数据对照 三类格子数必须固定 | `backend/server/src/test/java/com/erp/iam/DataScopeMatrixIT.java` |
 | `TC-IAM-025` | ★ 矩阵规模自检：8×5×3 = 120 个组合，一个都不能少 | `backend/server/src/test/java/com/erp/iam/DataScopeMatrixIT.java` |
 | `TC-IAM-026` | ★ 对照组（防假绿）：本仓库存/单据必须 200 且有内容，证明 404 来自收窄而非接口全坏 | `backend/server/src/test/java/com/erp/iam/DataScopeMatrixIT.java` |
+| `TC-IAM-012` | ★ 长度边界：8 位通过、7 位拒绝（下限是 ≥ 而不是 >） | `backend/server/src/test/java/com/erp/iam/domain/PasswordPolicyTest.java` |
+| `TC-IAM-013` | ★ 字符类别边界：2 类拒绝、3 类通过、4 类通过（纯小写即使够长也拒） | `backend/server/src/test/java/com/erp/iam/domain/PasswordPolicyTest.java` |
+| `TC-IAM-014` | ★ 8 位纯小写必须被拒：只查长度会让 aaaaaaaa 通过 —— 两类规则缺一不可 | `backend/server/src/test/java/com/erp/iam/domain/PasswordPolicyTest.java` |
+| `TC-IAM-015` | ★ 弱口令表大小写不敏感：Admin@123 与 admin@123 是同一条字典项 | `backend/server/src/test/java/com/erp/iam/domain/PasswordPolicyTest.java` |
+| `TC-IAM-016` | 弱口令检查优先于长度/类别：让错误消息直指真正原因（换个更像样的密码） | `backend/server/src/test/java/com/erp/iam/domain/PasswordPolicyTest.java` |
+| `TC-IAM-017` | 空密码 / 纯空白一律拒绝 | `backend/server/src/test/java/com/erp/iam/domain/PasswordPolicyTest.java` |
+| `TC-IAM-018` | ★ 策略可配置：同一密码在 permissive 策略下通过、在 standard 下被拒 | `backend/server/src/test/java/com/erp/iam/domain/PasswordPolicyTest.java` |
+| `TC-IAM-019` | 非法策略参数在构造期就炸掉：minLength<=0 / 类别数越界 | `backend/server/src/test/java/com/erp/iam/domain/PasswordPolicyTest.java` |
+| `TC-IAM-020` | ★ 密码过期判定：过期时刻早于/等于此刻 = 过期，晚于 = 未过期 | `backend/server/src/test/java/com/erp/iam/domain/PasswordPolicyTest.java` |
+| `TC-IAM-021` | ★ 强制改密标记：即使密码永不过期，mustChangePassword=true 也必须先改 | `backend/server/src/test/java/com/erp/iam/domain/PasswordPolicyTest.java` |
+| `TC-IAM-022` | 过期时刻按 maxAgeDays 计算；0 表示不按时间过期 | `backend/server/src/test/java/com/erp/iam/domain/PasswordPolicyTest.java` |
+| `TC-IAM-023` | 策略描述可读且完整：前端照它展示，用户不必反复试错 | `backend/server/src/test/java/com/erp/iam/domain/PasswordPolicyTest.java` |
 | `TC-IAM-027` | ★ 建账号时复杂度不合规一律拒绝（IAM_PASSWORD_WEAK），与改密用同一套策略 | `backend/server/src/test/java/com/erp/iam/IamDeepeningIT.java` |
 | `TC-IAM-028` | ★ 新建账号一律置强制改密：管理员知道初始密码，用户必须先改掉 | `backend/server/src/test/java/com/erp/iam/IamDeepeningIT.java` |
 | `TC-IAM-029` | ★ 密码过期后：业务接口被拦成 IAM_PASSWORD_EXPIRED，但改密接口仍然可用 | `backend/server/src/test/java/com/erp/iam/IamDeepeningIT.java` |
@@ -238,18 +260,6 @@
 | `TC-IAM-009` | 权限变更立即生效：撤掉角色后，旧 token 的下一次请求即被拒绝 | `backend/server/src/test/java/com/erp/iam/IamIT.java` |
 | `TC-IAM-010` | 密码只存 BCrypt 哈希，明文绝不出现在库中 | `backend/server/src/test/java/com/erp/iam/IamIT.java` |
 | `TC-IAM-011` | ★ FINANCE 权限面：V7 后可读主数据字典与账期列表，仍不能写主数据、仍读不到单据 | `backend/server/src/test/java/com/erp/iam/IamIT.java` |
-| `TC-IAM-012` | ★ 长度边界：8 位通过、7 位拒绝（下限是 ≥ 而不是 >） | `backend/server/src/test/java/com/erp/iam/domain/PasswordPolicyTest.java` |
-| `TC-IAM-013` | ★ 字符类别边界：2 类拒绝、3 类通过、4 类通过（纯小写即使够长也拒） | `backend/server/src/test/java/com/erp/iam/domain/PasswordPolicyTest.java` |
-| `TC-IAM-014` | ★ 8 位纯小写必须被拒：只查长度会让 aaaaaaaa 通过 —— 两类规则缺一不可 | `backend/server/src/test/java/com/erp/iam/domain/PasswordPolicyTest.java` |
-| `TC-IAM-015` | ★ 弱口令表大小写不敏感：Admin@123 与 admin@123 是同一条字典项 | `backend/server/src/test/java/com/erp/iam/domain/PasswordPolicyTest.java` |
-| `TC-IAM-016` | 弱口令检查优先于长度/类别：让错误消息直指真正原因（换个更像样的密码） | `backend/server/src/test/java/com/erp/iam/domain/PasswordPolicyTest.java` |
-| `TC-IAM-017` | 空密码 / 纯空白一律拒绝 | `backend/server/src/test/java/com/erp/iam/domain/PasswordPolicyTest.java` |
-| `TC-IAM-018` | ★ 策略可配置：同一密码在 permissive 策略下通过、在 standard 下被拒 | `backend/server/src/test/java/com/erp/iam/domain/PasswordPolicyTest.java` |
-| `TC-IAM-019` | 非法策略参数在构造期就炸掉：minLength<=0 / 类别数越界 | `backend/server/src/test/java/com/erp/iam/domain/PasswordPolicyTest.java` |
-| `TC-IAM-020` | ★ 密码过期判定：过期时刻早于/等于此刻 = 过期，晚于 = 未过期 | `backend/server/src/test/java/com/erp/iam/domain/PasswordPolicyTest.java` |
-| `TC-IAM-021` | ★ 强制改密标记：即使密码永不过期，mustChangePassword=true 也必须先改 | `backend/server/src/test/java/com/erp/iam/domain/PasswordPolicyTest.java` |
-| `TC-IAM-022` | 过期时刻按 maxAgeDays 计算；0 表示不按时间过期 | `backend/server/src/test/java/com/erp/iam/domain/PasswordPolicyTest.java` |
-| `TC-IAM-023` | 策略描述可读且完整：前端照它展示，用户不必反复试错 | `backend/server/src/test/java/com/erp/iam/domain/PasswordPolicyTest.java` |
 | `TC-INV-048` | 调增：实存增加、写 ADJUST_IN 正流水、原因落库 | `backend/server/src/test/java/com/erp/inv/InventoryAdjustmentIT.java` |
 | `TC-INV-049` | 调减：实存减少、写 ADJUST_OUT 负流水 | `backend/server/src/test/java/com/erp/inv/InventoryAdjustmentIT.java` |
 | `TC-INV-050` | 原因必填：空白原因直接拒绝，不产生任何库存变动 | `backend/server/src/test/java/com/erp/inv/InventoryAdjustmentIT.java` |
@@ -335,6 +345,15 @@
 | `TC-INV-045` | 实盘数量为负：参数校验拒绝 | `backend/server/src/test/java/com/erp/inv/StocktakeIT.java` |
 | `TC-INV-046` | 同一 SKU + 批次重复盘点：拒绝 | `backend/server/src/test/java/com/erp/inv/StocktakeIT.java` |
 | `TC-INV-047` | 盘点列表：状态与仓库筛选生效 | `backend/server/src/test/java/com/erp/inv/StocktakeIT.java` |
+| `TC-MDM-043` | 地址：首条自动默认；同客户多地址；任一时刻只有一个默认 | `backend/server/src/test/java/com/erp/mdm/MasterDataFieldsIT.java` |
+| `TC-MDM-044` | 地址键：客户内唯一；跨客户可复用；建单幂等键重放返回首次结果 | `backend/server/src/test/java/com/erp/mdm/MasterDataFieldsIT.java` |
+| `TC-MDM-045` | ★ 停用默认地址自动提升下一条；历史出货单计数与客户引用不变 | `backend/server/src/test/java/com/erp/mdm/MasterDataFieldsIT.java` |
+| `TC-MDM-046` | 地址边界：默认不能直接取消/不能停用；切换默认；跨客户访问 404 | `backend/server/src/test/java/com/erp/mdm/MasterDataFieldsIT.java` |
+| `TC-MDM-047` | 库位编码：仓库内唯一；不同仓库可复用；建单幂等键重放 | `backend/server/src/test/java/com/erp/mdm/MasterDataFieldsIT.java` |
+| `TC-MDM-048` | ★ 容量守恒：40+60=100 一致；超限 409；停用后核对如实报差额；启用恢复 | `backend/server/src/test/java/com/erp/mdm/MasterDataFieldsIT.java` |
+| `TC-MDM-049` | ★ 停用库位不触碰库存：余额/流水条数与实存不变，停用库位仍可查 | `backend/server/src/test/java/com/erp/mdm/MasterDataFieldsIT.java` |
+| `TC-MDM-050` | 属性：全量替换/清空；重复键 400；超限 400；跨租户商品 404 | `backend/server/src/test/java/com/erp/mdm/MasterDataFieldsIT.java` |
+| `TC-MDM-051` | ★ 属性不破坏 SKU 矩阵：矩阵仍生成/跳过，颜色×尺码唯一键仍生效，季节波段保留 | `backend/server/src/test/java/com/erp/mdm/MasterDataFieldsIT.java` |
 | `TC-MDM-001` | 商品编码重复必须被数据库唯一约束拒绝，并翻译成 MDM_CODE_DUPLICATED | `backend/server/src/test/java/com/erp/mdm/MasterDataIT.java` |
 | `TC-MDM-002` | ★ 并发创建同一商品编码：只允许一个成功，其余全部是 409 而不是 500 | `backend/server/src/test/java/com/erp/mdm/MasterDataIT.java` |
 | `TC-MDM-003` | 商品停用后记录保留（停用不删），且 enabled 变为 false | `backend/server/src/test/java/com/erp/mdm/MasterDataIT.java` |
@@ -354,6 +373,11 @@
 | `TC-MDM-017` | ★ 折扣率越界（0 / 10001 / 负数）必须被拒绝：0 等于白送，不允许 | `backend/server/src/test/java/com/erp/mdm/MasterDataIT.java` |
 | `TC-MDM-018` | 数据库 CHECK 兜底：即使绕过应用层，折扣率也无法写成 0 或超过 10000 | `backend/server/src/test/java/com/erp/mdm/MasterDataIT.java` |
 | `TC-MDM-019` | 仓库 CRUD + 编码唯一 + onlyEnabled 过滤 | `backend/server/src/test/java/com/erp/mdm/MasterDataIT.java` |
+| `TC-MDM-052` | SELECT：customer_addresses 查询自动追加租户谓词 | `backend/server/src/test/java/com/erp/mdm/MdmFieldsTenantSqlTest.java` |
+| `TC-MDM-053` | INSERT：warehouse_locations 列清单与 VALUES 都补 tenant_id | `backend/server/src/test/java/com/erp/mdm/MdmFieldsTenantSqlTest.java` |
+| `TC-MDM-054` | UPDATE：product_attribute_values / warehouse_locations 更新都带租户谓词 | `backend/server/src/test/java/com/erp/mdm/MdmFieldsTenantSqlTest.java` |
+| `TC-MDM-055` | DELETE：product_attribute_values 全量替换前的删除不会跨租户 | `backend/server/src/test/java/com/erp/mdm/MdmFieldsTenantSqlTest.java` |
+| `TC-MDM-056` | 清单：三张新表都登记在 TenantTables（否则 TenantSchemaIT 双向比对会红） | `backend/server/src/test/java/com/erp/mdm/MdmFieldsTenantSqlTest.java` |
 | `TC-MDM-020` | SKU 创建写入季节/波段/上市日期，年份由上市日期派生 | `backend/server/src/test/java/com/erp/mdm/SalesMasterDataDimensionsIT.java` |
 | `TC-MDM-021` | SKU 更新维度：只改季节/波段不丢基础字段，null 表示保持原值 | `backend/server/src/test/java/com/erp/mdm/SalesMasterDataDimensionsIT.java` |
 | `TC-MDM-022` | 按季节编码筛选：只返回匹配 SKU | `backend/server/src/test/java/com/erp/mdm/SalesMasterDataDimensionsIT.java` |
@@ -680,6 +704,26 @@
 | `TC-SYS-005` | health 端点仍可匿名访问（改管理端点时不得误伤探针） | `backend/server/src/test/java/com/erp/sys/ActuatorPrometheusIT.java` |
 | `TC-SYS-006` | 审计表行数 gauge 随真实写入增长（审计链路没停的看板信号） | `backend/server/src/test/java/com/erp/sys/ActuatorPrometheusIT.java` |
 | `TC-SYS-007` | 审计指标计数随写入递增（audit_written 是审计链路自身的健康信号） | `backend/server/src/test/java/com/erp/sys/ActuatorPrometheusIT.java` |
+| `TC-SYS-008` | ★ 密码字段被遮成 ***（审计不得记录明文密码） | `backend/server/src/test/java/com/erp/sys/application/AuditJsonTest.java` |
+| `TC-SYS-009` | ★ token / secret / apiKey / authorization 全部脱敏 | `backend/server/src/test/java/com/erp/sys/application/AuditJsonTest.java` |
+| `TC-SYS-010` | 键名变体也脱敏：passwordHash / new_password / clientSecret | `backend/server/src/test/java/com/erp/sys/application/AuditJsonTest.java` |
+| `TC-SYS-011` | 非敏感键不被误遮：tokenType / username / name 原样保留 | `backend/server/src/test/java/com/erp/sys/application/AuditJsonTest.java` |
+| `TC-SYS-012` | 嵌套对象与数组里的敏感字段同样被遮（不能只管第一层） | `backend/server/src/test/java/com/erp/sys/application/AuditJsonTest.java` |
+| `TC-SYS-013` | 标量与 null 不产生快照（审计只关心对象的字段值） | `backend/server/src/test/java/com/erp/sys/application/AuditJsonTest.java` |
+| `TC-SYS-014` | ★ 超大快照返回 null 而不是截断（截断会产生非法 JSON，让「可还原」失效） | `backend/server/src/test/java/com/erp/sys/application/AuditJsonTest.java` |
+| `TC-SYS-015` | 合法快照是能把字段值读回来的 JSON（可还原性的最低要求） | `backend/server/src/test/java/com/erp/sys/application/AuditJsonTest.java` |
+| `TC-SYS-016` | CREATE + SUCCESS 计入下单数（orderType 按资源类型映射） | `backend/server/src/test/java/com/erp/sys/application/MetricsRecorderTest.java` |
+| `TC-SYS-017` | ★ 审核/入库不计入下单数（否则经营看板单量虚高） | `backend/server/src/test/java/com/erp/sys/application/MetricsRecorderTest.java` |
+| `TC-SYS-018` | 失败数按 errorCode 分维度累加 | `backend/server/src/test/java/com/erp/sys/application/MetricsRecorderTest.java` |
+| `TC-SYS-019` | errorCode 为 null 时归到 UNKNOWN 维度（不能让指标因为 null 崩掉） | `backend/server/src/test/java/com/erp/sys/application/MetricsRecorderTest.java` |
+| `TC-SYS-020` | 未知资源类型归到 other 维度 | `backend/server/src/test/java/com/erp/sys/application/MetricsRecorderTest.java` |
+| `TC-SYS-021` | 审计写入计数按 action/result 分维度 | `backend/server/src/test/java/com/erp/sys/application/MetricsRecorderTest.java` |
+| `TC-SYS-022` | 审计写入失败计数可读（应恒为 0，非 0 即告警） | `backend/server/src/test/java/com/erp/sys/application/MetricsRecorderTest.java` |
+| `TC-SYS-023` | ★ 对账差额取绝对值：-1234 → 1234（差额方向不改变「差多少」的含义） | `backend/server/src/test/java/com/erp/sys/application/MetricsRecorderTest.java` |
+| `TC-SYS-024` | 重复注册对账 gauge 不抛异常（Gauge 幂等注册） | `backend/server/src/test/java/com/erp/sys/application/MetricsRecorderTest.java` |
+| `TC-SYS-025` | containsMetric 能识别已注册的指标（测试断言用的自检入口） | `backend/server/src/test/java/com/erp/sys/application/MetricsRecorderTest.java` |
+| `TC-SYS-026` | 指标读不到时返回 0 而不是 null（避免测试里到处判空） | `backend/server/src/test/java/com/erp/sys/application/MetricsRecorderTest.java` |
+| `TC-SYS-027` | forTests 工厂可直接构造（不依赖 Spring 的单元用例入口） | `backend/server/src/test/java/com/erp/sys/application/MetricsRecorderTest.java` |
 | `TC-SYS-028` | ★ INV-15：每个写接口至少产生 1 条 audit_logs（漏一个即红） | `backend/server/src/test/java/com/erp/sys/AuditCompletenessIT.java` |
 | `TC-SYS-029` | ★ INV-15 下界：审计行数必须 ≥ 枚举出的写接口数 | `backend/server/src/test/java/com/erp/sys/AuditCompletenessIT.java` |
 | `TC-SYS-030` | ★ 枚举器自检：只枚举写方法、排除 __test__ 后门、不遗漏已知写接口 | `backend/server/src/test/java/com/erp/sys/AuditCompletenessIT.java` |
@@ -721,37 +765,6 @@
 | `TC-SYS-066` | ★ 审计查询只有 GET：对 /audits 发 POST/PUT/DELETE 一律 405，永不写审计表 | `backend/server/src/test/java/com/erp/sys/AuditQueryIT.java` |
 | `TC-SYS-067` | 分页：size 超上限被钳制到 200，page 越界被钳制到 1 | `backend/server/src/test/java/com/erp/sys/AuditQueryIT.java` |
 | `TC-SYS-068` | 列表默认按时间倒序：第一条是最新的审计 | `backend/server/src/test/java/com/erp/sys/AuditQueryIT.java` |
-| `TC-SYS-080` | ★ 下单数随成功建单递增（指标真的在计数，不是只注册了个空名字） | `backend/server/src/test/java/com/erp/sys/MetricsAndTraceIT.java` |
-| `TC-SYS-081` | ★ 失败数按错误码分维度：非法参数产生 errorCode 维度并 +1 | `backend/server/src/test/java/com/erp/sys/MetricsAndTraceIT.java` |
-| `TC-SYS-082` | ★ 审计行数 gauge 与实际行数一致（审计链路没停的看板信号） | `backend/server/src/test/java/com/erp/sys/MetricsAndTraceIT.java` |
-| `TC-SYS-083` | 对账差额指标：erp_reconcile_diff_abs 可读且非负 | `backend/server/src/test/java/com/erp/sys/MetricsAndTraceIT.java` |
-| `TC-SYS-084` | ★ traceId 贯穿日志：按 traceId 能捞出该请求的全部日志行 | `backend/server/src/test/java/com/erp/sys/MetricsAndTraceIT.java` |
-| `TC-SYS-085` | 不同请求的 traceId 互不串味（并发安全：MDC 用完即清） | `backend/server/src/test/java/com/erp/sys/MetricsAndTraceIT.java` |
-| `TC-SYS-086` | 字典类型列表：含 COLOR/SIZE/SEASON/UNIT 四个种子类型 | `backend/server/src/test/java/com/erp/sys/MetricsAndTraceIT.java` |
-| `TC-SYS-087` | 字典项按 sort_no 升序返回，且带 typeCode | `backend/server/src/test/java/com/erp/sys/MetricsAndTraceIT.java` |
-| `TC-SYS-088` | 字典类型不存在：404 + SYS_DICT_TYPE_NOT_FOUND（不是空数组） | `backend/server/src/test/java/com/erp/sys/MetricsAndTraceIT.java` |
-| `TC-SYS-089` | 字典接口无 sys:read 权限：403 | `backend/server/src/test/java/com/erp/sys/MetricsAndTraceIT.java` |
-| `TC-SYS-090` | 字典是只读的：对 /dicts 发 POST 返回 405（不是 500） | `backend/server/src/test/java/com/erp/sys/MetricsAndTraceIT.java` |
-| `TC-SYS-008` | ★ 密码字段被遮成 ***（审计不得记录明文密码） | `backend/server/src/test/java/com/erp/sys/application/AuditJsonTest.java` |
-| `TC-SYS-009` | ★ token / secret / apiKey / authorization 全部脱敏 | `backend/server/src/test/java/com/erp/sys/application/AuditJsonTest.java` |
-| `TC-SYS-010` | 键名变体也脱敏：passwordHash / new_password / clientSecret | `backend/server/src/test/java/com/erp/sys/application/AuditJsonTest.java` |
-| `TC-SYS-011` | 非敏感键不被误遮：tokenType / username / name 原样保留 | `backend/server/src/test/java/com/erp/sys/application/AuditJsonTest.java` |
-| `TC-SYS-012` | 嵌套对象与数组里的敏感字段同样被遮（不能只管第一层） | `backend/server/src/test/java/com/erp/sys/application/AuditJsonTest.java` |
-| `TC-SYS-013` | 标量与 null 不产生快照（审计只关心对象的字段值） | `backend/server/src/test/java/com/erp/sys/application/AuditJsonTest.java` |
-| `TC-SYS-014` | ★ 超大快照返回 null 而不是截断（截断会产生非法 JSON，让「可还原」失效） | `backend/server/src/test/java/com/erp/sys/application/AuditJsonTest.java` |
-| `TC-SYS-015` | 合法快照是能把字段值读回来的 JSON（可还原性的最低要求） | `backend/server/src/test/java/com/erp/sys/application/AuditJsonTest.java` |
-| `TC-SYS-016` | CREATE + SUCCESS 计入下单数（orderType 按资源类型映射） | `backend/server/src/test/java/com/erp/sys/application/MetricsRecorderTest.java` |
-| `TC-SYS-017` | ★ 审核/入库不计入下单数（否则经营看板单量虚高） | `backend/server/src/test/java/com/erp/sys/application/MetricsRecorderTest.java` |
-| `TC-SYS-018` | 失败数按 errorCode 分维度累加 | `backend/server/src/test/java/com/erp/sys/application/MetricsRecorderTest.java` |
-| `TC-SYS-019` | errorCode 为 null 时归到 UNKNOWN 维度（不能让指标因为 null 崩掉） | `backend/server/src/test/java/com/erp/sys/application/MetricsRecorderTest.java` |
-| `TC-SYS-020` | 未知资源类型归到 other 维度 | `backend/server/src/test/java/com/erp/sys/application/MetricsRecorderTest.java` |
-| `TC-SYS-021` | 审计写入计数按 action/result 分维度 | `backend/server/src/test/java/com/erp/sys/application/MetricsRecorderTest.java` |
-| `TC-SYS-022` | 审计写入失败计数可读（应恒为 0，非 0 即告警） | `backend/server/src/test/java/com/erp/sys/application/MetricsRecorderTest.java` |
-| `TC-SYS-023` | ★ 对账差额取绝对值：-1234 → 1234（差额方向不改变「差多少」的含义） | `backend/server/src/test/java/com/erp/sys/application/MetricsRecorderTest.java` |
-| `TC-SYS-024` | 重复注册对账 gauge 不抛异常（Gauge 幂等注册） | `backend/server/src/test/java/com/erp/sys/application/MetricsRecorderTest.java` |
-| `TC-SYS-025` | containsMetric 能识别已注册的指标（测试断言用的自检入口） | `backend/server/src/test/java/com/erp/sys/application/MetricsRecorderTest.java` |
-| `TC-SYS-026` | 指标读不到时返回 0 而不是 null（避免测试里到处判空） | `backend/server/src/test/java/com/erp/sys/application/MetricsRecorderTest.java` |
-| `TC-SYS-027` | forTests 工厂可直接构造（不依赖 Spring 的单元用例入口） | `backend/server/src/test/java/com/erp/sys/application/MetricsRecorderTest.java` |
 | `TC-SYS-069` | 路径动作词优先：POST /xxx/{id}/disable → DISABLE 而不是 CREATE | `backend/server/src/test/java/com/erp/sys/domain/AuditActionTest.java` |
 | `TC-SYS-070` | 无动作词时按 HTTP 方法归类：POST→CREATE / PUT→UPDATE / DELETE→DELETE | `backend/server/src/test/java/com/erp/sys/domain/AuditActionTest.java` |
 | `TC-SYS-071` | 末段是纯数字时视为无动作词（/products/42 → CREATE/UPDATE，不是 OTHER） | `backend/server/src/test/java/com/erp/sys/domain/AuditActionTest.java` |
@@ -763,6 +776,31 @@
 | `TC-SYS-077` | ★ 动作集合包含所有业务域（新增动作时必须来改这条用例，形成提醒） | `backend/server/src/test/java/com/erp/sys/domain/AuditEnumsTest.java` |
 | `TC-SYS-078` | OTHER 只作为兜底存在，不参与路径映射（避免它变成常用分支） | `backend/server/src/test/java/com/erp/sys/domain/AuditEnumsTest.java` |
 | `TC-SYS-079` | 动作名长度不超过数据库列宽 VARCHAR(32) | `backend/server/src/test/java/com/erp/sys/domain/AuditEnumsTest.java` |
+| `TC-SYS-080` | ★ 下单数随成功建单递增（指标真的在计数，不是只注册了个空名字） | `backend/server/src/test/java/com/erp/sys/MetricsAndTraceIT.java` |
+| `TC-SYS-081` | ★ 失败数按错误码分维度：非法参数产生 errorCode 维度并 +1 | `backend/server/src/test/java/com/erp/sys/MetricsAndTraceIT.java` |
+| `TC-SYS-082` | ★ 审计行数 gauge 与实际行数一致（审计链路没停的看板信号） | `backend/server/src/test/java/com/erp/sys/MetricsAndTraceIT.java` |
+| `TC-SYS-083` | 对账差额指标：erp_reconcile_diff_abs 可读且非负 | `backend/server/src/test/java/com/erp/sys/MetricsAndTraceIT.java` |
+| `TC-SYS-084` | ★ traceId 贯穿日志：按 traceId 能捞出该请求的全部日志行 | `backend/server/src/test/java/com/erp/sys/MetricsAndTraceIT.java` |
+| `TC-SYS-085` | 不同请求的 traceId 互不串味（并发安全：MDC 用完即清） | `backend/server/src/test/java/com/erp/sys/MetricsAndTraceIT.java` |
+| `TC-SYS-086` | 字典类型列表：含 COLOR/SIZE/SEASON/UNIT 四个种子类型 | `backend/server/src/test/java/com/erp/sys/MetricsAndTraceIT.java` |
+| `TC-SYS-087` | 字典项按 sort_no 升序返回，且带 typeCode | `backend/server/src/test/java/com/erp/sys/MetricsAndTraceIT.java` |
+| `TC-SYS-088` | 字典类型不存在：404 + SYS_DICT_TYPE_NOT_FOUND（不是空数组） | `backend/server/src/test/java/com/erp/sys/MetricsAndTraceIT.java` |
+| `TC-SYS-089` | 字典接口无 sys:read 权限：403 | `backend/server/src/test/java/com/erp/sys/MetricsAndTraceIT.java` |
+| `TC-SYS-090` | 字典是只读的：对 /dicts 发 POST 返回 405（不是 500） | `backend/server/src/test/java/com/erp/sys/MetricsAndTraceIT.java` |
+| `TC-API-145` | ★ 登录响应带当前租户与成员列表（默认主租户），角色取自主租户 | `backend/server/src/test/java/com/erp/tenant/TenantAdminIT.java` |
+| `TC-API-146` | ★ 登录可选 tenantCode：切到 demo 后角色/权限/ tid 全部来自 demo（不混入主租户角色） | `backend/server/src/test/java/com/erp/tenant/TenantAdminIT.java` |
+| `TC-API-147` | ★ 非成员/未知租户编码登录 → 403（同一错误码）；密码错仍 401，租户校验在密码之后 | `backend/server/src/test/java/com/erp/tenant/TenantAdminIT.java` |
+| `TC-API-148` | ★ /auth/me 刷新后仍恢复当前租户与成员列表；不同 tid 的 token 给出不同租户 | `backend/server/src/test/java/com/erp/tenant/TenantAdminIT.java` |
+| `TC-API-149` | ★ 切换租户重新签发 JWT：新 token tid=2、旧 token tid=1；角色/权限换成目标租户 | `backend/server/src/test/java/com/erp/tenant/TenantAdminIT.java` |
+| `TC-API-150` | ★ 非成员/未知编码切换 → 403；空编码 → 400；租户 2 管理员切租户 1 同样被拒 | `backend/server/src/test/java/com/erp/tenant/TenantAdminIT.java` |
+| `TC-API-151` | ★ 停用租户：登录/切换被拒、既有 token 下一请求 401；主租户登录不受影响，启用后恢复 | `backend/server/src/test/java/com/erp/tenant/TenantAdminIT.java` |
+| `TC-API-152` | ★ 普通租户 ADMIN 看 /tenants → 403；平台租户 ADMIN → 200（adminBypass=false 的关键回归） | `backend/server/src/test/java/com/erp/tenant/TenantAdminIT.java` |
+| `TC-API-153` | ★ 平台管理员只读租户元数据：跨租户业务数据仍 404，同租户正对照 200，且不能切到非成员租户 | `backend/server/src/test/java/com/erp/tenant/TenantAdminIT.java` |
+| `TC-API-154` | ★ 租户启停：列表/启停成功；停平台租户或当前所在租户 409；未知 id 404；启用可重复 | `backend/server/src/test/java/com/erp/tenant/TenantAdminIT.java` |
+| `TC-TNT-068` | ★ 成员关系唯一由数据库约束保证：重复 (user, tenant) 插入失败，行数不变 | `backend/server/src/test/java/com/erp/tenant/TenantAdminIT.java` |
+| `TC-TNT-069` | ★ 用户插入即获得主租户成员关系（含 HTTP 建号路径）；多成员用户成员列表 2 条 | `backend/server/src/test/java/com/erp/tenant/TenantAdminIT.java` |
+| `TC-TNT-070` | ★ 成员关系表也受租户过滤：默认租户只见 3 行、demo 只见 2 行、全局 5 行 | `backend/server/src/test/java/com/erp/tenant/TenantAdminIT.java` |
+| `TC-TNT-071` | ★ tenant:manage 只种在平台租户 ADMIN；普通租户 ADMIN 的权限清单里没有它 | `backend/server/src/test/java/com/erp/tenant/TenantAdminIT.java` |
 | `TC-API-125` | ★ 登录结果与 token 都携带租户：租户 2 用户登录后 tenantId=2，且只能读自己的数据 | `backend/server/src/test/java/com/erp/tenant/TenantAuthIT.java` |
 | `TC-API-126` | ★ 没有 tid 声明的 token（旧版本签发）→ 401，不能靠库里的租户兜底 | `backend/server/src/test/java/com/erp/tenant/TenantAuthIT.java` |
 | `TC-API-127` | ★ tid 与账号真实归属不一致 → 401（不能拿别的租户的声明蒙混） | `backend/server/src/test/java/com/erp/tenant/TenantAuthIT.java` |
@@ -792,4 +830,4 @@
 | `TC-TNT-036` | ★ 没有租户绑定时拒绝执行，而不是回落到默认租户 | `backend/server/src/test/java/com/erp/tenant/TenantWiringIT.java` |
 | `TC-TNT-037` | 上下文成对开闭：嵌套切换后精确回退到上一层，异常也不泄漏 | `backend/server/src/test/java/com/erp/tenant/TenantWiringIT.java` |
 
-共 787 条用例。
+共 825 条用例。

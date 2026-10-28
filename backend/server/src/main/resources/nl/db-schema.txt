@@ -1,0 +1,66 @@
+== 可查询的数据结构（PostgreSQL，只读） ==
+
+【全局约定，写 SQL 前必读】
+1. 所有金额字段单位是「分」（整数）。展示给用户时必须除以 100，并保留两位小数。
+2. 所有表都有 tenant_id，**不要自己加 tenant_id 条件**，系统已按当前租户自动隔离。
+3. 单据状态 status 的取值：DRAFT=草稿 SUBMITTED=待审核 APPROVED=已审核
+   PARTIAL=部分完成 COMPLETED=已完成 VOIDED=已作废 REJECTED=已驳回。
+   统计金额或数量时一般要排除 VOIDED（作废的生意不算业绩）。
+4. period 是账期，格式 YYYY-MM。
+5. 只允许一条 SELECT。不要 SELECT *，要显式列名并用中文别名（如 c.name AS 客户名称）。
+
+【出货（销售）】
+sales_orders — 出货单主表
+  id, order_no 单号, status 状态, customer_id 客户id, warehouse_id 仓库id,
+  biz_date 业务日期, total_amount 总金额(分), total_qty 总数量, period 账期, remark 备注
+sales_order_lines — 出货单明细
+  order_id 对应 sales_orders.id, line_no 行号, sku_id, qty 数量,
+  shipped_qty 已发数量, returned_qty 已退数量,
+  unit_price_amount 单价(分), amount 行金额(分), discount_rate 折扣(万分比,10000=不打折)
+
+【进货（采购）】
+purchase_orders — 进货单主表（doc_type 恒为 'PURCHASE'）
+  id, order_no 单号, status 状态, supplier_id 供应商id, warehouse_id 仓库id,
+  biz_date 业务日期, total_amount 总金额(分), total_qty 总数量, period 账期, remark 备注
+purchase_order_lines — 进货单明细
+  order_id 对应 purchase_orders.id, line_no, sku_id, qty 数量, received_qty 已入库数量,
+  qc_status 质检状态, unit_price_amount 单价(分), amount 行金额(分)
+
+【退货】
+return_orders — 退货单主表
+  id, order_no, status, customer_id 客户id, origin_sales_order_id 原出货单id,
+  warehouse_id, biz_date 业务日期, total_amount 总金额(分), total_qty, period
+return_order_lines — 退货明细
+  order_id, sku_id, qty 数量, unit_price_amount 单价(分), amount 行金额(分), batch_no 批次
+
+【库存】
+inventory_balances — 库存余额（按 SKU + 仓库 + 批次）
+  sku_id, warehouse_id, batch_no 批次号, expiry_date 有效期,
+  on_hand_qty 实存, reserved_qty 预占, frozen_qty 冻结,
+  available_qty 可用（= 实存 - 预占 - 冻结，生成列，直接用它）
+
+【主数据】
+products — 商品
+  id, code 编码, name 名称, category 品类, season 季节, enabled 是否启用
+skus — SKU（颜色/尺码维度）
+  id, product_id 所属商品id, color 颜色, size 尺码, barcode 条码,
+  retail_price_amount 零售价(分), enabled, min_level 安全库存下限, max_level 上限
+suppliers — 供应商
+  id, code 编码, name 名称, contact_name 联系人, contact_phone 电话, address 地址, enabled
+customers — 客户
+  id, code 编码, name 名称, phone 电话, discount_rate 折扣(万分比),
+  level 等级, enabled, credit_limit 信用额度(分), credit_days 账期天数
+warehouses — 仓库
+  id, code 编码, name 名称, address 地址, enabled, priority 优先级
+
+【常见关联】
+  sales_orders.customer_id → customers.id
+  sales_orders.warehouse_id → warehouses.id
+  sales_order_lines.order_id → sales_orders.id
+  sales_order_lines.sku_id → skus.id
+  purchase_orders.supplier_id → suppliers.id
+  purchase_order_lines.order_id → purchase_orders.id
+  inventory_balances.sku_id → skus.id
+  inventory_balances.warehouse_id → warehouses.id
+  skus.product_id → products.id
+  return_orders.origin_sales_order_id → sales_orders.id

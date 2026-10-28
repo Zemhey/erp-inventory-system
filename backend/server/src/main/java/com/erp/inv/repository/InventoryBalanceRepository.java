@@ -63,6 +63,111 @@ public class InventoryBalanceRepository {
         return rows.stream().findFirst();
     }
 
+    /**
+     * 分页查询（库存查询页专用）：带 SKU / 商品 / 仓库名称，一次只取一页。
+     *
+     * <p><b>为什么要单独一个方法，而不是让页面继续用 {@link #query}</b>：
+     * 演示库有 2000+ 行余额（600 个 SKU × 多仓 × 多批次），一次性全量返回时
+     * 前端要同时渲染两千行表格、再逐行拿字典翻译名字 —— 打开页面要等好几秒。
+     * 库存查询是"找某一批货"的页面，天然应该分页 + 按关键字过滤。
+     *
+     * <p><b>名称为什么由后端给</b>：原来前端拉一份 200 条的 SKU 字典做翻译，
+     * 而 SKU 有 600 个 —— 字典之外的行走显示成 {@code SKU#123}。
+     * 让 SQL 顺手 join 出来，既不截断也不用前端再维护映射。
+     *
+     * @param keyword 模糊匹配商品编码/名称、SKU 条码、批次号、仓库名；空则不过滤
+     */
+    public PageSlice<BalanceRow> pageQuery(Long skuId, Long warehouseId, String batchNo,
+                                           boolean onlyAvailable, String keyword,
+                                           int offset, int limit) {
+        StringBuilder where = new StringBuilder(" WHERE 1 = 1");
+        List<Object> args = new java.util.ArrayList<>();
+        if (skuId != null) {
+            where.append(" AND b.sku_id = ?");
+            args.add(skuId);
+        }
+        if (warehouseId != null) {
+            where.append(" AND b.warehouse_id = ?");
+            args.add(warehouseId);
+        }
+        if (batchNo != null && !batchNo.isBlank()) {
+            where.append(" AND b.batch_no = ?");
+            args.add(batchNo);
+        }
+        if (onlyAvailable) {
+            where.append(" AND b.available_qty > 0");
+        }
+        if (keyword != null && !keyword.isBlank()) {
+            where.append(" AND (p.code ILIKE ? OR p.name ILIKE ? OR s.barcode ILIKE ?"
+                    + " OR b.batch_no ILIKE ? OR w.name ILIKE ?)");
+            String like = "%" + keyword.trim() + "%";
+            for (int i = 0; i < 5; i++) {
+                args.add(like);
+            }
+        }
+        // 数据权限：与全量查询同一套谓词，保证"看不到的仓"既不出现也不被计数
+        where.append(scope.warehouseOnly("b.warehouse_id", args));
+
+        Long total = jdbc.queryForObject("""
+                SELECT COUNT(*)
+                  FROM inventory_balances b
+                  LEFT JOIN skus s ON s.id = b.sku_id
+                  LEFT JOIN products p ON p.id = s.product_id
+                  LEFT JOIN warehouses w ON w.id = b.warehouse_id
+                """ + where, Long.class, args.toArray());
+
+        List<Object> pageArgs = new java.util.ArrayList<>(args);
+        pageArgs.add(limit);
+        pageArgs.add(offset);
+        // 有货的行排前面：零库存的历史批次是真实数据（卖完了但批次行还在），
+        // 不该占据第一屏 —— 打开库存页的人是来找"现在有什么货"的，
+        // 而不是看一堆 0。想查历史批次，翻页或勾"只看有可用量"反过来筛即可。
+        List<BalanceRow> items = jdbc.query("""
+                SELECT b.sku_id, p.code AS product_code, p.name AS product_name,
+                       p.category AS category, s.color, s.size, s.barcode,
+                       b.warehouse_id, w.name AS warehouse_name,
+                       b.batch_no, b.expiry_date,
+                       b.on_hand_qty, b.reserved_qty, b.frozen_qty, b.available_qty
+                  FROM inventory_balances b
+                  LEFT JOIN skus s ON s.id = b.sku_id
+                  LEFT JOIN products p ON p.id = s.product_id
+                  LEFT JOIN warehouses w ON w.id = b.warehouse_id
+                """ + where + """
+                 ORDER BY (b.available_qty > 0) DESC,
+                          b.sku_id, b.warehouse_id, b.expiry_date NULLS LAST, b.batch_no
+                 LIMIT ? OFFSET ?
+                """, (rs, i) -> new BalanceRow(
+                rs.getLong("sku_id"),
+                rs.getString("product_code"),
+                rs.getString("product_name"),
+                rs.getString("category"),
+                rs.getString("color"),
+                rs.getString("size"),
+                rs.getString("barcode"),
+                rs.getLong("warehouse_id"),
+                rs.getString("warehouse_name"),
+                rs.getString("batch_no"),
+                rs.getObject("expiry_date", java.time.LocalDate.class),
+                rs.getInt("on_hand_qty"),
+                rs.getInt("reserved_qty"),
+                rs.getInt("frozen_qty"),
+                rs.getInt("available_qty")),
+                pageArgs.toArray());
+        return new PageSlice<>(items, total == null ? 0 : total);
+    }
+
+    /** 库存查询行：把展示要用的名称一次性带出来，避免前端再维护 600 条字典。 */
+    public record BalanceRow(long skuId, String productCode, String productName, String category,
+                             String color, String size, String barcode,
+                             long warehouseId, String warehouseName, String batchNo,
+                             java.time.LocalDate expiryDate,
+                             int onHandQty, int reservedQty, int frozenQty, int availableQty) {
+    }
+
+    /** 分页切片：总数与当前页行。 */
+    public record PageSlice<T>(List<T> items, long total) {
+    }
+
     public List<InventoryBalance> query(Long skuId, Long warehouseId, String batchNo, boolean onlyAvailable) {
         StringBuilder sql = new StringBuilder("""
                 SELECT id, sku_id, warehouse_id, batch_no, production_date, expiry_date,

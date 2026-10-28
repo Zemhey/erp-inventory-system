@@ -6,7 +6,6 @@ import java.util.List;
 import java.util.Optional;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
-import org.springframework.jdbc.core.simple.SimpleJdbcInsert;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -86,17 +85,25 @@ public class OrganizationRepository {
         return n != null && n > 0;
     }
 
+    /**
+     * 建部门。
+     *
+     * <p><b>为什么不用 {@code SimpleJdbcInsert}</b>：它内部走
+     * {@code update(PreparedStatementCreator, KeyHolder)} 重载，拿不到 SQL 文本，
+     * 而租户守卫（{@link com.erp.shared.tenant.TenantAwareJdbcTemplate}）只认得
+     * "带文本"的调用 —— 于是任何一次建部门都直接 500
+     * （{@code SYS_TENANT_CONTEXT_MISSING}），而且这个错误在菜单里点不出来：
+     * 组织架构页在此之前只有"看"，没有"建"。
+     * 统一走 {@code TenantJdbc.insertReturningId}：有 SQL 文本、能注入 tenant_id。
+     */
     public long insertDepartment(String code, String name, Long parentId, int sortNo) {
-        SimpleJdbcInsert insert = new SimpleJdbcInsert(jdbc)
-                .withTableName("sys_department")
-                .usingGeneratedKeyColumns("id");
-        java.util.Map<String, Object> params = new java.util.LinkedHashMap<>();
-        params.put("parent_id", parentId);
-        params.put("code", code);
-        params.put("name", name);
-        params.put("sort_no", sortNo);
-        Number id = insert.executeAndReturnKey(params);
-        return id.longValue();
+        return com.erp.shared.tenant.TenantJdbc.insertReturningId(jdbc,
+                """
+                    INSERT INTO sys_department (parent_id, code, name, sort_no, enabled)
+                    VALUES (?, ?, ?, ?, true)
+                    RETURNING id
+                    """,
+                new Object[]{parentId, code, name, sortNo});
     }
 
     public void updateDepartment(long id, String name, Long parentId, int sortNo, boolean enabled) {
@@ -147,17 +154,15 @@ public class OrganizationRepository {
         return n != null && n > 0;
     }
 
+    /** 建岗位：同上，必须走带 SQL 文本的插入，否则租户谓词注入不进去。 */
     public long insertPosition(long departmentId, String code, String name, int level) {
-        SimpleJdbcInsert insert = new SimpleJdbcInsert(jdbc)
-                .withTableName("sys_position")
-                .usingGeneratedKeyColumns("id");
-        java.util.Map<String, Object> params = new java.util.LinkedHashMap<>();
-        params.put("department_id", departmentId);
-        params.put("code", code);
-        params.put("name", name);
-        params.put("level", level);
-        Number id = insert.executeAndReturnKey(params);
-        return id.longValue();
+        return com.erp.shared.tenant.TenantJdbc.insertReturningId(jdbc,
+                """
+                    INSERT INTO sys_position (department_id, code, name, level, enabled)
+                    VALUES (?, ?, ?, ?, true)
+                    RETURNING id
+                    """,
+                new Object[]{departmentId, code, name, level});
     }
 
     public void updatePosition(long id, String name, int level, boolean enabled) {

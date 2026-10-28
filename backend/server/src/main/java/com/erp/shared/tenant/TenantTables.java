@@ -34,9 +34,9 @@ import java.util.Set;
 public final class TenantTables {
 
     /**
-     * 全部带 {@code tenant_id} 的业务表（76 张 = V16 的 55 张 + V17 的成员关系表 1 张
+     * 全部带 {@code tenant_id} 的业务表（77 张 = V16 的 55 张 + V17 的成员关系表 1 张
      * + V18 的主数据扩展 3 张 + V19 的骨架系统表 5 张 + V20 的财务中心 8 张
-     * + V21 的 PRM 4 张）。
+     * + V21 的 PRM 4 张 + V25 的自然语言审计 1 张）。
      */
     public static final Set<String> ALL = Set.copyOf(List.of(
             // 主数据
@@ -83,7 +83,9 @@ public final class TenantTables {
             "fin_bank_account", "fin_cash_journal",
             "fin_expense", "fin_expense_line", "fin_invoice",
             // V3-3（V21）：PRM 价格方案与促销
-            "prm_price_plan", "prm_price_plan_item", "prm_promotion", "prm_promotion_rule"));
+            "prm_price_plan", "prm_price_plan_item", "prm_promotion", "prm_promotion_rule",
+            // V4（V25）：自然语言操作的计划与执行审计（待确认队列的数据源）
+            "nl_execution"));
 
     /**
      * 在查询里**可能出现但不需要改写**的表。

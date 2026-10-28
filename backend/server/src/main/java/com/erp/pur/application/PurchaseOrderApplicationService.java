@@ -143,6 +143,17 @@ public class PurchaseOrderApplicationService {
     // ─────────────────────────── 建单 ───────────────────────────
 
     /**
+     * 行金额（ADR-0005）：{@code qty × unitPriceAmount}，单位分。
+     *
+     * <p>抽成 public static 是因为"预览"也要用同一条规则：{@code /nl/plan} 会拿它算一遍
+     * 给人看，如果那边自己乘一遍，迟早出现"预览 ¥100、建出来 ¥98"这种差异。
+     * 溢出一律抛 {@link ArithmeticException}，由调用方决定是报错还是标红。
+     */
+    public static long lineAmount(int qty, long unitPriceAmount) {
+        return Math.multiplyExact((long) qty, unitPriceAmount);
+    }
+
+    /**
      * 创建进货单（草稿）。
      *
      * <p><b>幂等</b>：同一 {@code requestId} 重复提交直接返回首次建成的单据，
@@ -182,7 +193,7 @@ public class PurchaseOrderApplicationService {
                                 .formatted(line.skuId(), line.unitPriceAmount()));
             }
             requireSkuEnabled(line.skuId());
-            long amount = Math.multiplyExact((long) line.qty(), line.unitPriceAmount());
+            long amount = lineAmount(line.qty(), line.unitPriceAmount());
             totalAmount = Math.addExact(totalAmount, amount);
             totalQty += line.qty();
             computed.add(new long[]{line.skuId(), line.qty(), line.unitPriceAmount(), amount});
@@ -517,6 +528,30 @@ public class PurchaseOrderApplicationService {
     public PageResult<PurchaseOrder> page(DocumentStatus status, Long supplierId,
                                           int page, int size) {
         return orders.page(status, supplierId, page, size);
+    }
+
+    /**
+     * 带业务日期区间与排序的分页（自然语言"最近一个月的进货单，按时间排序"用）。
+     *
+     * <p>日期落在 {@code biz_date} 上而不是创建时间：用户说的"上个月的单子"
+     * 指业务发生月，补录场景下两者能差很远。
+     */
+    @Transactional(readOnly = true)
+    public PageResult<PurchaseOrder> page(DocumentStatus status, Long supplierId,
+                                          LocalDate dateFrom, LocalDate dateTo,
+                                          String orderBy, boolean ascending, int page, int size) {
+        return orders.page(status, supplierId, dateFrom, dateTo, orderBy, ascending, page, size);
+    }
+
+    /**
+     * 供应商的采购画像（自然语言"这个供应商怎么样"用）。
+     *
+     * <p>放在应用服务而不是让 nl 层自己查：统计口径（排除作废、带数据权限）
+     * 必须和列表页一致，否则会出现"列表 12 张、画像说 15 笔"。
+     */
+    @Transactional(readOnly = true)
+    public com.erp.shared.document.PartyDealSummary summaryBySupplier(long supplierId) {
+        return orders.summaryBySupplier(supplierId);
     }
 
     // ─────────────────────────── 内部辅助 ───────────────────────────

@@ -61,7 +61,66 @@ async function safe(run: () => Promise<unknown>): Promise<ToolResult> {
   }
 }
 
+/** 供 index.ts 的 /health 汇报用：工具清单只有一处定义，避免两边数不一致。 */
+export const TOOL_NAMES = [
+  'system_status',
+  'dashboard_overview',
+  'query_inventory',
+  'list_documents',
+  'get_document',
+  'inventory_summary',
+  'query_master_data',
+  'nl_command',
+  'nl_plan',
+] as const
+
 export function registerTools(server: McpServer, client: ErpClient): void {
+  // ── 0. 自检：Agent 在被问到"系统通不通"时，先有据可依 ──
+  server.registerTool(
+    'system_status',
+    {
+      title: '系统运行状态',
+      description:
+        '检查进销存后端是否在线、数据库等依赖是否健康、当前以什么身份连接。不需要任何权限，也不产生业务数据。',
+      inputSchema: {},
+    },
+    () =>
+      safe(async () => {
+        const health = await client.health()
+        return {
+          backend: {
+            status: health.status,
+            baseUrl: client.origin,
+            latencyMs: health.latencyMs,
+            components: health.components,
+          },
+          auth: client.authInfo(),
+          server: 'erp-inventory-mcp 0.2.0',
+          tools: TOOL_NAMES,
+        }
+      }),
+  )
+
+  // ── 1. 工作台聚合：一次拿到 KPI + 待办 + 最近单据 ──
+  server.registerTool(
+    'dashboard_overview',
+    {
+      title: '经营概览',
+      description:
+        '一次取回工作台聚合数据：8 个 KPI（商品/SKU/客户/供应商/进货单/出货单/库存行/零库存）、待办计数、最近单据、趋势图。需要 dashboard:read。',
+      inputSchema: {
+        includeCharts: z.boolean().optional().describe('是否包含趋势图数据（默认关闭，减少 token 消耗）'),
+      },
+    },
+    (args) =>
+      safe(async () => {
+        const data = (await client.dashboardSummary()) as Record<string, unknown>
+        if (args.includeCharts) return data
+        const { charts: _charts, ...rest } = data
+        return { ...rest, chartsOmitted: true }
+      }),
+  )
+
   server.registerTool(
     'query_inventory',
     {
@@ -144,14 +203,40 @@ export function registerTools(server: McpServer, client: ErpClient): void {
     {
       title: '自然语言操作',
       description: [
-        '用一句自然语言操作进销存系统（FR-SYS-04）。支持：查库存、查单据列表/详情、进销存汇总、查主数据、',
-        '创建进货草稿、创建出货草稿。写操作只建草稿，不审核/入库/出货/作废。',
-        '示例：“查询 SKU 12 在仓库 3 的库存”“账期 2026-10 进销存汇总”“进货单列表 状态 已审核”。',
+        '用一句自然语言操作进销存系统（FR-SYS-04），与网页底部的「自然语言操作台」是同一个后端入口。支持：',
+        '查库存、查单据列表/详情、进销存汇总、**补货建议**（目标级：一次给出该补哪些 SKU、各补多少，',
+        '组合可用量/在途/上下限）、查主数据、创建进货草稿、创建出货草稿。',
+        '写操作只建草稿，不审核/入库/出货/作废。',
+        '示例：“补货建议 仓库 421”“查询 SKU 12 在仓库 3 的库存”“账期 2026-10 进销存汇总”。',
       ].join(''),
       inputSchema: {
         command: z.string().min(1).max(500).describe('自然语言指令'),
       },
     },
     (args) => safe(() => client.nlCommand(args.command)),
+  )
+
+  // ── 执行计划：写操作前先给人看"将要发生什么"（FR-V4-03 · S3） ──
+  // 为什么单独暴露：Agent 直接调 nl_command 就落库了，人看不到中间那一步。
+  // 有了 nl_plan，Agent 可以先拿计划、把影响念给人听，得到同意再执行。
+  server.registerTool(
+    'nl_plan',
+    {
+      title: '生成执行计划（不执行）',
+      description: [
+        '把一句自然语言变成"执行计划"：打算做什么、影响什么、有没有问题，但**不做任何修改**。',
+        '返回三块：`plan`（计划）、`review`（复核意见）、`confirmation`（确认回执）。',
+        '`plan.requiresReview=true` 表示这是写操作：先向人展示 `plan.summary` 与 `review.findings`，',
+        '得到同意后带 `confirmation.token` 调 `nl_command`；`requiresReview=false` 表示只读，可直接执行。',
+        '`plan.executable=false` 时看 `plan.blockers`：缺参数或引用的对象不存在，补齐后再试。',
+        '`review.verdict` 三档：APPROVE（复核不反对，**不等于批准**）、NEED_HUMAN（要人判断）、',
+        'REJECT（不允许执行，此时不会签发回执）。',
+        '它是只读的，可以反复调用。示例：“创建进货单 供应商=1 仓库=421 SKU=629 数量=10 单价=1200”。',
+      ].join(''),
+      inputSchema: {
+        command: z.string().min(1).max(500).describe('自然语言指令'),
+      },
+    },
+    (args) => safe(() => client.nlPlan(args.command)),
   )
 }

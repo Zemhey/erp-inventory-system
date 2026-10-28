@@ -2,11 +2,14 @@ package com.erp.pur.repository;
 
 import com.erp.pur.domain.PurchaseOrder;
 import com.erp.pur.domain.PurchaseOrderLine;
+import com.erp.shared.db.SortColumns;
 import com.erp.shared.document.DocumentStatus;
+import com.erp.shared.document.PartyDealSummary;
 import com.erp.shared.web.PageResult;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -279,7 +282,38 @@ public class PurchaseOrderRepository {
                 "SELECT id FROM purchase_order_lines WHERE id = ? FOR UPDATE", Long.class, lineId)
                 .isEmpty();
     }
+    /**
+     * 可排序的列（白名单）。键是小写，给人/模型用的名字；值是真实列名。
+     *
+     * <p>刻意不放开 {@code supplier_id} / {@code warehouse_id}：按外键排序对用户没有意义，
+     * 只会让"按时间排序"被误配成"按 id 排序"这种看起来生效、实则不对的结果。
+     */
+    private static final Map<String, String> SORTABLE = Map.of(
+            "id", "id",
+            "orderno", "order_no",
+            "bizdate", "biz_date",
+            "totalamount", "total_amount",
+            "totalqty", "total_qty");
+
     public PageResult<PurchaseOrder> page(DocumentStatus status, Long supplierId, int page, int size) {
+        return page(status, supplierId, null, null, null, false, page, size);
+    }
+
+    /**
+     * 带日期区间与排序的分页（自然语言"一个月内的进货单，按时间排序"用它）。
+     *
+     * <p>日期条件是 <b>闭区间</b> 且作用在 {@code biz_date}（业务日期）而非创建时间：
+     * 用户说"上个月的单子"指的是业务发生月，不是"我上个月录进去的"。
+     * 这两个值在补录场景下会差很远。
+     *
+     * @param dateFrom  起始日（含），null 表示不限
+     * @param dateTo    截止日（含），null 表示不限
+     * @param orderBy   排序键，见 {@link #SORTABLE}；非法值退回 id
+     * @param ascending 是否升序
+     */
+    public PageResult<PurchaseOrder> page(DocumentStatus status, Long supplierId,
+                                          LocalDate dateFrom, LocalDate dateTo,
+                                          String orderBy, boolean ascending, int page, int size) {
         int p = PageResult.normalizePage(page);
         int s = PageResult.normalizeSize(size);
         List<Object> args = new ArrayList<>();
@@ -292,6 +326,14 @@ public class PurchaseOrderRepository {
             where.append(" AND supplier_id = ?");
             args.add(supplierId);
         }
+        if (dateFrom != null) {
+            where.append(" AND biz_date >= ?");
+            args.add(dateFrom);
+        }
+        if (dateTo != null) {
+            where.append(" AND biz_date <= ?");
+            args.add(dateTo);
+        }
         // ★ 数据权限：仓库 + 本人（参数按 SQL 出现顺序追加，紧跟用户过滤条件之后）
         where.append(scope.predicates("warehouse_id", "created_by", args));
         Long total = jdbc.queryForObject("SELECT COUNT(*) FROM purchase_orders" + where,
@@ -299,16 +341,47 @@ public class PurchaseOrderRepository {
         List<Object> pageArgs = new ArrayList<>(args);
         pageArgs.add(s);
         pageArgs.add(PageResult.offset(p, s));
+        String order = SortColumns.orderBy(orderBy, ascending, SORTABLE, "id");
         List<PurchaseOrder> headers = jdbc.query("""
                 SELECT id, order_no, status, supplier_id, warehouse_id, biz_date,
                        total_amount, total_qty, period, remark, version
                   FROM purchase_orders
-                """ + where + " ORDER BY id DESC LIMIT ? OFFSET ?", ORDER_MAPPER, pageArgs.toArray());
+                """ + where + " ORDER BY " + order + ", id DESC LIMIT ? OFFSET ?",
+                ORDER_MAPPER, pageArgs.toArray());
         List<PurchaseOrder> items = headers.stream()
                 .map(h -> new PurchaseOrder(h.id(), h.orderNo(), h.status(), h.supplierId(),
                         h.warehouseId(), h.bizDate(), h.totalAmount(), h.totalQty(),
                         h.period(), h.remark(), h.version(), findLines(h.id())))
                 .toList();
         return new PageResult<>(items, total == null ? 0 : total, p, s);
+    }
+
+    /**
+     * 某供应商的采购画像：单数 / 累计金额 / 最近交易日 / 待审单数。
+     *
+     * <p><b>为什么要排除作废单</b>：作废意味着这笔生意没发生，算进去会让
+     * "累计采购额"虚高。财务口径上作废单从不算金额，这里与之一致。
+     *
+     * <p>统计同样带数据权限（仓库 + 本人）：否则只读某仓库的用户
+     * 会通过"累计金额"看到自己看不到的单据的存在。
+     */
+    public PartyDealSummary summaryBySupplier(long supplierId) {
+        List<Object> args = new ArrayList<>();
+        args.add(supplierId);
+        StringBuilder where = new StringBuilder(
+                " WHERE doc_type = 'PURCHASE' AND supplier_id = ? AND status <> 'VOIDED'");
+        where.append(scope.predicates("warehouse_id", "created_by", args));
+        PartyDealSummary summary = jdbc.queryForObject("""
+                SELECT COUNT(*) AS cnt,
+                       COALESCE(SUM(total_amount), 0) AS amt,
+                       MAX(biz_date) AS last_date,
+                       COUNT(*) FILTER (WHERE status = 'SUBMITTED') AS pending
+                  FROM purchase_orders
+                """ + where, (rs, i) -> new PartyDealSummary(
+                        rs.getInt("cnt"),
+                        rs.getLong("amt"),
+                        rs.getObject("last_date", LocalDate.class),
+                        rs.getInt("pending")), args.toArray());
+        return summary == null ? PartyDealSummary.none() : summary;
     }
 }

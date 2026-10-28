@@ -5,6 +5,7 @@ import com.erp.shared.tenant.TenantContext;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -207,6 +208,128 @@ public class AppUserRepository {
                 + " ORDER BY id LIMIT ? OFFSET ?", USER_MAPPER, pageArgs.toArray())
                 .stream().map(this::withRolesAndPermissions).toList();
         return new com.erp.shared.web.PageResult<>(items, total == null ? 0 : total, p, s);
+    }
+
+    /**
+     * 员工档案列表（账号 + 人事字段 + 部门/岗位名称）。
+     *
+     * <p><b>为什么不直接复用 {@link #page}</b>：那个方法返回的是 {@link AppUser}，
+     * 只有登录相关字段，部门/岗位只有 id —— 页面要显示"销售部 / 销售代表"就得
+     * 再拉两份字典自己翻译。员工列表是人事视角的页面，一次把名字拼好更省事，
+     * 也避免前端为了 30 行数据去拉全量组织架构。
+     *
+     * <p>角色另用一条 {@code IN} 查询补齐，而不是在 SQL 里 {@code string_agg} 子查询：
+     * 一页最多 200 行，多一条简单查询远比一条嵌套聚合好读；
+     * 子查询在租户改写器下也更容易出意外。
+     */
+    public com.erp.shared.web.PageResult<EmployeeRow> pageEmployees(
+            String keyword, Long departmentId, Boolean enabled, int page, int size) {
+        int p = com.erp.shared.web.PageResult.normalizePage(page);
+        int s = com.erp.shared.web.PageResult.normalizeSize(size);
+        List<Object> args = new java.util.ArrayList<>();
+        StringBuilder where = new StringBuilder(" WHERE 1 = 1");
+        if (keyword != null && !keyword.isBlank()) {
+            where.append(" AND (u.username ILIKE ? OR u.display_name ILIKE ?"
+                    + " OR u.employee_no ILIKE ? OR u.phone ILIKE ?)");
+            String like = "%" + keyword.trim() + "%";
+            for (int i = 0; i < 4; i++) {
+                args.add(like);
+            }
+        }
+        if (departmentId != null) {
+            where.append(" AND u.department_id = ?");
+            args.add(departmentId);
+        }
+        if (enabled != null) {
+            where.append(" AND u.enabled = ?");
+            args.add(enabled);
+        }
+        Long total = jdbc.queryForObject("SELECT COUNT(*) FROM app_users u" + where,
+                Long.class, args.toArray());
+        List<Object> pageArgs = new java.util.ArrayList<>(args);
+        pageArgs.add(s);
+        pageArgs.add(com.erp.shared.web.PageResult.offset(p, s));
+        List<EmployeeRow> rows = jdbc.query("""
+                SELECT u.id, u.username, u.display_name, u.employee_no, u.phone, u.email,
+                       u.hire_date, u.remark, u.department_id, d.name AS department_name,
+                       u.position_id, ps.name AS position_name,
+                       u.enabled, u.locked_until, u.must_change_password
+                  FROM app_users u
+                  LEFT JOIN sys_department d ON d.id = u.department_id
+                  LEFT JOIN sys_position ps ON ps.id = u.position_id
+                """ + where + " ORDER BY u.id LIMIT ? OFFSET ?",
+                (rs, i) -> new EmployeeRow(
+                        rs.getLong("id"),
+                        rs.getString("username"),
+                        rs.getString("display_name"),
+                        rs.getString("employee_no"),
+                        rs.getString("phone"),
+                        rs.getString("email"),
+                        rs.getObject("hire_date", java.time.LocalDate.class),
+                        rs.getString("remark"),
+                        rs.getObject("department_id", Long.class),
+                        rs.getString("department_name"),
+                        rs.getObject("position_id", Long.class),
+                        rs.getString("position_name"),
+                        rs.getBoolean("enabled"),
+                        toInstant(rs.getObject("locked_until", java.time.OffsetDateTime.class)),
+                        rs.getBoolean("must_change_password"),
+                        List.of()),
+                pageArgs.toArray());
+        return new com.erp.shared.web.PageResult<>(withRoles(rows), total == null ? 0 : total, p, s);
+    }
+
+    /** 给一页员工补上角色编码（一条 IN 查询，避免 N+1）。 */
+    private List<EmployeeRow> withRoles(List<EmployeeRow> rows) {
+        if (rows.isEmpty()) {
+            return rows;
+        }
+        String marks = String.join(",", java.util.Collections.nCopies(rows.size(), "?"));
+        Map<Long, List<String>> byUser = new java.util.HashMap<>();
+        jdbc.query("""
+                SELECT ur.user_id, r.code
+                  FROM app_user_roles ur
+                  JOIN app_roles r ON r.id = ur.role_id
+                 WHERE ur.user_id IN (%s)
+                 ORDER BY r.code
+                """.formatted(marks),
+                rs -> {
+                    byUser.computeIfAbsent(rs.getLong("user_id"), k -> new java.util.ArrayList<>())
+                            .add(rs.getString("code"));
+                },
+                rows.stream().map(EmployeeRow::id).toArray());
+        return rows.stream()
+                .map(r -> new EmployeeRow(r.id(), r.username(), r.displayName(), r.employeeNo(),
+                        r.phone(), r.email(), r.hireDate(), r.remark(), r.departmentId(),
+                        r.departmentName(), r.positionId(), r.positionName(), r.enabled(),
+                        r.lockedUntil(), r.mustChangePassword(),
+                        byUser.getOrDefault(r.id(), List.of())))
+                .toList();
+    }
+
+    /**
+     * 写员工档案。全部字段覆盖式写入（null 表示清空），
+     * 与页面"一个表单提交全部字段"的语义一致。
+     */
+    public boolean updateProfile(long userId, String employeeNo, Long departmentId, Long positionId,
+                                 String phone, String email, java.time.LocalDate hireDate,
+                                 String remark) {
+        return jdbc.update("""
+                UPDATE app_users
+                   SET employee_no = ?, department_id = ?, position_id = ?,
+                       phone = ?, email = ?, hire_date = ?, remark = ?, updated_at = now()
+                 WHERE id = ?
+                """, employeeNo, departmentId, positionId, phone, email, hireDate, remark,
+                userId) == 1;
+    }
+
+    /** 员工档案行（列表用）：账号信息 + 人事字段 + 部门/岗位名称 + 角色。 */
+    public record EmployeeRow(long id, String username, String displayName, String employeeNo,
+                              String phone, String email, java.time.LocalDate hireDate,
+                              String remark, Long departmentId, String departmentName,
+                              Long positionId, String positionName, boolean enabled,
+                              Instant lockedUntil, boolean mustChangePassword,
+                              List<String> roles) {
     }
 
     /**

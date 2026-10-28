@@ -14,15 +14,47 @@
   {
     "type": "function",
     "function": {
+      "name": "who_am_i",
+      "description": "回答「你是什么模型 / 你是谁 / 你对系统有什么了解 / 你能做什么」这类关于系统自身的问题。必须调用本工具，并把用户原话放进 question —— 系统会据此组织回答。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string",
+            "description": "用户的原话，原样带过来"
+          }
+        },
+        "required": [
+          "question"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
       "name": "query_inventory",
       "description": "查询库存余额（实存/预占/可用）。可按 SKU、仓库、批次过滤；全部省略则返回所有库存行。",
       "parameters": {
         "type": "object",
         "properties": {
-          "skuId": { "type": "integer", "description": "SKU id" },
-          "warehouseId": { "type": "integer", "description": "仓库 id" },
-          "batchNo": { "type": "string", "description": "批次号" },
-          "onlyAvailable": { "type": "boolean", "description": "只看可用量大于 0 的行" }
+          "skuId": {
+            "type": "integer",
+            "description": "SKU id"
+          },
+          "warehouseId": {
+            "type": "integer",
+            "description": "仓库 id"
+          },
+          "batchNo": {
+            "type": "string",
+            "description": "批次号"
+          },
+          "onlyAvailable": {
+            "type": "boolean",
+            "description": "只看可用量大于 0 的行"
+          }
         },
         "additionalProperties": false
       }
@@ -32,21 +64,82 @@
     "type": "function",
     "function": {
       "name": "list_documents",
-      "description": "分页查询进货单 / 出货单 / 退货单列表，可按状态、往来单位过滤。",
+      "description": "分页查询进货单 / 出货单 / 退货单列表。可按业务日期区间过滤、按字段排序、按状态与往来单位过滤。用户说「最近一个月/上个月/本周/近7天」时必须换算成 dateFrom/dateTo 传入，不要忽略时间条件。",
       "parameters": {
         "type": "object",
         "properties": {
-          "docType": { "type": "string", "enum": ["PURCHASE", "SALES", "RETURN"] },
+          "docType": {
+            "type": "string",
+            "enum": [
+              "PURCHASE",
+              "SALES",
+              "RETURN"
+            ]
+          },
           "status": {
             "type": "string",
-            "enum": ["DRAFT", "SUBMITTED", "APPROVED", "PARTIAL", "COMPLETED", "VOIDED", "REJECTED"]
+            "enum": [
+              "DRAFT",
+              "SUBMITTED",
+              "APPROVED",
+              "PARTIAL",
+              "COMPLETED",
+              "VOIDED",
+              "REJECTED"
+            ]
           },
-          "partyId": { "type": "integer", "description": "进货=供应商 id；出货/退货=客户 id" },
-          "originSalesOrderId": { "type": "integer", "description": "退货单的原出货单 id" },
-          "page": { "type": "integer", "minimum": 1 },
-          "size": { "type": "integer", "minimum": 1, "maximum": 200 }
+          "partyId": {
+            "type": "integer",
+            "description": "进货=供应商 id；出货/退货=客户 id"
+          },
+          "originSalesOrderId": {
+            "type": "integer",
+            "description": "退货单的原出货单 id"
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "页码，从 1 开始。用户没要求翻页就不要传"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "每页条数。除非用户明确说「全部/前50条/都列出来」，否则不要传，默认 20"
+          },
+          "dateFrom": {
+            "type": "string",
+            "format": "date",
+            "description": "业务日期起（含），YYYY-MM-DD。用户给的相对时间要据此换算"
+          },
+          "dateTo": {
+            "type": "string",
+            "format": "date",
+            "description": "业务日期止（含），YYYY-MM-DD"
+          },
+          "orderBy": {
+            "type": "string",
+            "enum": [
+              "bizDate",
+              "totalAmount",
+              "totalQty",
+              "orderNo",
+              "id"
+            ],
+            "description": "排序字段。用户说「按时间/最新/最近的」用 bizDate；说「金额/金额大小」用 totalAmount。用户没提排序就不要传"
+          },
+          "sortDir": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "description": "排序方向。用户只说「按时间排序/按时间顺序/按时间排」而没说正序倒序时，用 desc（最新的在前）；明确说「从早到晚/正序/升序/最早在前」才用 asc"
+          }
         },
-        "required": ["docType"],
+        "required": [
+          "docType"
+        ],
         "additionalProperties": false
       }
     }
@@ -59,11 +152,53 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "docType": { "type": "string", "enum": ["PURCHASE", "SALES", "RETURN"] },
-          "id": { "type": "integer", "description": "单据 id" }
+          "docType": {
+            "type": "string",
+            "enum": [
+              "PURCHASE",
+              "SALES",
+              "RETURN"
+            ]
+          },
+          "id": {
+            "type": "integer",
+            "description": "单据 id"
+          }
         },
-        "required": ["docType", "id"],
+        "required": [
+          "docType",
+          "id"
+        ],
         "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "submit_document",
+      "description": "把一张**草稿**单据提交进待审状态（不改库存、不动账）。只有草稿能提交；已提交/已审核/已作废的单据会被拒绝。注意：本工具不负责审核，也不负责任何出入库——审核是签字，必须由人在页面上完成。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "docType": {
+            "type": "string",
+            "enum": [
+              "PURCHASE",
+              "SALES",
+              "RETURN"
+            ],
+            "description": "单据类型：进货单 / 出货单 / 退货单"
+          },
+          "id": {
+            "type": "integer",
+            "description": "单据 id（不是单据号）。用户只给了单号时，先用 list_documents 查到 id 再提交，不要编造"
+          }
+        },
+        "required": [
+          "docType",
+          "id"
+        ]
       }
     }
   },
@@ -75,8 +210,32 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "period": { "type": "string", "pattern": "^\\d{4}-\\d{2}$", "description": "账期，如 2026-10" },
-          "warehouseId": { "type": "integer", "description": "可选仓库过滤" }
+          "period": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}$",
+            "description": "账期，如 2026-10"
+          },
+          "warehouseId": {
+            "type": "integer",
+            "description": "可选仓库过滤"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "replenish_advice",
+      "description": "补货建议（目标级）：一次给出该补哪些 SKU、每个建议补多少，并附可用量、下限、上限、在途已排除等依据。只读，不建单。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "warehouseId": {
+            "type": "integer",
+            "description": "可选仓库过滤，省略则汇总全部仓库"
+          }
         },
         "additionalProperties": false
       }
@@ -90,16 +249,49 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "type": { "type": "string", "enum": ["PRODUCT", "SKU", "SUPPLIER", "CUSTOMER", "WAREHOUSE"] },
-          "keyword": { "type": "string", "description": "编码/名称模糊匹配" },
-          "productId": { "type": "integer", "description": "按商品过滤 SKU" },
-          "color": { "type": "string", "description": "按颜色过滤 SKU" },
-          "skuSize": { "type": "string", "description": "按尺码过滤 SKU" },
-          "onlyEnabled": { "type": "boolean", "description": "仓库：仅启用" },
-          "page": { "type": "integer", "minimum": 1 },
-          "size": { "type": "integer", "minimum": 1, "maximum": 200 }
+          "type": {
+            "type": "string",
+            "enum": [
+              "PRODUCT",
+              "SKU",
+              "SUPPLIER",
+              "CUSTOMER",
+              "WAREHOUSE"
+            ]
+          },
+          "keyword": {
+            "type": "string",
+            "description": "编码/名称模糊匹配"
+          },
+          "productId": {
+            "type": "integer",
+            "description": "按商品过滤 SKU"
+          },
+          "color": {
+            "type": "string",
+            "description": "按颜色过滤 SKU"
+          },
+          "skuSize": {
+            "type": "string",
+            "description": "按尺码过滤 SKU"
+          },
+          "onlyEnabled": {
+            "type": "boolean",
+            "description": "仓库：仅启用"
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
         },
-        "required": ["type"],
+        "required": [
+          "type"
+        ],
         "additionalProperties": false
       }
     }
@@ -112,26 +304,52 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "supplierId": { "type": "integer" },
-          "warehouseId": { "type": "integer" },
-          "bizDate": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
-          "remark": { "type": "string" },
+          "supplierId": {
+            "type": "integer"
+          },
+          "warehouseId": {
+            "type": "integer"
+          },
+          "bizDate": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "remark": {
+            "type": "string"
+          },
           "lines": {
             "type": "array",
             "minItems": 1,
             "items": {
               "type": "object",
               "properties": {
-                "skuId": { "type": "integer" },
-                "qty": { "type": "integer", "minimum": 1 },
-                "unitPriceAmount": { "type": "integer", "minimum": 0, "description": "单价（分）" }
+                "skuId": {
+                  "type": "integer"
+                },
+                "qty": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "unitPriceAmount": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "单价（分）"
+                }
               },
-              "required": ["skuId", "qty", "unitPriceAmount"],
+              "required": [
+                "skuId",
+                "qty",
+                "unitPriceAmount"
+              ],
               "additionalProperties": false
             }
           }
         },
-        "required": ["supplierId", "warehouseId", "lines"],
+        "required": [
+          "supplierId",
+          "warehouseId",
+          "lines"
+        ],
         "additionalProperties": false
       }
     }
@@ -144,27 +362,83 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "customerId": { "type": "integer" },
-          "warehouseId": { "type": "integer" },
-          "bizDate": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
-          "remark": { "type": "string" },
+          "customerId": {
+            "type": "integer"
+          },
+          "warehouseId": {
+            "type": "integer"
+          },
+          "bizDate": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "remark": {
+            "type": "string"
+          },
           "lines": {
             "type": "array",
             "minItems": 1,
             "items": {
               "type": "object",
               "properties": {
-                "skuId": { "type": "integer" },
-                "qty": { "type": "integer", "minimum": 1 },
-                "unitPriceAmount": { "type": "integer", "minimum": 0, "description": "单价（分）" },
-                "discountRate": { "type": "integer", "minimum": 1, "maximum": 10000, "description": "万分比，10000=不打折" }
+                "skuId": {
+                  "type": "integer"
+                },
+                "qty": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "unitPriceAmount": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "单价（分）"
+                },
+                "discountRate": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 10000,
+                  "description": "万分比，10000=不打折"
+                }
               },
-              "required": ["skuId", "qty", "unitPriceAmount"],
+              "required": [
+                "skuId",
+                "qty",
+                "unitPriceAmount"
+              ],
               "additionalProperties": false
             }
           }
         },
-        "required": ["customerId", "warehouseId", "lines"],
+        "required": [
+          "customerId",
+          "warehouseId",
+          "lines"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "sql_query",
+      "description": "用一条只读 SELECT 查询业务数据。凡是固定工具覆盖不了的问法都用它：跨表关联、分组统计、排行、占比、时间趋势、自定义筛选条件组合。可查的表与字段见系统提示里的「可查询的数据结构」。只允许一条 SELECT，最多返回 200 行。查询结果会由你再用自然语言总结给用户。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "sql": {
+            "type": "string",
+            "description": "一条 PostgreSQL SELECT 语句。不要写 tenant_id 条件（系统已按租户隔离）。金额字段单位是分，可用 round(total_amount/100.0,2) 转元。列名一律用中文别名，如 c.name AS 客户名称。不要 SELECT *"
+          },
+          "question": {
+            "type": "string",
+            "description": "用户的原话，原样带过来，用于之后组织回答"
+          }
+        },
+        "required": [
+          "sql",
+          "question"
+        ],
         "additionalProperties": false
       }
     }

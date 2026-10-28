@@ -345,6 +345,16 @@ public class ReturnOrderApplicationService {
         return orders.page(status, customerId, originSalesOrderId, page, size);
     }
 
+    /** 带业务日期区间与排序的分页（"最近一个月的退货单，按时间排序"用）。 */
+    @Transactional(readOnly = true)
+    public PageResult<ReturnOrder> page(DocumentStatus status, Long customerId,
+                                        Long originSalesOrderId,
+                                        LocalDate dateFrom, LocalDate dateTo,
+                                        String orderBy, boolean ascending, int page, int size) {
+        return orders.page(status, customerId, originSalesOrderId,
+                dateFrom, dateTo, orderBy, ascending, page, size);
+    }
+
     // ─────────────────────────── 内部辅助 ───────────────────────────
 
     private void transition(ReturnOrder o, DocumentStatus target) {

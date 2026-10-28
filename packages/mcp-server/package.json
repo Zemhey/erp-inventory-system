@@ -1,8 +1,8 @@
 {
   "name": "erp-inventory-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "进销存系统 MCP Server（stdio）：把库存/单据/报表/主数据/自然语言指令暴露给 AI Agent",
+  "description": "进销存系统 MCP Server（stdio / http 双传输）：把库存、单据、报表、主数据、自然语言指令与运行状态暴露给 AI Agent",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -11,7 +11,9 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
-    "smoke": "node scripts/smoke.mjs"
+    "start:http": "node scripts/start-http.mjs",
+    "smoke": "node scripts/smoke.mjs",
+    "smoke:http": "node scripts/smoke-http.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",

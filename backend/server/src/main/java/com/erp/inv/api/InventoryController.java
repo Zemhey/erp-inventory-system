@@ -58,6 +58,36 @@ public class InventoryController {
         return ResponseEntity.ok(ok(items));
     }
 
+    /**
+     * 库存余额分页查询（库存查询页用）。
+     *
+     * <p>为什么不复用上面的全量 {@code GET /inventory}：那是给内部逻辑
+     * （补货建议、FEFO 选批、对账）用的，语义是"拿全量"；
+     * 页面需要的恰恰相反 —— 一页 50 行 + 关键字过滤。
+     * 两千多行一次性返回时，慢的不只是网络，还有前端的表格渲染与逐行翻译。
+     *
+     * <p>返回里带 {@code skuName / productCode / warehouseName}：
+     * 前端原来自己拉 200 条 SKU 字典做翻译，而 SKU 有 600 个，
+     * 字典外的行只能显示 {@code SKU#123}。
+     */
+    @GetMapping("/page")
+    @RequirePermission("inv:read")
+    public ResponseEntity<Map<String, Object>> page(
+            @RequestParam(required = false) Long skuId,
+            @RequestParam(required = false) Long warehouseId,
+            @RequestParam(required = false) String batchNo,
+            @RequestParam(defaultValue = "false") boolean onlyAvailable,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "50") int size) {
+        var slice = inventory.pageQuery(skuId, warehouseId, batchNo, onlyAvailable, keyword, page, size);
+        List<Map<String, Object>> items = slice.items().stream()
+                .map(InventoryController::rowToMap).toList();
+        int safeSize = Math.min(Math.max(size, 1), 200);
+        return ResponseEntity.ok(ApiResponses.page(new PageResult<>(
+                items, slice.total(), Math.max(page, 1), safeSize)));
+    }
+
     @GetMapping("/ledger")
     @RequirePermission("inv:read")
     public ResponseEntity<Map<String, Object>> ledger(
@@ -214,6 +244,38 @@ public class InventoryController {
         m.put("reservedQty", b.reservedQty());
         m.put("frozenQty", b.frozenQty());
         m.put("availableQty", b.availableQty());
+        return m;
+    }
+
+    /**
+     * 分页行 → 响应体：字段名与全量接口保持一致，额外带上可读名称。
+     *
+     * <p>{@code skuName} 的拼法与主数据页一致（商品名 · 颜色-尺码），
+     * 这样两个页面看到的同一个 SKU 长得一模一样，不会让人以为是两条数据。
+     */
+    private static Map<String, Object> rowToMap(
+            com.erp.inv.repository.InventoryBalanceRepository.BalanceRow r) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("skuId", r.skuId());
+        m.put("productCode", r.productCode());
+        m.put("productName", r.productName());
+        m.put("category", r.category());
+        m.put("color", r.color());
+        m.put("size", r.size());
+        m.put("barcode", r.barcode());
+        String name = r.productName() == null ? "" : r.productName();
+        if (r.color() != null && r.size() != null) {
+            name = name + " · " + r.color() + "-" + r.size();
+        }
+        m.put("skuName", name);
+        m.put("warehouseId", r.warehouseId());
+        m.put("warehouseName", r.warehouseName());
+        m.put("batchNo", r.batchNo());
+        m.put("expiryDate", r.expiryDate() == null ? null : r.expiryDate().toString());
+        m.put("onHandQty", r.onHandQty());
+        m.put("reservedQty", r.reservedQty());
+        m.put("frozenQty", r.frozenQty());
+        m.put("availableQty", r.availableQty());
         return m;
     }
 }

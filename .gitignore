@@ -117,6 +117,18 @@ infra/deploy/offline/.context/
 *.zip
 !docs/assets/*.zip
 
+# 一键启动脚本的运行日志（scripts/start-system.ps1）
+.run/
+
+# ─────────────────────────── 智能体工作区与临时目录 ───────────────────────────
+# .workbuddy/ 是本机智能体的记忆与配置（跨会话上下文），属于"这台机器上的工作状态"，
+# 不是项目产物；入库只会让评审看到一堆与本项目无关的笔记。
+.workbuddy/
+# 构建绕路时用来暂存旧产物的目录（见 app/desktop/README.md「验证前必看的本机坑」）
+.tmp/
+# 校验截图（.plan/shots/）只作过程证据，不入库
+.plan/shots/
+
 # Python（scripts/*.py 会生成）
 __pycache__/
 *.pyc

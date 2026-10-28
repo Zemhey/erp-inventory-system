@@ -2247,6 +2247,434 @@ paths:
               schema: { $ref: '#/components/schemas/ApiError' }
 
   # ─────────────────────────── NL ───────────────────────────
+  /nl/pending:
+    get:
+      tags: [nl]
+      summary: 待确认队列（FR-V4-03 · S5）
+      description: |
+        - 只返回 `status=PENDING` 的记录：**会产生数据**的指令在等人拍板。
+          只读查询不进队列——读不审，查错了重问一次就好。
+        - 过期由本接口**惰性结转**（读到就顺手把超时的标成 EXPIRED），
+          不依赖定时任务，因此不会出现"任务没跑、队列里躺着一堆过期货"。
+        - `pendingCount` 单独返回一份：工作台只要一个数字，不必拉整页。
+        - 需要 `sys:read`（与既有审计查询同一套权限）。能看队列 ≠ 能执行队列里的东西，
+          执行时会按意图再判一次权限。
+      operationId: nlPending
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: 待确认列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiPageResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/NlExecutionView' }
+                          pendingCount: { type: integer, format: int64, minimum: 0 }
+        '401':
+          description: 未登录或 token 失效（IAM_UNAUTHENTICATED）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '403':
+          description: 缺少 sys:read（IAM_FORBIDDEN）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /nl/pending/{id}/execute:
+    post:
+      tags: [nl]
+      summary: 在队列里确认执行（FR-V4-03 · S5）
+      description: |
+        - 不需要确认回执：**这一行本身就是"人已经点过"的证据**。
+        - 但仍然会：① 检查它还在 `PENDING`（过期/已执行/已驳回都拒）；
+          ② 按意图重新判权限；③ 用**计划那次的 requestId** 执行，保持建单幂等。
+        - **发起与拍板不必是同一个人**：确认别人发起的指令时，档案里记的拍板人是你
+          （`decidedBy`），所以"谁批的"永远查得到。
+        - 执行失败同样留痕（状态变 `FAILED` + 原因），审计里能看到"想干但没干成"。
+      operationId: nlPendingExecute
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: 已执行
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/NlCommandResult' }
+        '404':
+          description: 记录不存在（NL_EXECUTION_NOT_FOUND）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '409':
+          description: 已不是待确认状态（NL_EXECUTION_NOT_PENDING）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /nl/pending/{id}/dismiss:
+    post:
+      tags: [nl]
+      summary: 驳回一条待确认指令（FR-V4-03 · S5）
+      description: |
+        只把这条计划注销（`DISMISSED`），不改动任何业务数据；
+        驳回后它在审计里仍然可查 —— "被否掉的那条"本身就是审计价值。
+      operationId: nlPendingDismiss
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: 已驳回
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+        '404':
+          description: 记录不存在（NL_EXECUTION_NOT_FOUND）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '409':
+          description: 已不是待确认状态（NL_EXECUTION_NOT_PENDING）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /nl/audit:
+    get:
+      tags: [nl]
+      summary: 自然语言操作审计（FR-V4-03 · S6）
+      description: |
+        - 一行 = 一句话的完整档案：谁说的、说的什么、当时算出的影响、
+          另一个复核方怎么看、最后落成了哪张单（或为什么没落成）。
+        - **被否决 / 被驳回 / 已过期 / 不可执行的记录同样返回**：
+          只记成功的审计等于把最该复盘的失败藏起来。
+        - 条件是**精确匹配**，不做模糊：审计要可复现，`%杭州%` 这种条件事后没法解释。
+        - `from` / `to` 用 ISO-8601（含时区），`to` 不含。
+      operationId: nlAuditPage
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [PENDING, EXECUTED, FAILED, EXPIRED, DISMISSED, BLOCKED, VETOED]
+        - name: intent
+          in: query
+          schema: { type: string }
+        - name: actorId
+          in: query
+          schema: { type: integer, format: int64 }
+        - name: source
+          in: query
+          schema: { type: string, enum: [WEB, MCP, API] }
+        - name: write
+          in: query
+          description: true = 只看写操作；false = 只看只读
+          schema: { type: boolean }
+        - name: from
+          in: query
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          schema: { type: string, format: date-time }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: 审计列表（按时间倒序）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiPageResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/NlExecutionView' }
+        '400':
+          description: 时间格式非法（SYS_AUDIT_QUERY_INVALID）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '403':
+          description: 缺少 sys:read（IAM_FORBIDDEN）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /nl/audit/{id}:
+    get:
+      tags: [nl]
+      summary: 单条操作记录（FR-V4-03 · S6）
+      operationId: nlAuditDetail
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: 记录详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/NlExecutionView' }
+        '404':
+          description: 记录不存在（NL_EXECUTION_NOT_FOUND）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /nl/review:
+    post:
+      tags: [nl]
+      summary: 单独复核一条指令（FR-V4-03 · S4）
+      description: |
+        - 生成计划并跑一遍复核，返回 `plan` + `review` + `aiReviewEnabled`；**不执行、不签发凭据**。
+        - 用途：页面上的"重新复核"、排查"当时判成什么、为什么"、将来人工复核队列的单条复跑。
+        - **刻意不签发凭据**：凭据只能从 `/nl/plan` 出，否则等于给"跳过预览"开了第二条路。
+        - 复核层不可用时不会报错（它是附加意见），而是降级为规则校验并在 `review.findings`
+          里写一条 `source=SYSTEM` 的说明——不能让用户以为有一道他没得到的检查。
+      operationId: nlReview
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NlCommandRequest' }
+      responses:
+        '200':
+          description: 复核完成（未执行任何写操作）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        required: [plan, review, aiReviewEnabled]
+                        properties:
+                          plan: { $ref: '#/components/schemas/NlPlan' }
+                          review: { $ref: '#/components/schemas/NlReview' }
+                          aiReviewEnabled:
+                            type: boolean
+                            description: 本机是否真的配置了复核模型（false 时只有规则校验）
+        '400':
+          description: 指令为空（SYS_VALIDATION_ERROR）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '401':
+          description: 未登录或 token 失效（IAM_UNAUTHENTICATED）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '403':
+          description: 当前账号缺少该意图所需的业务权限
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '422':
+          description: 无法把文本映射为已支持的意图（NL_COMMAND_UNRECOGNIZED）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+  /nl/settings:
+    get:
+      tags: [nl]
+      summary: 读取 AI 接入配置（FR-SYS-04）
+      description: |
+        - **不回传明文密钥**：`apiKey` 只以掩码 `••••••abcd` 形式出现在 `keyMasked` 里。
+          后端从响应体中删掉它，因此直接 curl 也拿不到 —— 不是前端做样子。
+        - **按租户隔离**：配置存在 `sys_config` 的 `nl` 组，每个租户一份。
+        - **`llmEnabled` 是判定结果而非配置项**：它表示"选了 openai **且** 有 key"，
+          只有两者同时成立才会真的走大模型；只看 `parser` 字段会误判成"已启用"。
+        - **权限 `sys:config`**：能改接口地址与 Key 等于"决定系统把业务数据发给谁"，
+          因此不给只读账号。
+      operationId: getNlSettings
+      responses:
+        '200':
+          description: 当前配置（密钥已掩码）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/NlSettingsView' }
+        '401':
+          description: 未登录或 token 失效（IAM_UNAUTHENTICATED）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '403':
+          description: 缺少 sys:config 权限（IAM_FORBIDDEN）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+    put:
+      tags: [nl]
+      summary: 保存 AI 接入配置（保存即生效）
+      description: |
+        - **保存即生效**：解析器与复核器每次请求都读当前配置，因此不需要重启。
+          已在待确认队列里的旧计划不受影响（它们保存的是当时的计划快照）。
+        - **`apiKey` 三态语义**：不传或空串 = **保持原值**；`__CLEAR__` = 清空；
+          其它值 = 替换。设计成"空 = 不改"，是因为页面只回显掩码，
+          强迫用户为了改模型名而重新粘贴一遍密钥既麻烦又容易出错。
+        - **落库前加密**：以 AES-256-GCM 加密存储（形如 `enc:v1:...`），
+          直接查库看不到明文。密钥来自 `ERP_NL_SECRET`，多实例部署必须一致。
+        - **`baseUrl` 必须是 http/https**，`model` 不能为空，否则 400。
+      operationId: updateNlSettings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NlSettingsPatch' }
+      responses:
+        '200':
+          description: 已保存，返回保存后的配置（密钥仍为掩码）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/NlSettingsView' }
+        '400':
+          description: 取值非法（SYS_VALIDATION_ERROR）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '403':
+          description: 缺少 sys:config 权限（IAM_FORBIDDEN）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+  /nl/settings/test:
+    post:
+      tags: [nl]
+      summary: 测试模型连接（不落库）
+      description: |
+        - **真发一次 function calling 请求**，而不是只 ping 一下域名：
+          有些端点能连通但不支持 tools，只看"能不能连上"会给用户虚假的安全感。
+          探测指令固定为"查询库存"，据此检查模型是否真的返回了工具调用。
+        - **不落库**：请求里的参数只是临时使用。这是为了让用户"先测得通、再保存"，
+          否则他只能拿一个可能填错的 key 去覆盖当前可用的配置。
+        - **失败也是 200**：`ok=false` 表示这次探测的结论，不是服务端故障。
+          用 4xx/5xx 表达会迫使前端"从错误里读成功信息"，
+          而且失败原因（key 无效 / 地址不通 / 不支持工具）本身就是最该展示的东西。
+        - 字段留空则使用**已保存**的值，因此"只换了 key，先测一下"不需要重填其它项。
+      operationId: testNlSettings
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NlSettingsTestRequest' }
+      responses:
+        '200':
+          description: 探测结果（成功或失败都在 data 里）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/NlSettingsTestResult' }
+        '403':
+          description: 缺少 sys:config 权限（IAM_FORBIDDEN）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+
+  /nl/plan:
+    post:
+      tags: [nl]
+      summary: 生成执行计划（FR-V4-03 · S3）
+      description: |
+        - **只生成计划，不执行**：返回这条指令"打算做什么"与"做完会发生什么"，
+          不落库、不动库存、不产生单据。因此本接口天然幂等，可以反复调用。
+        - **分级审核**：只读意图 `requiresReview=false`（查错了重问一次即可，不设审核成本）；
+          写意图 `requiresReview=true`，前端必须先展示计划、由人确认后再调 `/nl/command`。
+        - **参数不全不报错**：缺参数或引用对象不存在时返回 `executable=false`，
+          并在 `blockers` 里逐条说明——一次把问题列全，而不是让人"改一句试一次"。
+        - **金额与真建单同源**：预览复用建单服务的 `lineAmount`，不自己算一遍，
+          避免出现"预览 ¥100、建出来 ¥98"。
+        - **预算权限**：预览阶段即校验意图级权限，避免"预览很顺、点确认却 403"。
+        - **同时给出复核意见与确认凭据**（S4）：`review` 是另一个复核方对计划的意见，
+          `confirmation.token` 是执行写操作时要原样带回 `X-Nl-Plan-Token` 的回执。
+          三样一起返回，是为了少一次往返——在 Agent 场景里，每次往返都是一次出错机会。
+        - **复核只降不升**：`review.verdict` 取规则与复核模型双方里更严格的那个。
+          模型说 APPROVE **不代表可以执行**，它只是"不反对"；写操作永远需要人点确认。
+      operationId: nlPlan
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NlCommandRequest' }
+      responses:
+        '200':
+          description: 计划已生成（未执行任何写操作）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/NlPlanResponse' }
+        '400':
+          description: 指令为空（SYS_VALIDATION_ERROR）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '401':
+          description: 未登录或 token 失效（IAM_UNAUTHENTICATED）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '403':
+          description: 当前账号缺少该意图所需的业务权限
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '422':
+          description: 无法把文本映射为已支持的意图（NL_COMMAND_UNRECOGNIZED）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
   /nl/command:
     post:
       tags: [nl]
@@ -2264,6 +2692,15 @@ paths:
       operationId: nlCommand
       parameters:
         - $ref: '#/components/parameters/RequestId'
+        - name: X-Nl-Plan-Token
+          in: header
+          required: false
+          description: |
+            `/nl/plan` 返回的 `confirmation.token`。**写意图必填**：缺失返回 409 并附上计划。
+            只读意图不需要——读不审，查错了重问一次即可。
+            凭据绑定账号 / 意图 / 参数哈希与 5 分钟有效期，服务端签名校验，因此
+            "预览 10 件、执行 20000 件"或"借用别人的回执"都会被拒。
+          schema: { type: string }
       requestBody:
         required: true
         content:
@@ -2305,6 +2742,37 @@ paths:
                   value:
                     code: IAM_FORBIDDEN
                     message: "自然语言指令被拒绝：需要权限 inv:read，当前角色 [FINANCE]"
+        '409':
+          description: |
+            写意图的人工确认闸门（FR-V4-03 · S4）。三种情况：
+            `NL_CONFIRM_REQUIRED`（没带凭据）、`NL_CONFIRM_INVALID`（签名不对 / 意图或参数与凭据不符 / 跨账号）、
+            `NL_CONFIRM_EXPIRED`（超过有效期）。
+            `NL_CONFIRM_REQUIRED` 的 `details` 里附带本次的 `plan` 与 `review`，
+            调用方可以直接展示给人，不必再请求一次 `/nl/plan`。
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+              examples:
+                needConfirm:
+                  value:
+                    code: NL_CONFIRM_REQUIRED
+                    message: "写操作需要先预览并由人确认：请调用 POST /api/v1/nl/plan，把计划给人看过之后，带 X-Nl-Plan-Token 再次执行"
+                    details:
+                      plan:
+                        intent: create_purchase_order
+                        summary: 将创建进货单草稿：杭州面料供应商 → 上海主仓，1 行，合计 ¥120.00
+                      review:
+                        verdict: APPROVE
+                        blocking: false
+                        summary: 规则复核未发现问题（这不等于批准，执行仍需人工确认）
+                tampered:
+                  value:
+                    code: NL_CONFIRM_INVALID
+                    message: "指令参数与预览时不一致（预览后被改动，或解析结果发生变化）：请重新预览"
+                expired:
+                  value:
+                    code: NL_CONFIRM_EXPIRED
+                    message: "确认凭据已过期（有效期 300 秒）：请重新预览并确认"
         '422':
           description: 无法把文本映射为已支持的意图
           content:
@@ -2314,7 +2782,7 @@ paths:
                 unrecognized:
                   value:
                     code: NL_COMMAND_UNRECOGNIZED
-                    message: "无法识别指令：今天天气怎么样。支持的意图：help / query_inventory / list_documents / get_document / inventory_summary / query_master_data / create_purchase_order / create_sales_order"
+                    message: "无法识别指令：今天天气怎么样。支持的意图：help / query_inventory / list_documents / get_document / submit_document / inventory_summary / replenish_advice / query_master_data / create_purchase_order / create_sales_order"
         '503':
           description: 配置为真实 LLM 但解析器不可用（key 缺失 / 网络 / 上游异常）
           content:
@@ -8122,6 +8590,209 @@ components:
           description: 一句自然语言指令
           example: 查询 SKU 12 在仓库 3 的库存
 
+    NlSettingsView:
+      type: object
+      description: |
+        AI 接入配置的**安全视图**（FR-SYS-04）。刻意不含明文 `apiKey` ——
+        能读到这个响应体的人（含直接 curl 的调用方）都拿不到密钥，
+        只会看到 `keyMasked` 这种 `••••••abcd` 形式的掩码。
+      required: [parser, reviewer, baseUrl, model, keyMasked, hasKey, llmEnabled, aiReviewEnabled, effectiveParser]
+      properties:
+        parser:
+          type: string
+          enum: [stub, openai]
+          description: 配置的解析方式。注意它**不保证已生效** —— 还要看 `llmEnabled`。
+        reviewer:
+          type: string
+          enum: [rule, openai]
+          description: 写操作的复核方式；只读指令不会触发模型复核
+        baseUrl: { type: string, description: OpenAI 兼容端点根地址，无尾斜杠 }
+        model: { type: string, description: 模型名，必须支持 function calling }
+        keyMasked:
+          type: string
+          description: 密钥掩码，如 `••••••abcd`；未配置时为空串
+        hasKey: { type: boolean, description: 是否已保存密钥（前端据此决定是否显示"清除"） }
+        llmEnabled:
+          type: boolean
+          description: |
+            **真实生效判定**：`parser=openai` 且 `hasKey` 才为 true。
+            只看 `parser` 会误判 —— 选了 openai 但没 key 时，实际仍跑关键词模式。
+        aiReviewEnabled: { type: boolean, description: 复核层此刻是否真的会调用模型 }
+        effectiveParser:
+          type: string
+          enum: [stub, openai]
+          description: 实际生效的解析方式（与 `llmEnabled` 同源，单独给出便于直接展示）
+    NlSettingsPatch:
+      type: object
+      description: |
+        保存请求（FR-SYS-04）。所有字段可选：不传 = 保持原值。
+        `apiKey` 是三态：**空串/不传 = 保持原值**（因为页面只回显掩码，
+        强迫用户为改模型名而重贴密钥既麻烦又易错）、`__CLEAR__` = 清空、其它 = 替换。
+      properties:
+        parser: { type: string, enum: [stub, openai] }
+        reviewer: { type: string, enum: [rule, openai] }
+        baseUrl: { type: string, description: 必须以 http:// 或 https:// 开头 }
+        model: { type: string, description: 不能为空 }
+        apiKey:
+          type: string
+          description: 空 = 不修改；`__CLEAR__` = 清空；其它 = 替换。落库前 AES-256-GCM 加密。
+    NlSettingsTestRequest:
+      type: object
+      description: 测试连接的临时参数；留空则使用已保存的值（便于"只换 key 先测一次"）。
+      properties:
+        baseUrl: { type: string }
+        model: { type: string }
+        apiKey: { type: string, description: 明文传入，仅本次使用，不落库 }
+        text: { type: string, description: 探测用的指令，默认"查询库存" }
+    NlSettingsTestResult:
+      type: object
+      description: |
+        探测结果。失败也是 HTTP 200 且 `ok=false`：这是用户主动发起的探测结论，
+        不是服务端故障，失败原因（key 无效 / 地址不通 / 不支持 tools）本该直接展示。
+      required: [ok, elapsedMs, model, detail]
+      properties:
+        ok: { type: boolean, description: 模型是否真的按工具定义返回了调用 }
+        elapsedMs: { type: integer, format: int64, description: 往返耗时（毫秒） }
+        model: { type: string }
+        detail: { type: string, description: 给人看的结论或失败原因（含上游原始报错摘要） }
+        intent: { type: string, nullable: true, description: 成功时返回的意图代码 }
+    NlPlanResponse:
+      type: object
+      description: "/nl/plan 的完整应答（FR-V4-03 · S4）：计划 + 复核意见 + 确认凭据。"
+      required: [plan, review, confirmation]
+      properties:
+        plan: { $ref: '#/components/schemas/NlPlan' }
+        review: { $ref: '#/components/schemas/NlReview' }
+        confirmation: { $ref: '#/components/schemas/NlConfirmation' }
+    NlReview:
+      type: object
+      description: |
+        复核结论（FR-V4-03 · S4）。它是**对计划本身的意见**，不是执行结果，也不改变权限判定：
+        权限回答"你能不能做"，复核对"这件事本身对不对"提意见。
+      required: [verdict, blocking, source, summary, findings]
+      properties:
+        verdict:
+          type: string
+          enum: [APPROVE, NEED_HUMAN, REJECT]
+          description: |
+            三档刻意不对称：`APPROVE` 只表示"不反对"，**不是批准**（执行仍需人工确认）；
+            `NEED_HUMAN` 是复核方在说"我看不清，别让我替你决定"；只有 `REJECT` 阻断执行。
+        blocking:
+          type: boolean
+          description: 等价于 `verdict == REJECT`，单独给出是为了前端少写判断
+        source:
+          type: string
+          enum: [RULE, AI, RULE+AI]
+          description: RULE = 确定性规则（无需模型，永远可用）；AI = 复核模型；合并后为 RULE+AI
+        summary: { type: string, description: 一句话结论，直接给人看 }
+        findings:
+          type: array
+          items: { $ref: '#/components/schemas/NlFinding' }
+    NlFinding:
+      type: object
+      description: 复核意见的一条。`source` 分开记，是为了事后能回答"这是人能复现的规则，还是模型说的"。
+      required: [level, source, message]
+      properties:
+        level: { type: string, enum: [INFO, WARN, REJECT] }
+        source: { type: string, description: 'RULE / AI / SYSTEM（SYSTEM 表示"某一层没跑起来"这类事实说明）' }
+        message: { type: string }
+    NlConfirmation:
+      type: object
+      description: |
+        人工确认凭据（FR-V4-03 · S4）。它不是批准书，而是**回执**：
+        证明"这份计划被看过、并且现在要按它执行"。由服务端签发与校验，调用方无法伪造。
+      required: [required, reason]
+      properties:
+        required: { type: boolean, description: 该意图是否需要凭据；只读恒为 false }
+        token:
+          type: [string, 'null']
+          description: 凭据本体，执行写操作时放在 `X-Nl-Plan-Token`；`required=false` 时为 null
+        expiresAt:
+          type: [string, 'null']
+          description: ISO-8601 过期时间（默认 5 分钟）
+        reason: { type: string, description: 给调用方看的说明，Agent 可原样转述给人 }
+    NlExecutionView:
+      type: object
+      description: |
+        一条自然语言操作记录（FR-V4-03 · S5/S6）。
+        `plan` / `review` 是**生成当时**的快照——审计认证的是"当时看到的东西"，
+        解析器换模型、公式改版都不该让历史记录跟着变。
+      required: [id, requestId, actorId, source, commandText, intent, write, status, statusLabel, createdAt]
+      properties:
+        id: { type: integer, format: int64 }
+        requestId: { type: string, description: 计划那次的 X-Request-Id，用于串起"打算做什么"与"干了什么" }
+        actorId: { type: integer, format: int64 }
+        actorName: { type: [string, 'null'] }
+        source:
+          type: string
+          enum: [WEB, MCP, API]
+          description: 调用方。审计里"是页面点的还是 Agent 发的"必须一眼看得出来
+        commandText: { type: string, description: 用户原话 }
+        intent: { type: string }
+        write: { type: boolean }
+        status:
+          type: string
+          enum: [PENDING, EXECUTED, FAILED, EXPIRED, DISMISSED, BLOCKED, VETOED]
+        statusLabel: { type: string, description: 中文标签，直接给界面用 }
+        verdict: { type: string, enum: [APPROVE, NEED_HUMAN, REJECT] }
+        reviewSource: { type: [string, 'null'], description: RULE / AI / RULE+AI }
+        summary: { type: [string, 'null'] }
+        plan: { type: object, additionalProperties: true, description: 计划快照（解析后） }
+        review: { type: object, additionalProperties: true, description: 复核快照（解析后） }
+        docType: { type: [string, 'null'], enum: [PURCHASE, SALES, null] }
+        docId: { type: [integer, 'null'], format: int64 }
+        docNo: { type: [string, 'null'] }
+        errorMessage: { type: [string, 'null'], description: 执行失败原因（只存一行，堆栈看日志） }
+        createdAt: { type: string, format: date-time }
+        expiresAt: { type: [string, 'null'], format: date-time }
+        decidedAt: { type: [string, 'null'], format: date-time }
+        decidedBy: { type: [integer, 'null'], format: int64 }
+        decidedByName: { type: [string, 'null'], description: 拍板人（确认或驳回的人，可能不是发起人） }
+    NlPlan:
+      type: object
+      description: 执行计划（提案，不是结果）。`/nl/plan` 只生成它，不执行。
+      required: [intent, write, requiresReview, reviewReason, executable, summary,
+                 steps, impact, warnings, blockers, args]
+      properties:
+        intent:
+          type: string
+          enum: [help, query_inventory, list_documents, get_document, submit_document,
+                 inventory_summary, replenish_advice, query_master_data,
+                 create_purchase_order, create_sales_order]
+        write: { type: boolean, description: true = 会产生写操作 }
+        requiresReview:
+          type: boolean
+          description: true = 必须由人确认后才可执行（只读意图恒为 false）
+        reviewReason: { type: string, description: 为什么需要/不需要人工确认 }
+        executable:
+          type: boolean
+          description: 参数是否完整到可以执行；false 时看 blockers
+        summary: { type: string, description: 一句话摘要（给人读的那一行） }
+        steps:
+          type: array
+          description: 将要做的步骤，按顺序
+          items: { type: string }
+        impact:
+          type: array
+          description: 影响预演，供表格渲染
+          items:
+            type: object
+            required: [label, value]
+            properties:
+              label: { type: string }
+              value: { type: string, description: 已格式化的展示值 }
+        warnings:
+          type: array
+          description: 需要注意但不阻止执行的点（单价异常、对象已停用…）
+          items: { type: string }
+        blockers:
+          type: array
+          description: 阻止执行的原因（缺参数、id 不存在…）
+          items: { type: string }
+        args:
+          type: object
+          additionalProperties: true
+          description: 解析出的原始参数，供排查与审计
     NlCommandResult:
       type: object
       description: NL 调度结果；data 的 shape 由 intent 决定（与对应 REST 接口同源）
@@ -8129,8 +8800,9 @@ components:
       properties:
         intent:
           type: string
-          enum: [help, query_inventory, list_documents, get_document, inventory_summary,
-                 query_master_data, create_purchase_order, create_sales_order]
+          enum: [help, query_inventory, list_documents, get_document, submit_document,
+                 inventory_summary, replenish_advice, query_master_data,
+                 create_purchase_order, create_sales_order]
         description: { type: string, description: 人类可读的结果摘要（含关键数字） }
         write: { type: boolean, description: true = 本次指令产生了写操作 }
         data:

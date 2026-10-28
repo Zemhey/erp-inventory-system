@@ -141,6 +141,18 @@ public class DashboardRepository {
                             String qtyCol, String amountCol) {
     }
 
+    /**
+     * 缺列时的占位：**必须显式声明类型**，不能只写 {@code NULL}。
+     *
+     * <p>PostgreSQL 把不带类型的 {@code NULL} 字面量解析成 {@code text}，
+     * 而下面用 {@code rs.getObject("party_id", Long.class)} 取值，
+     * 驱动会直接抛 {@code conversion to class java.lang.Long from text not supported}。
+     * 症状极具迷惑性：没有调拨单时工作台一切正常，一旦库里出现调拨单
+     * （这类单据没有 supplier_id/customer_id）整个 {@code /dashboard/summary} 就 500，
+     * 而 SQL 语法、编译门禁全都拦不住。
+     */
+    private static final String NULL_BIGINT = "CAST(NULL AS BIGINT)";
+
     /** 只有订单类单据有单一 warehouse_id 列；调拨单是 from/to 两列，不能直接当仓库列用。 */
     private static boolean hasWarehouse(String table) {
         return "purchase_orders".equals(table)
@@ -161,10 +173,10 @@ public class DashboardRepository {
                   FROM %s ORDER BY created_at DESC LIMIT ?
                 """.formatted(
                 src.noCol(),
-                src.partyCol() == null ? "NULL" : src.partyCol(),
-                hasWarehouse(src.table()) ? "warehouse_id" : "NULL",
-                src.qtyCol() == null ? "NULL" : src.qtyCol(),
-                src.amountCol() == null ? "NULL" : src.amountCol(),
+                src.partyCol() == null ? NULL_BIGINT : src.partyCol(),
+                hasWarehouse(src.table()) ? "warehouse_id" : NULL_BIGINT,
+                src.qtyCol() == null ? NULL_BIGINT : src.qtyCol(),
+                src.amountCol() == null ? NULL_BIGINT : src.amountCol(),
                 src.table());
         String type = src.type();
         return jdbc.query(sql, (rs, i) -> {
