@@ -36,6 +36,20 @@ export default defineConfig({
         target: process.env.VITE_API_TARGET ?? 'http://127.0.0.1:8080',
         changeOrigin: true,
       },
+      // 工作台的「运行状态」要直读 Spring Boot Actuator。
+      // 它挂在根路径（不在 /api/v1 下），所以单独加一条代理 ——
+      // 这样前端不必知道后端端口，也不必开 CORS。
+      '/actuator': {
+        target: process.env.VITE_API_TARGET ?? 'http://127.0.0.1:8080',
+        changeOrigin: true,
+      },
+      // MCP Server 的 HTTP 传输（按需启动，见 docs/MCP-接入指南.md）。
+      // 没启动时这里会 502，前端把状态显示为「未接入」即可，不影响其它模块。
+      '/mcp-bridge': {
+        target: process.env.VITE_MCP_TARGET ?? 'http://127.0.0.1:8790',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/mcp-bridge/, ''),
+      },
     },
   },
   build: {

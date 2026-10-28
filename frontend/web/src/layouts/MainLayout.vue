@@ -2,9 +2,20 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowDown, Key, OfficeBuilding, Search, SwitchButton } from '@element-plus/icons-vue'
+import {
+  ArrowDown,
+  DArrowLeft,
+  DArrowRight,
+  Key,
+  Moon,
+  OfficeBuilding,
+  Search,
+  Sunny,
+  SwitchButton,
+} from '@element-plus/icons-vue'
 import { navGroups } from '@/router/registry'
 import { useSessionStore } from '@/stores/session'
+import { useThemeStore } from '@/stores/theme'
 import { onAuthEvent } from '@/api/client'
 import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue'
 import { skeletonApi, type SearchHit, type SearchResult } from '@/api/skeleton'
@@ -21,6 +32,23 @@ import { skeletonApi, type SearchHit, type SearchResult } from '@/api/skeleton'
 const route = useRoute()
 const router = useRouter()
 const session = useSessionStore()
+const theme = useThemeStore()
+
+/**
+ * 主题切换。
+ *
+ * 只在切换的这一刻给 <html> 挂 theme-animate：
+ * 常驻过渡会让首次渲染也"淡入"，反而显得卡；切换时的 280ms 渐变则让
+ * 深/浅切换像灯被慢慢调亮，而不是"啪"地闪一下。
+ */
+let themeAnimTimer: ReturnType<typeof setTimeout> | undefined
+function toggleTheme() {
+  const root = document.documentElement
+  root.classList.add('theme-animate')
+  theme.toggle()
+  clearTimeout(themeAnimTimer)
+  themeAnimTimer = setTimeout(() => root.classList.remove('theme-animate'), 320)
+}
 
 const collapsed = ref(false)
 
@@ -86,11 +114,72 @@ const currentGroupTitle = computed(() => {
   return groupTitle && groupTitle !== currentTitle.value ? groupTitle : ''
 })
 
-/** 首屏与前进/后退时，确保当前路由所在的二级菜单是展开的。 */
+/**
+ * 侧栏分组的展开状态：允许同时展开多组，并记住上次展开过哪些。
+ *
+ * ★ 为什么不用 unique-opened（手风琴）：
+ *   本系统 10 个分组、130+ 条菜单，实际干活是"边看库存边点采购"的穿插操作。
+ *   开一个关一个，等于每次切业务线都要重新展开同一组 —— 导航被当成了标签页。
+ *   现在多个分组可以同时开着，展开/收起的集合写进 localStorage，
+ *   刷新、重新登录回来还是原样。
+ *
+ * ★ 为什么要自己维护 openedGroups：
+ *   el-menu 没有 v-model:openeds，只有 default-openeds，而后者仅首次挂载时读一次
+ *   （源码里 openedMenus 初始化时 slice 一份，之后没有 watcher）。
+ *   所以用 @open / @close 事件同步一份自己的状态，再喂回 default-openeds 供下次挂载用。
+ *
+ * ★ 三个必须覆盖的入口：
+ *   1. 用户手动点开 / 点收   → @open / @close
+ *   2. 穿过路由（含前进后退）→ 确保目标分组展开（menuRef.open 内部也会 emit open）
+ *   3. 侧栏从收起恢复        → Element 在 collapse 时静默清空内部展开态，这里补开回来
+ */
+const OPENED_KEY = 'erp.nav.opened'
+
+function readOpenedGroups(): string[] {
+  try {
+    const raw = localStorage.getItem(OPENED_KEY)
+    const parsed: unknown = raw ? JSON.parse(raw) : null
+    // 存进去的可能被手改过 / 是旧版本留下的分组 key，这里只认字符串
+    return Array.isArray(parsed) ? parsed.filter((k): k is string => typeof k === 'string') : []
+  } catch {
+    return []
+  }
+}
+
 const menuRef = ref<{ open: (index: string) => void } | null>(null)
-const defaultOpeneds = computed(() =>
-  currentGroup.value && !currentGroup.value.flat ? [currentGroup.value.key] : [],
-)
+const openedGroups = ref<string[]>(readOpenedGroups())
+
+function persistOpened() {
+  try {
+    localStorage.setItem(OPENED_KEY, JSON.stringify(openedGroups.value))
+  } catch {
+    // 隐私模式 / 配额满时 localStorage 不可写 —— 记忆失败不影响本次使用
+  }
+}
+
+function handleMenuOpen(index: string) {
+  // 收起态下的"展开"只是鼠标划过图标弹出的浮层（Element 也走 openMenu），
+  // 不能算用户想常开这一组，否则划几下图标就把展开列表污染了。
+  if (!index || menuCollapsed.value || openedGroups.value.includes(index)) return
+  openedGroups.value = [...openedGroups.value, index]
+  persistOpened()
+}
+
+function handleMenuClose(index: string) {
+  if (!openedGroups.value.includes(index)) return
+  openedGroups.value = openedGroups.value.filter((k) => k !== index)
+  persistOpened()
+}
+
+/** 首屏：当前页面所在分组必须在展开集合里，否则会出现"高亮项藏在关着的组里"。 */
+const defaultOpeneds = computed(() => {
+  const group = currentGroup.value
+  if (!group || group.flat || openedGroups.value.includes(group.key)) {
+    return openedGroups.value
+  }
+  return [...openedGroups.value, group.key]
+})
+
 watch(
   () => route.path,
   () => {
@@ -99,6 +188,41 @@ watch(
     nextTick(() => menuRef.value?.open(group.key))
   },
 )
+
+watch(menuCollapsed, (isCollapsed) => {
+  if (!isCollapsed) restoreOpened()
+})
+
+/**
+ * 展开侧栏后，把上次开着的分组补开回来。
+ *
+ * ★ 不能只等一个 nextTick：收起态下子菜单被换成浮层，Element 把内部注册表
+ *   （subMenus）清掉了；展开后这批 sub-menu 要重新挂载才登记回来，此时调
+ *   open() 会因为取不到 indexPath 直接抛
+ *   "Cannot destructure property 'indexPath' of 'subMenus.value[index]'"。
+ *   所以按 40ms 重试，直到注册表认得出这些分组为止（上限约 0.5s）。
+ *
+ * ★ 目标集合要并上当前页所在分组：收起期间用户可能从浮层换到别的组，
+ *   展开后停在"当前页的分组是关着的"状态会让人以为导航丢了。
+ */
+function restoreOpened(tries = 12) {
+  const validKeys = visibleGroups.value.filter((g) => !g.flat).map((g) => g.key)
+  const targets = new Set(openedGroups.value.filter((key) => validKeys.includes(key)))
+  const group = currentGroup.value
+  if (group && !group.flat) targets.add(group.key)
+  if (targets.size === 0) return
+  nextTick(() => {
+    let pending = false
+    for (const key of targets) {
+      try {
+        menuRef.value?.open(key)
+      } catch {
+        pending = true
+      }
+    }
+    if (pending && tries > 0) setTimeout(() => restoreOpened(tries - 1), 40)
+  })
+}
 
 /** 切换器是否正在请求（避免连点产生多个并发切换）。 */
 const switchingTenant = ref(false)
@@ -303,17 +427,27 @@ function goSearchHit(hit: SearchHit, kind: 'products' | 'customers' | 'suppliers
     <!-- 侧边栏 -->
     <el-aside :width="asideWidth" class="aside">
       <div class="logo">
-        <span v-if="!menuCollapsed">进销存</span>
-        <span v-else>ERP</span>
+        <span class="weave" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <path d="M12 7.4V6.2a2 2 0 1 1 2.6-1.9" />
+            <path d="m12 7.4-8 6.2h16l-8-6.2Z" />
+            <path d="M4 20h16" />
+          </svg>
+        </span>
+        <span v-if="!menuCollapsed" class="logo-text">
+          <b>云裳</b>
+          <i>RETAIL OPS</i>
+        </span>
       </div>
       <el-menu
         ref="menuRef"
         :default-active="activeMenu"
         :default-openeds="defaultOpeneds"
         :collapse="menuCollapsed"
-        unique-opened
         router
         class="menu"
+        @open="handleMenuOpen"
+        @close="handleMenuClose"
       >
         <template v-for="group in visibleGroups" :key="group.key">
           <!-- 工作台是单入口，直接作为一级菜单项，不套一个只有一项的二级菜单 -->
@@ -333,6 +467,14 @@ function goSearchHit(hit: SearchHit, kind: 'products' | 'customers' | 'suppliers
           </el-sub-menu>
         </template>
       </el-menu>
+
+      <!-- 折叠开关沉到侧栏底部，和内容区隔开 -->
+      <div v-if="!isMobile" class="aside-foot">
+        <button class="collapse-btn" type="button" @click="collapsed = !collapsed">
+          <el-icon><component :is="collapsed ? DArrowRight : DArrowLeft" /></el-icon>
+          <span v-if="!menuCollapsed">收起侧栏</span>
+        </button>
+      </div>
     </el-aside>
 
     <el-container>
@@ -448,6 +590,24 @@ function goSearchHit(hit: SearchHit, kind: 'products' | 'customers' | 'suppliers
             </el-button>
           </el-tooltip>
           <el-button v-else text :icon="Key" @click="openPasswordDialog">修改密码</el-button>
+          <!-- 深色 / 浅色切换：右上角，图标按钮 + 悬浮提示 -->
+          <el-tooltip
+            :content="theme.isDark ? '切换到浅色模式' : '切换到深色模式'"
+            placement="bottom"
+            :show-after="300"
+          >
+            <button
+              type="button"
+              class="theme-toggle"
+              :aria-label="theme.isDark ? '切换到浅色模式' : '切换到深色模式'"
+              :aria-pressed="theme.isDark"
+              @click="toggleTheme"
+            >
+              <el-icon class="theme-icon">
+                <component :is="theme.isDark ? Sunny : Moon" />
+              </el-icon>
+            </button>
+          </el-tooltip>
           <el-button text :icon="SwitchButton" @click="handleLogout">退出</el-button>
         </div>
       </el-header>
@@ -469,63 +629,208 @@ function goSearchHit(hit: SearchHit, kind: 'products' | 'customers' | 'suppliers
 }
 
 .aside {
-  background-color: #304156;
-  transition: width 0.2s;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--ys-warm-50);
+  border-right: 1px solid var(--ys-line);
+  transition: width 0.24s cubic-bezier(0.22, 0.58, 0.32, 1);
   overflow-x: hidden;
 }
 
+/* 品牌区：织唛 + 字标，和登录页同一套 */
 .logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   height: 56px;
-  line-height: 56px;
-  text-align: center;
-  color: #fff;
-  font-size: 17px;
+  padding: 0 18px;
+  flex: none;
+  border-bottom: 1px solid var(--ys-line-soft);
+}
+
+.weave {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: 7px;
+  color: #f6f1e6;
+  background: var(--ys-daiqing);
+  background-image: repeating-linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.11) 0 1px,
+      transparent 1px 3px
+    ),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.09) 0 1px, transparent 1px 3px);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+}
+
+.weave::after {
+  content: '';
+  position: absolute;
+  inset: 4px;
+  border: 1px dashed rgba(243, 237, 226, 0.5);
+  border-radius: 3px;
+}
+
+.weave svg {
+  width: 17px;
+  height: 17px;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.logo-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+  min-width: 0;
+}
+
+.logo-text b {
+  font-size: 15px;
   font-weight: 600;
-  letter-spacing: 1px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  letter-spacing: 0.06em;
+  color: var(--ys-mo);
+}
+
+.logo-text i {
+  font-style: normal;
+  font-family: var(--ys-font-num);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  color: var(--ys-mo-4);
+  margin-top: 2px;
 }
 
 .menu {
+  flex: 1;
   border-right: none;
-  background-color: #304156;
+  background-color: transparent;
+  padding: 8px 8px 4px;
+  overflow-y: auto;
 }
 
 .menu :deep(.el-menu-item),
 .menu :deep(.el-sub-menu__title) {
-  color: #bfcbd9;
+  height: 38px;
+  line-height: 38px;
+  margin: 1px 0;
+  border-radius: 9px;
+  font-size: 13px;
+  color: var(--ys-mo-2);
 }
 
-.menu :deep(.el-menu-item.is-active) {
-  color: #409eff;
-  background-color: #263445;
+.menu :deep(.el-menu-item .el-icon),
+.menu :deep(.el-sub-menu__title .el-icon) {
+  color: var(--ys-mo-3);
 }
 
 .menu :deep(.el-menu-item:hover),
 .menu :deep(.el-sub-menu__title:hover) {
-  background-color: #263445;
+  background-color: var(--ys-hover);
+  color: var(--ys-mo);
+}
+
+.menu :deep(.el-menu-item.is-active) {
+  position: relative;
+  color: var(--ys-daiqing-deep);
+  background-color: var(--ys-daiqing-wash);
+  font-weight: 500;
+}
+
+/* 选中项左侧那道 2px 黛青"缝线" */
+.menu :deep(.el-menu-item.is-active)::before {
+  content: '';
+  position: absolute;
+  left: -8px;
+  top: 9px;
+  bottom: 9px;
+  width: 2px;
+  border-radius: 0 2px 2px 0;
+  background: var(--ys-daiqing);
+}
+
+.menu :deep(.el-menu-item.is-active .el-icon) {
+  color: var(--ys-daiqing);
 }
 
 .menu :deep(.el-sub-menu.is-active > .el-sub-menu__title) {
-  color: #409eff;
+  color: var(--ys-daiqing-deep);
+}
+
+/* 折叠态下 Element 会把标题藏起来，这里只保留居中 */
+.menu:deep(.el-menu--collapse) {
+  padding: 8px 6px;
 }
 
 /* 折叠态的子菜单浮层被 teleport 到 body，作用域样式覆盖不到，只能 :global + popper-class。 */
+:global(.erp-menu-popup) {
+  border-radius: 10px;
+  border-color: var(--ys-line);
+  box-shadow: var(--ys-shadow-card);
+}
+
 :global(.erp-menu-popup .el-menu-item) {
-  color: #303133;
+  height: 34px;
+  line-height: 34px;
+  margin: 1px 6px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--ys-mo-2);
+}
+
+:global(.erp-menu-popup .el-menu-item:hover) {
+  background: var(--ys-hover);
 }
 
 :global(.erp-menu-popup .el-menu-item.is-active) {
-  color: #409eff;
-  background-color: #ecf5ff;
+  color: var(--ys-daiqing-deep);
+  background-color: var(--ys-daiqing-wash);
+  font-weight: 500;
 }
 
+.aside-foot {
+  flex: none;
+  padding: 10px;
+  border-top: 1px solid var(--ys-line-soft);
+}
+
+.collapse-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+  height: 32px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  font-size: 12px;
+  color: var(--ys-mo-3);
+  cursor: pointer;
+  transition: background-color 0.16s ease, color 0.16s ease;
+}
+
+.collapse-btn:hover {
+  background: var(--ys-hover);
+  color: var(--ys-mo-2);
+}
+
+/* ══ 顶栏 ════════════════════════════════════════════════════════════ */
 .header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: #fff;
-  border-bottom: 1px solid #e4e7ed;
   height: 56px;
+  padding: 0 24px;
+  background: var(--ys-header-bg);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--ys-line);
 }
 
 .header-left {
@@ -535,7 +840,17 @@ function goSearchHit(hit: SearchHit, kind: 'products' | 'customers' | 'suppliers
 }
 
 .header-title {
-  font-size: 15px;
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.header-title :deep(.el-breadcrumb__inner) {
+  color: var(--ys-mo-3);
+  font-weight: 400;
+}
+
+.header-title :deep(.el-breadcrumb__item:last-child .el-breadcrumb__inner) {
+  color: var(--ys-mo);
   font-weight: 500;
 }
 
@@ -545,93 +860,78 @@ function goSearchHit(hit: SearchHit, kind: 'products' | 'customers' | 'suppliers
   gap: 10px;
 }
 
+/* ── 深浅色切换 ──
+   做成"细边小圆钮"而不是 el-switch：
+   开关控件暗示"某个设置项"，而这是随时可用的视图开关，形态应该更轻。 */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  flex: none;
+  border: 1px solid var(--ys-line);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ys-mo-2);
+  cursor: pointer;
+  transition:
+    background-color 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease,
+    transform 0.18s cubic-bezier(0.22, 0.58, 0.32, 1);
+}
+
+.theme-toggle:hover {
+  background: var(--ys-hover);
+  border-color: var(--ys-line-strong);
+  color: var(--ys-daiqing);
+}
+
+.theme-toggle:active {
+  transform: scale(0.94);
+}
+
+.theme-icon {
+  font-size: 15px;
+  transition: transform 0.42s cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+
+.theme-toggle:hover .theme-icon {
+  transform: rotate(28deg);
+}
+
+@media (max-width: 768px) {
+  .theme-toggle {
+    width: 28px;
+    height: 28px;
+  }
+}
+
+/* 租户标签：不用大块高亮底色，做成可点的细边胶囊 */
 .tenant-chip {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   padding: 2px 10px;
-  border-radius: 12px;
-  background: #ecf5ff;
-  color: #409eff;
-  font-size: 13px;
+  border: 1px solid var(--ys-line);
+  border-radius: 999px;
+  background: var(--ys-cibai);
+  color: var(--ys-mo-2);
+  font-size: 12px;
   line-height: 22px;
   cursor: pointer;
+  transition: border-color 0.16s ease, background-color 0.16s ease;
+}
+
+.tenant-chip:hover {
+  border-color: var(--ys-line-strong);
+  background: var(--ys-warm-50);
 }
 
 .tenant-chip.static {
   cursor: default;
-}
-
-.global-search {
-  position: relative;
-}
-
-.search-input {
-  width: 240px;
-}
-
-.search-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 1999;
-}
-
-.search-panel {
-  position: absolute;
-  top: 38px;
-  right: 0;
-  z-index: 2000;
-  width: 320px;
-  max-height: 60vh;
-  overflow-y: auto;
-  padding: 8px;
-  background: #fff;
-  border: 1px solid #e4e7ed;
-  border-radius: 4px;
-  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.12);
-}
-
-.search-loading,
-.search-empty {
-  padding: 16px 8px;
-  text-align: center;
-  color: #909399;
-  font-size: 13px;
-}
-
-.search-group {
-  margin-bottom: 6px;
-}
-
-.search-group-title {
-  padding: 4px 8px;
-  font-size: 12px;
-  font-weight: 600;
-  color: #909399;
-}
-
-.search-hit {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 6px 8px;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.search-hit:hover {
-  background: #f5f7fa;
-}
-
-.search-hit-no {
-  font-size: 13px;
-  color: #303133;
-}
-
-.search-hit-sub {
-  font-size: 12px;
-  color: #909399;
 }
 
 .tenant-name {
@@ -642,8 +942,91 @@ function goSearchHit(hit: SearchHit, kind: 'products' | 'customers' | 'suppliers
 }
 
 .tenant-code {
-  color: #909399;
+  color: var(--ys-mo-4);
+  font-size: 11px;
+}
+
+/* ══ 全局搜索 ════════════════════════════════════════════════════════ */
+.global-search {
+  position: relative;
+}
+
+.search-input {
+  width: 260px;
+}
+
+.search-input :deep(.el-input__wrapper) {
+  height: 32px;
+  border-radius: 9px;
+  background: var(--ys-cibai);
+  box-shadow: 0 0 0 1px var(--ys-line) inset;
+}
+
+.search-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1999;
+}
+
+.search-panel {
+  position: absolute;
+  top: 40px;
+  right: 0;
+  z-index: 2000;
+  width: 340px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 8px;
+  background: var(--ys-cibai);
+  border: 1px solid var(--ys-line);
+  border-radius: 12px;
+  box-shadow: var(--ys-shadow-raise, var(--ys-shadow-card));
+}
+
+.search-loading,
+.search-empty {
+  padding: 16px 8px;
+  text-align: center;
+  color: var(--ys-mo-4);
+  font-size: 13px;
+}
+
+.search-group {
+  margin-bottom: 6px;
+}
+
+.search-group-title {
+  padding: 6px 8px 4px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--ys-mo-4);
+}
+
+.search-hit {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.14s ease;
+}
+
+.search-hit:hover {
+  background: var(--ys-daiqing-wash);
+}
+
+.search-hit-no {
+  font-size: 13px;
+  color: var(--ys-mo);
+}
+
+.search-hit-sub {
+  font-family: var(--ys-font-num);
   font-size: 12px;
+  color: var(--ys-mo-4);
 }
 
 .ml-8 {
@@ -651,9 +1034,9 @@ function goSearchHit(hit: SearchHit, kind: 'products' | 'customers' | 'suppliers
 }
 
 .main {
-  padding: 16px;
+  padding: 0;
   overflow-y: auto;
-  background-color: #f5f7fa;
+  background-color: var(--ys-nuanbai);
 }
 
 @media (max-width: 768px) {
@@ -662,7 +1045,7 @@ function goSearchHit(hit: SearchHit, kind: 'products' | 'customers' | 'suppliers
   }
 
   .header-title {
-    font-size: 14px;
+    font-size: 13px;
   }
 
   /* 窄屏优先保证"退出"可点，用户名/角色让位给内容区 */
@@ -670,8 +1053,12 @@ function goSearchHit(hit: SearchHit, kind: 'products' | 'customers' | 'suppliers
     display: none;
   }
 
-  .main {
-    padding: 8px;
+  .search-input {
+    width: 150px;
+  }
+
+  .tenant-chip {
+    display: none;
   }
 }
 </style>

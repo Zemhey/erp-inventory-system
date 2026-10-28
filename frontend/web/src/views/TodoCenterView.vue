@@ -42,6 +42,13 @@ function openDocument(type: string, id: number) {
   drawerVisible.value = true
 }
 
+/** 后端给的是 UTC 瞬时（`...Z`），直接铺出来会是"凌晨两点建单"这种看不懂的时间。 */
+function dateTimeText(iso: string | null | undefined): string {
+  if (!iso) return '-'
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString()
+}
+
 const BIZ_TYPE_LABELS: Record<string, string> = {
   PURCHASE_ORDER: '进货单',
   SALES_ORDER: '出货单',
@@ -116,7 +123,9 @@ onMounted(() => void load(activeTab.value))
         <el-table-column label="状态" width="110">
           <template #default="{ row }"><el-tag size="small" type="warning">{{ row.status }}</el-tag></template>
         </el-table-column>
-        <el-table-column label="创建时间" prop="createdAt" min-width="180" />
+        <el-table-column label="创建时间" min-width="180">
+          <template #default="{ row }">{{ dateTimeText(row.createdAt) }}</template>
+        </el-table-column>
         <el-table-column label="操作" width="100" fixed="right">
           <template #default>
             <el-button link type="primary" @click="router.push('/approvals')">去审批</el-button>

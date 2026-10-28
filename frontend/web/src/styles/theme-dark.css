@@ -1,0 +1,261 @@
+/* ══════════════════════════════════════════════════════════════════════
+   云裳 · 深色主题
+   ----------------------------------------------------------------------
+   不是"把浅色反过来"，而是同一套布料换了光照：
+   浅色是暖白棉麻，深色是夜色里的墨与缎 —— 底色保留褐调（不是冷灰 #0d1117），
+   主色黛青提亮 2 档（深底上 #2e5d63 会糊成一团），状态色同比例提亮。
+
+   生效方式：<html class="dark">。选择器必须写 html.dark 而不是 :root ——
+   Element Plus 自带的 dark/css-vars.css 用 html.dark（特异度 0,1,1），
+   会盖掉 theme.css 里的 :root（0,1,0）。这里写在同一特异度并排在最后，才赢。
+   ══════════════════════════════════════════════════════════════════════ */
+
+html.dark {
+  /* ── 品牌色：深底上整体提亮 ─────────────────────────────────────── */
+  --ys-mo: #efe8db; /* 主文字：暖白，不用纯白（刺眼且失重） */
+  --ys-mo-2: #d5cbba;
+  --ys-mo-3: #a99e8c;
+  --ys-mo-4: #8a7f6e;
+  --ys-mo-5: #6d6355;
+
+  --ys-daiqing: #5aa4ab; /* 黛青提亮：深底上才认得出是青 */
+  --ys-daiqing-deep: #7fc0c6; /* 深色下的"强调"应该是更亮，不是更暗 */
+  --ys-daiqing-soft: #4a8d94;
+  --ys-daiqing-wash: rgba(90, 164, 171, 0.16);
+
+  --ys-wulan: #93abc0;
+  --ys-wulan-wash: rgba(147, 171, 192, 0.13);
+
+  /* ── 表面：暖墨 → 卡片 → 抬升 ───────────────────────────────────── */
+  --ys-nuanbai: #14120f; /* 页面底 */
+  --ys-cibai: #1d1a16; /* 卡片 */
+  --ys-warm-50: #232019;
+  --ys-warm-100: #2b2620;
+
+  --ys-line: #332d26;
+  --ys-line-soft: #2a251f;
+  --ys-line-strong: #4a4238;
+
+  --ys-hover: #262119;
+  --ys-track: #2a251f;
+  --ys-track-wash: #211d18;
+  --ys-header-bg: rgba(20, 18, 15, 0.86);
+  --ys-overlay: rgba(31, 27, 22, 0.97);
+  --ys-grid: #332d26;
+  /* 深底上的斑马纹只能靠"极淡提亮"表达，不能再用亮色块，否则像渲染故障 */
+  --ys-zebra: rgba(255, 255, 255, 0.022);
+  --ys-zebra-strong: rgba(255, 255, 255, 0.035);
+
+  /* ── 状态色：只做语义，不做装饰 ─────────────────────────────────── */
+  --ys-yanzhi: #cf8a94;
+  --ys-yanzhi-wash: rgba(207, 138, 148, 0.15);
+  --ys-taotu: #c99364;
+  --ys-taotu-wash: rgba(201, 147, 100, 0.15);
+  --ys-tai: #8aab80;
+  --ys-tai-wash: rgba(138, 171, 128, 0.15);
+
+  /* ── 阴影：深色下靠"更黑的投影 + 极细内描边"分层 ─────────────────── */
+  --ys-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.45), 0 10px 26px -16px rgba(0, 0, 0, 0.75);
+  --ys-shadow-float: 0 32px 80px -32px rgba(0, 0, 0, 0.85), 0 4px 14px rgba(0, 0, 0, 0.45);
+
+  /* ══ 重新映射 Element Plus ═══════════════════════════════════════ */
+  --el-color-primary: var(--ys-daiqing);
+  --el-color-primary-light-3: #7fb8bd;
+  --el-color-primary-light-5: #9cc9cd;
+  --el-color-primary-light-7: #b6d9dc;
+  --el-color-primary-light-8: #c4e0e2;
+  --el-color-primary-light-9: var(--ys-daiqing-wash);
+  --el-color-primary-dark-2: var(--ys-daiqing-deep);
+
+  --el-color-success: var(--ys-tai);
+  --el-color-success-light-9: var(--ys-tai-wash);
+  --el-color-warning: var(--ys-taotu);
+  --el-color-warning-light-9: var(--ys-taotu-wash);
+  --el-color-danger: var(--ys-yanzhi);
+  --el-color-danger-light-9: var(--ys-yanzhi-wash);
+  --el-color-error: var(--ys-yanzhi);
+  --el-color-error-light-9: var(--ys-yanzhi-wash);
+  --el-color-info: #9a9081;
+  --el-color-info-light-9: var(--ys-warm-100);
+
+  --el-text-color-primary: var(--ys-mo);
+  --el-text-color-regular: var(--ys-mo-2);
+  --el-text-color-secondary: var(--ys-mo-3);
+  --el-text-color-placeholder: var(--ys-mo-5);
+  --el-text-color-disabled: var(--ys-mo-5);
+
+  --el-border-color: var(--ys-line);
+  --el-border-color-light: var(--ys-line-soft);
+  --el-border-color-lighter: var(--ys-line-soft);
+  --el-border-color-extra-light: #262119;
+  --el-border-color-dark: var(--ys-line-strong);
+  --el-border-color-darker: var(--ys-line-strong);
+
+  --el-fill-color: var(--ys-warm-50);
+  --el-fill-color-light: var(--ys-warm-50);
+  --el-fill-color-lighter: #211d18;
+  --el-fill-color-dark: var(--ys-warm-100);
+  --el-fill-color-darker: #332d26;
+  --el-fill-color-blank: var(--ys-cibai);
+  --el-bg-color: var(--ys-cibai);
+  --el-bg-color-page: var(--ys-nuanbai);
+  --el-bg-color-overlay: #221e19;
+
+  --el-disabled-bg-color: var(--ys-warm-50);
+  --el-disabled-border-color: var(--ys-line);
+  --el-disabled-text-color: var(--ys-mo-5);
+
+  --el-mask-color: rgba(8, 6, 4, 0.76);
+  --el-mask-color-extra-light: rgba(8, 6, 4, 0.4);
+
+  --el-box-shadow-light: var(--ys-shadow-card);
+  --el-box-shadow: var(--ys-shadow-card);
+  --el-box-shadow-lighter: var(--ys-shadow-card);
+  --el-box-shadow-dark: var(--ys-shadow-float);
+
+  /* 表格：深底上的斑马纹必须极淡，否则像故障 */
+  --el-table-bg-color: transparent;
+  --el-table-tr-bg-color: transparent;
+  --el-table-header-bg-color: transparent;
+  --el-table-header-text-color: var(--ys-mo-3);
+  --el-table-text-color: var(--ys-mo-2);
+  --el-table-border-color: var(--ys-line-soft);
+  --el-table-row-hover-bg-color: #221e19;
+  --el-table-current-row-bg-color: var(--ys-daiqing-wash);
+  --el-table-expanded-cell-bg-color: #221e19;
+}
+
+/* ══ 基底 ═══════════════════════════════════════════════════════════ */
+
+html.dark body {
+  color: var(--ys-mo);
+  background-color: var(--ys-nuanbai);
+}
+
+html.dark * {
+  scrollbar-color: #463d32 transparent;
+}
+
+html.dark *::-webkit-scrollbar-thumb {
+  background-color: #463d32;
+}
+
+html.dark *::-webkit-scrollbar-thumb:hover {
+  background-color: #5a4e41;
+}
+
+html.dark ::selection {
+  background: rgba(90, 164, 171, 0.28);
+  color: var(--ys-mo);
+}
+
+/* ══ 组件微调：Element 深色包没覆盖到"我们的形状"的部分 ═════════════ */
+
+html.dark .el-card {
+  background-color: var(--ys-cibai);
+  border-color: var(--ys-line);
+}
+
+html.dark .el-card.is-always-shadow,
+html.dark .el-card.is-hover-shadow:hover {
+  box-shadow: var(--ys-shadow-card);
+}
+
+html.dark .el-button--default {
+  --el-button-bg-color: #262119;
+  --el-button-border-color: var(--ys-line);
+  --el-button-hover-bg-color: #2e2820;
+  --el-button-hover-border-color: var(--ys-line-strong);
+  --el-button-hover-text-color: var(--ys-mo);
+}
+
+html.dark .el-input__wrapper,
+html.dark .el-textarea__inner,
+html.dark .el-select__wrapper {
+  background-color: #211d18;
+  box-shadow: 0 0 0 1px var(--ys-line) inset;
+}
+
+html.dark .el-table th.el-table__cell {
+  background-color: transparent;
+  border-bottom-color: var(--ys-line);
+}
+
+html.dark .el-table--border {
+  --el-table-border-color: var(--ys-line-soft);
+}
+
+html.dark .el-table__inner-wrapper::before,
+html.dark .el-table__border-left-patch {
+  background-color: var(--ys-line);
+}
+
+html.dark .el-skeleton {
+  --el-skeleton-color: #262119;
+  --el-skeleton-to-color: #302a23;
+}
+
+html.dark .el-popper.is-light,
+html.dark .el-dropdown__popper.el-popper,
+html.dark .el-select__popper.el-popper {
+  background: #221e19;
+  border-color: var(--ys-line);
+}
+
+/* tooltip（is-dark）在 Element 的深色主题里会被反色成"浅底深字"，
+   在整页深色中就是一块贴错的白纸。这里改回深底浅字，只比卡片亮一档。 */
+html.dark .el-popper.is-dark {
+  background: var(--ys-warm-100);
+  border: 1px solid var(--ys-line);
+  color: var(--ys-mo);
+}
+
+html.dark .el-popper.is-dark .el-popper__arrow::before {
+  background: var(--ys-warm-100);
+  border-color: var(--ys-line);
+}
+
+html.dark .el-dialog,
+html.dark .el-drawer,
+html.dark .el-message-box {
+  background: var(--ys-cibai);
+  border-color: var(--ys-line);
+}
+
+html.dark .el-dialog__footer {
+  background: var(--ys-warm-50);
+}
+
+html.dark .el-tag {
+  /* Element 的浅色标签在深底上会发灰光，压一档不透明度更稳 */
+  --el-tag-bg-color: rgba(255, 255, 255, 0.05);
+}
+
+html.dark .el-breadcrumb__inner,
+html.dark .el-breadcrumb__separator {
+  color: var(--ys-mo-3);
+}
+
+html.dark .el-empty__description p {
+  color: var(--ys-mo-4);
+}
+
+html.dark .el-pagination.is-background .el-pager li {
+  background: transparent;
+  color: var(--ys-mo-2);
+}
+
+html.dark .el-pagination.is-background .el-pager li.is-active {
+  background: var(--ys-daiqing);
+  color: #10201f;
+}
+
+/* 滚动到顶部的过渡：切主题时颜色是渐变过去的，不是"闪一下" */
+html.theme-animate,
+html.theme-animate body,
+html.theme-animate .el-card,
+html.theme-animate .aside,
+html.theme-animate .header,
+html.theme-animate .main {
+  transition: background-color 0.28s ease, color 0.28s ease, border-color 0.28s ease;
+}

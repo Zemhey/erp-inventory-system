@@ -1,0 +1,170 @@
+/* ══════════════════════════════════════════════════════════════════════
+   云裳 · 旧色值兼容层
+   ----------------------------------------------------------------------
+   背景：现有 80 个页面里散落着约 100 处硬编码的 Element 默认色
+   （#409eff 蓝、#67c23a 绿、#f5f7fa 冷灰底、#303133 中性黑 等），
+   它们不读 --el-* 变量，所以只改主题变量换不掉。
+
+   做法：把项目里**实际出现过的**旧色值逐一改指主题令牌。
+   比逐个文件手改安全：新增页面若还写旧色值，也会自动落到新配色上；
+   将来彻底清理时，删掉本文件即可立刻看出还有哪些地方没换干净。
+   ----------------------------------------------------------------------
+   注意：本文件必须最后引入（见 main.ts），优先级最高。
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* ── 主色：Element 默认蓝 → 黛青 ──────────────────────────────────── */
+:root {
+  --el-color-primary: var(--ys-daiqing);
+}
+
+/* 蓝系（主色 / 链接 / 选中） */
+[style*='#409eff'],
+[style*='#409EFF'] {
+  color: var(--ys-daiqing) !important;
+}
+
+[style*='stroke="#409eff"'],
+[style*='stroke="#409EFF"'] {
+  stroke: var(--ys-daiqing) !important;
+}
+
+[style*='fill="#409eff"'],
+[style*='fill="#409EFF"'] {
+  fill: var(--ys-daiqing) !important;
+}
+
+/* 绿系（成功）→ 苔绿 */
+[style*='#67c23a'],
+[style*='#67C23A'] {
+  color: var(--ys-tai) !important;
+}
+
+[style*='stroke="#67c23a"'],
+[style*='stroke="#67C23A"'] {
+  stroke: var(--ys-tai) !important;
+}
+
+[style*='fill="#67c23a"'],
+[style*='fill="#67C23A"'] {
+  fill: var(--ys-tai) !important;
+}
+
+/* 橙系（警告）→ 陶土 */
+[style*='#e6a23c'],
+[style*='#E6A23C'] {
+  color: var(--ys-taotu) !important;
+}
+
+[style*='stroke="#e6a23c"'],
+[style*='stroke="#E6A23C"'] {
+  stroke: var(--ys-taotu) !important;
+}
+
+[style*='fill="#e6a23c"'],
+[style*='fill="#E6A23C"'] {
+  fill: var(--ys-taotu) !important;
+}
+
+/* 红系（危险）→ 胭脂 */
+[style*='#f56c6c'],
+[style*='#F56C6C'] {
+  color: var(--ys-yanzhi) !important;
+}
+
+[style*='stroke="#f56c6c"'],
+[style*='stroke="#F56C6C"'] {
+  stroke: var(--ys-yanzhi) !important;
+}
+
+[style*='fill="#f56c6c"'],
+[style*='fill="#F56C6C"'] {
+  fill: var(--ys-yanzhi) !important;
+}
+
+/* ── 中性灰阶：冷灰 → 暖灰 ────────────────────────────────────────── */
+:root {
+  --ys-old-text-1: #303133; /* 主文字 */
+  --ys-old-text-2: #606266; /* 常规文字 */
+  --ys-old-text-3: #909399; /* 次要文字 */
+  --ys-old-text-4: #c0c4cc; /* 占位/禁用 */
+  --ys-old-bg: #f5f7fa; /* 页面底 */
+  --ys-old-bg-2: #f0f2f5; /* 分区底 */
+  --ys-old-bg-3: #f7f9fc; /* 表头/斑马 */
+  --ys-old-border: #e4e7ed;
+  --ys-old-border-2: #dcdfe6;
+}
+
+/* 文字色 */
+.text-muted,
+[style*='color: rgb(144, 147, 153)'],
+[style*='color:#909399'],
+[style*='color: #909399'] {
+  color: var(--ys-mo-3) !important;
+}
+
+/* ── 图表：SVG 里写死的线 / 点 ─────────────────────────────────────
+   这些是 DashboardView 与 MiniChart 里的折线，换色但不改结构。      */
+svg path[stroke='#409eff'],
+svg path[stroke='#409EFF'] {
+  stroke: var(--ys-daiqing) !important;
+}
+
+svg path[stroke='#67c23a'],
+svg path[stroke='#67C23A'] {
+  stroke: var(--ys-tai) !important;
+}
+
+svg circle[fill='#409eff'],
+svg circle[fill='#409EFF'] {
+  fill: var(--ys-daiqing) !important;
+}
+
+svg circle[fill='#67c23a'],
+svg circle[fill='#67C23A'] {
+  fill: var(--ys-tai) !important;
+}
+
+svg line[stroke='#e4e7ed'],
+svg line[stroke='#E4E7ED'] {
+  stroke: var(--ys-line) !important;
+}
+
+/* ── 表格斑马纹与表头底色 ──────────────────────────────────────────── */
+.el-table tr:nth-child(even) > td.el-table__cell {
+  background-color: var(--ys-zebra);
+}
+
+.el-table--striped .el-table__body tr.el-table__row--striped td.el-table__cell {
+  background: var(--ys-zebra-strong);
+}
+
+.el-table th.el-table__cell {
+  background-color: var(--ys-cibai) !important;
+}
+
+.el-table__inner-wrapper::before {
+  background-color: var(--ys-line);
+}
+
+/* ── 分隔线 ────────────────────────────────────────────────────────── */
+.el-divider {
+  border-color: var(--ys-line-soft);
+}
+
+.el-divider__text {
+  background: var(--ys-cibai);
+  color: var(--ys-mo-3);
+}
+
+/* ── 数字：等宽，表格里能对齐 ──────────────────────────────────────── */
+.el-table .cell,
+.el-descriptions__content,
+.el-statistic__number {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 侧栏折叠态下的浮层，避免冷灰阴影 ──────────────────────────────── */
+.el-popper.is-pure,
+.el-menu--popup-container {
+  border-radius: 10px;
+}

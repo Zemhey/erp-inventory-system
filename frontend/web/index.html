@@ -3,7 +3,29 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
     <title>进销存系统</title>
+    <script>
+      // 首屏防闪：在样式表解析前就把主题类打上 <html>。
+      // 放到 main.ts 里做会晚一帧 —— 深色用户每次刷新都会先闪一下白底。
+      // 约定与 src/stores/theme.ts 一致：erp.theme = 'light' | 'dark'。
+      ;(function () {
+        try {
+          var saved = localStorage.getItem('erp.theme')
+          var dark =
+            saved === 'dark' ||
+            (saved !== 'light' &&
+              window.matchMedia &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches)
+          if (dark) {
+            document.documentElement.classList.add('dark')
+            document.documentElement.style.colorScheme = 'dark'
+          }
+        } catch (e) {
+          /* localStorage 不可用时保持浅色 */
+        }
+      })()
+    </script>
   </head>
   <body>
     <div id="app"></div>

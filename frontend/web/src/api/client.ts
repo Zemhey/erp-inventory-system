@@ -378,6 +378,21 @@ export const mdmApi = {
 export const invApi = {
   query: (params: { skuId?: number; warehouseId?: number; batchNo?: string; onlyAvailable?: boolean }) =>
     http.get<never, InventoryBalance[]>('/inventory', { params }),
+  /**
+   * 库存查询（分页）—— 库存查询页用这个。
+   *
+   * 不要换成 `/inventory` 全量接口：演示库 2000+ 行余额，
+   * 全量返回时页面要等几秒才出第一行，而用户要找的往往只是某一批货。
+   */
+  page: (params: {
+    skuId?: number
+    warehouseId?: number
+    batchNo?: string
+    onlyAvailable?: boolean
+    keyword?: string
+    page?: number
+    size?: number
+  }) => http.get<never, PageData<InventoryPageRow>>('/inventory/page', { params }),
   ledger: (params: {
     skuId?: number
     warehouseId?: number
@@ -616,7 +631,23 @@ export const cstApi = {
  * `X-Request-Id` 由请求拦截器统一注入；写意图时它就是后端建单的幂等键。
  */
 export const nlApi = {
-  command: (command: string) => http.post<never, NlCommandResult>('/nl/command', { command }),
+  /**
+   * 执行。
+   *
+   * `planToken` 只在写意图时用得上：服务端从 S4 起对写操作强制校验
+   * `/nl/plan` 签发的回执（`X-Nl-Plan-Token`），缺了会 409。
+   * 只读意图传不传都一样 —— 读不审。
+   */
+  command: (command: string, planToken?: string) =>
+    http.post<never, NlCommandResult>(
+      '/nl/command',
+      { command },
+      planToken ? { headers: { 'X-Nl-Plan-Token': planToken } } : undefined,
+    ),
+  /** 只生成计划、跑复核、签发确认凭据；不执行。可安全重复调用（无副作用）。 */
+  plan: (command: string) => http.post<never, NlPlanResponse>('/nl/plan', { command }),
+  /** 单独复核（不签发凭据）：用于"重新复核"与排查"当时判成什么、为什么"。 */
+  review: (command: string) => http.post<never, NlReviewResponse>('/nl/review', { command }),
 }
 
 /**
@@ -938,6 +969,23 @@ export interface InventoryBalance {
   /** 冻结量：不参与可用量（FR-INV-10） */
   frozenQty: number
   availableQty: number
+}
+
+/**
+ * 库存查询行（分页接口返回）：在余额字段之外带上可读名称。
+ *
+ * 名称由后端 join 出来，前端不再维护 SKU 字典 ——
+ * 字典只有 200 条而 SKU 有 600 个，字典外只能显示 "SKU#123"。
+ */
+export interface InventoryPageRow extends InventoryBalance {
+  productCode: string | null
+  productName: string | null
+  category: string | null
+  color: string | null
+  size: string | null
+  barcode: string | null
+  skuName: string
+  warehouseName: string | null
 }
 
 // ═══════════════════════ 库存作业（V2-1） ═══════════════════════
@@ -1573,13 +1621,214 @@ export interface NlCommandResult {
     | 'query_inventory'
     | 'list_documents'
     | 'get_document'
+    | 'submit_document'
     | 'inventory_summary'
+    | 'replenish_advice'
     | 'query_master_data'
     | 'create_purchase_order'
     | 'create_sales_order'
   description: string
   write: boolean
   data: unknown
+}
+
+/**
+ * 执行计划（契约 `NlPlan`，FR-V4-03 · S3）。
+ *
+ * 它是**提案**不是结果：`/nl/plan` 只生成它、不执行任何写操作。
+ * `requiresReview` 为 true 时必须由人点确认后才去调 `/nl/command`；
+ * 只读意图恒为 false —— 查错了重问一次即可，不该有审核成本。
+ */
+export interface NlPlanResult {
+  intent: NlCommandResult['intent']
+  write: boolean
+  requiresReview: boolean
+  reviewReason: string
+  executable: boolean
+  summary: string
+  steps: string[]
+  impact: { label: string; value: string }[]
+  warnings: string[]
+  blockers: string[]
+  args: Record<string, unknown>
+}
+
+/** 复核结论三档。APPROVE 只代表"不反对"，不等于批准；只有 REJECT 会阻断执行。 */
+export type NlVerdict = 'APPROVE' | 'NEED_HUMAN' | 'REJECT'
+
+/** 复核意见的一条。`source` 区分是确定性规则（RULE）还是复核模型（AI）说的。 */
+export interface NlFinding {
+  level: 'INFO' | 'WARN' | 'REJECT'
+  source: string
+  message: string
+}
+
+/**
+ * 复核结论（契约 `NlReview`，FR-V4-03 · S4）。
+ *
+ * 它是**对计划本身的意见**，不是执行结果，也不是权限判定：
+ * 权限回答"你能不能做"，复核对"这件事本身对不对"提意见。
+ */
+export interface NlReview {
+  verdict: NlVerdict
+  blocking: boolean
+  source: string
+  summary: string
+  findings: NlFinding[]
+}
+
+/**
+ * 人工确认凭据（契约 `NlConfirmation`）。
+ *
+ * 由服务端签发、服务端校验，绑定账号 / 意图 / 参数哈希 / 有效期。
+ * 只读意图恒为 `required=false`。
+ */
+export interface NlConfirmation {
+  required: boolean
+  token: string | null
+  expiresAt: string | null
+  reason: string
+}
+
+/** `/nl/plan` 的完整应答：计划 + 复核意见 + 确认凭据，一次给全。 */
+export interface NlPlanResponse {
+  plan: NlPlanResult
+  review: NlReview
+  confirmation: NlConfirmation
+}
+
+/** `/nl/review` 的应答（不签发凭据）。 */
+export interface NlReviewResponse {
+  plan: NlPlanResult
+  review: NlReview
+  aiReviewEnabled: boolean
+}
+
+/**
+ * 一条自然语言操作记录（契约 `NlExecutionView`，FR-V4-03 · S5/S6）。
+ *
+ * 它是"这件事的档案"：一句话从"打算做什么"到"最后怎么了"的全过程。
+ * `plan` / `review` 是**生成当时**的快照（后端存的就是那份 JSON），
+ * 所以它反映当时看到的东西，而不是按现在的代码重算一遍。
+ */
+export interface NlExecutionRecord {
+  id: number
+  requestId: string
+  actorId: number
+  actorName: string | null
+  /** 调用方：WEB / MCP / API */
+  source: string
+  commandText: string
+  intent: NlCommandResult['intent']
+  write: boolean
+  /** PENDING / EXECUTED / FAILED / EXPIRED / DISMISSED / BLOCKED / VETOED */
+  status: string
+  statusLabel: string
+  verdict: string
+  reviewSource: string | null
+  summary: string | null
+  plan: Partial<NlPlanResult>
+  review: Partial<NlReview>
+  docType: string | null
+  docId: number | null
+  docNo: string | null
+  errorMessage: string | null
+  createdAt: string
+  expiresAt: string | null
+  decidedAt: string | null
+  decidedBy: number | null
+  decidedByName: string | null
+}
+
+/** 待确认队列与操作审计共用的分页形状（队列多一个 pendingCount）。 */
+export interface NlQueuePage {
+  items: NlExecutionRecord[]
+  total: number
+  page: number
+  size: number
+  pendingCount: number
+}
+
+/**
+ * 待确认队列（FR-V4-03 · S5）。
+ *
+ * ★ 它解决的是"人看不见"：一条计划在等人确认时，后端什么都没发生。
+ *   如果不落库，用户关掉页面，那条计划就消失了 —— 看不见的待确认等于没审。
+ */
+export const nlQueueApi = {
+  pending: (params: { page?: number; size?: number } = {}) =>
+    http.get<never, NlQueuePage>('/nl/pending', { params }),
+  /** 队列里确认执行：这一行本身就是"人已经点过"的证据，不需要回执。 */
+  execute: (id: number) => http.post<never, NlCommandResult>(`/nl/pending/${id}/execute`),
+  /** 驳回：不改业务数据，只把这条计划注销，并记下是谁否掉的。 */
+  dismiss: (id: number) => http.post<never, unknown>(`/nl/pending/${id}/dismiss`),
+}
+
+/**
+ * 操作审计（FR-V4-03 · S6）。
+ *
+ * ★ 查得到"被挡住的那条"和查得到"执行成功的那条"同样重要：
+ *   只记成功的审计，等于把最需要复盘的失败藏起来。
+ */
+export const nlAuditApi = {
+  page: (
+    params: {
+      status?: string
+      intent?: string
+      actorId?: number
+      source?: string
+      write?: boolean
+      from?: string
+      to?: string
+      page?: number
+      size?: number
+    } = {},
+  ) => http.get<never, Omit<NlQueuePage, 'pendingCount'>>('/nl/audit', { params }),
+  get: (id: number) => http.get<never, NlExecutionRecord>(`/nl/audit/${id}`),
+}
+
+/**
+ * AI 接入配置（FR-SYS-04）。
+ *
+ * ★ 回显的是掩码 `••••••abcd`，不是明文 key —— 后端根本不把它放进响应体。
+ *   所以前端的"密钥"输入框永远是空的：占位文字显示已保存的掩码，
+ *   用户不填 = 不改；填了 = 替换；点"清除密钥"才发 __CLEAR__。
+ */
+export interface NlSettingsView {
+  parser: 'stub' | 'openai'
+  reviewer: 'rule' | 'openai'
+  baseUrl: string
+  model: string
+  keyMasked: string
+  hasKey: boolean
+  llmEnabled: boolean
+  aiReviewEnabled: boolean
+  effectiveParser: string
+}
+
+export interface NlSettingsPatch {
+  parser?: string
+  reviewer?: string
+  baseUrl?: string
+  model?: string
+  /** 空 = 保持原值；__CLEAR__ = 清空；其它 = 替换 */
+  apiKey?: string
+}
+
+export interface NlSettingsTestResult {
+  ok: boolean
+  elapsedMs: number
+  model: string
+  detail: string
+  intent: string | null
+}
+
+export const nlSettingsApi = {
+  get: () => http.get<never, NlSettingsView>('/nl/settings'),
+  save: (patch: NlSettingsPatch) => http.put<never, NlSettingsView>('/nl/settings', patch),
+  /** 测试连接不落库：先测得通，再让用户保存，避免覆盖掉当前可用的 key。 */
+  test: (body: { baseUrl?: string; model?: string; apiKey?: string; text?: string } = {}) =>
+    http.post<never, NlSettingsTestResult>('/nl/settings/test', body),
 }
 
 // ═══════════════════════ IAM 深化 / 审批（V2-6） ═══════════════════════
@@ -1658,6 +1907,37 @@ export interface ApprovalFlowView {
 }
 
 /** 用户与角色管理（FR-IAM-05）+ 数据权限配置（FR-IAM-04）。 */
+/** 员工档案（人事视角：账号 + 部门岗位 + 联系方式）。 */
+export interface EmployeeView {
+  id: number
+  username: string
+  displayName: string
+  employeeNo: string | null
+  phone: string | null
+  email: string | null
+  hireDate: string | null
+  remark: string | null
+  departmentId: number | null
+  departmentName: string | null
+  positionId: number | null
+  positionName: string | null
+  enabled: boolean
+  lockedUntil: string | null
+  mustChangePassword: boolean
+  roles: string[]
+}
+
+/** 员工档案的可写字段（新建与编辑共用一份，避免两处字段漂移）。 */
+export interface EmployeeProfileInput {
+  employeeNo?: string
+  departmentId?: number | null
+  positionId?: number | null
+  phone?: string
+  email?: string
+  hireDate?: string | null
+  remark?: string
+}
+
 export const iamApi = {
   users: (keyword?: string, page = 1, size = 50) =>
     http.get<never, PageData<UserView>>('/iam/users', { params: { keyword, page, size } }),
@@ -1668,7 +1948,19 @@ export const iamApi = {
     displayName?: string
     enabled?: boolean
     roles?: string[]
-  }) => http.post<never, UserView>('/iam/users', body),
+  } & EmployeeProfileInput) => http.post<never, UserView>('/iam/users', body),
+
+  // ── 员工档案（FR-IAM-05 人事视角）──
+  employees: (params: {
+    keyword?: string
+    departmentId?: number
+    enabled?: boolean
+    page?: number
+    size?: number
+  }) => http.get<never, PageData<EmployeeView>>('/iam/employees', { params }),
+  updateEmployee: (id: number, body: EmployeeProfileInput) =>
+    http.put<never, UserView>(`/iam/employees/${id}`, body),
+
   updateRoles: (id: number, roles: string[]) =>
     http.put<never, UserView>(`/iam/users/${id}/roles`, { roles }),
   setEnabled: (id: number, enabled: boolean) =>

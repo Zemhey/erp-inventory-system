@@ -1,0 +1,467 @@
+/* ══════════════════════════════════════════════════════════════════════
+   云裳 · 主题层
+   ----------------------------------------------------------------------
+   目的：把「暖白底 / 墨黑字 / 黛青主色」的视觉语言注入 Element Plus，
+   让现有 80 个页面不改一行模板就整体换肤。
+
+   做法：只覆盖 Element 暴露出来的 CSS 变量（--el-*）和少量结构性
+   样式（圆角、边框、阴影、表格密度），不重写组件内部结构 ——
+   这样升级 Element 时不会大面积失效。
+
+   引入顺序必须在 element-plus/dist/index.css 之后，见 main.ts。
+   ══════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ── 品牌色 ─────────────────────────────────────────────────────── */
+  --ys-mo: #23201c; /* 墨黑：标题与主文字，带褐调 */
+  --ys-mo-2: #4a443c;
+  --ys-mo-3: #6a6255; /* 次文字：比常见的 #909399 深一点，暖白底上更清楚 */
+  --ys-mo-4: #857b6b;
+  --ys-mo-5: #a69c8c;
+
+  --ys-daiqing: #2e5d63; /* 黛青：主色 */
+  --ys-daiqing-deep: #24494e;
+  --ys-daiqing-soft: #3c7078;
+  --ys-daiqing-wash: #e8efee;
+
+  --ys-wulan: #7c93a6; /* 雾蓝：辅助 */
+  --ys-wulan-wash: #edf1f4;
+
+  --ys-nuanbai: #f6f2ea; /* 暖白：页面底 */
+  --ys-cibai: #fffdfa; /* 瓷白：卡片 */
+  --ys-warm-50: #fbf8f2;
+  --ys-warm-100: #f3ede2;
+
+  --ys-line: #e8e0d4; /* 浅暖灰边框 */
+  --ys-line-soft: #f0eae0;
+  --ys-line-strong: #d8ccb9;
+
+  /* 交互态与表面色 —— 深色主题要换的就是这几个（见 theme-dark.css） */
+  --ys-hover: #f4ede1; /* 菜单/列表 hover 底 */
+  --ys-track: #f0f2f5; /* 进度条、柱状图空槽 */
+  --ys-track-wash: #f7f9fc; /* 浅色统计块底 */
+  --ys-header-bg: rgba(246, 242, 234, 0.92); /* 毛玻璃顶栏 */
+  --ys-overlay: rgba(255, 253, 250, 0.96); /* 悬浮面板底 */
+  --ys-grid: #e4e7ed; /* 图表轴线 */
+  /* 图表色板：全部从品牌色派生，不引入 Element 默认的蓝绿橙红。
+     用变量而不是字面值 —— 深色主题下自动换成提亮后的同色系。 */
+  --ys-chart-1: var(--ys-daiqing);
+  --ys-chart-2: var(--ys-wulan);
+  --ys-chart-3: var(--ys-taotu);
+  --ys-chart-4: var(--ys-tai);
+  --ys-chart-5: var(--ys-yanzhi);
+  --ys-chart-6: var(--ys-mo-4);
+  --ys-chart-7: var(--ys-daiqing-soft);
+  --ys-zebra: #fdfbf6; /* 表格斑马纹（深色下一档极淡的提亮） */
+  --ys-zebra-strong: #fbf8f2; /* 带 stripe 属性的表格 */
+
+  /* 只用于状态，不做装饰 */
+  --ys-yanzhi: #a25f6b; /* 胭脂：退货 / 异常 / 下架 */
+  --ys-yanzhi-wash: #f7edee;
+  --ys-taotu: #a96436; /* 陶土：库存预警 / 待补货 */
+  --ys-taotu-wash: #f8efe6;
+  --ys-tai: #5c7357; /* 苔绿：已完成 / 正常 */
+  --ys-tai-wash: #edf1e9;
+
+  /* ── 形状与阴影 ─────────────────────────────────────────────────── */
+  --ys-r-card: 14px;
+  --ys-r-ctl: 9px;
+  --ys-shadow-card: 0 1px 2px rgba(58, 44, 28, 0.05), 0 8px 20px -12px rgba(58, 44, 28, 0.12);
+  --ys-shadow-float: 0 32px 80px -32px rgba(40, 30, 18, 0.32), 0 4px 14px rgba(40, 30, 18, 0.05);
+
+  /* ── 字体 ───────────────────────────────────────────────────────── */
+  --ys-font-cn: 'Source Han Sans SC', 'Noto Sans SC', 'Source Han Sans CN', 'PingFang SC',
+    'Microsoft YaHei', sans-serif;
+  --ys-font-num: 'Inter', var(--ys-font-cn);
+
+  /* ══ 映射到 Element Plus 的变量 ═══════════════════════════════════ */
+  --el-color-primary: var(--ys-daiqing);
+  --el-color-primary-light-3: #5a8085;
+  --el-color-primary-light-5: #7f9b9e;
+  --el-color-primary-light-7: #a7bcbe;
+  --el-color-primary-light-8: #c1d1d2;
+  --el-color-primary-light-9: var(--ys-daiqing-wash);
+  --el-color-primary-dark-2: var(--ys-daiqing-deep);
+
+  --el-color-success: var(--ys-tai);
+  --el-color-success-light-9: var(--ys-tai-wash);
+  --el-color-warning: var(--ys-taotu);
+  --el-color-warning-light-9: var(--ys-taotu-wash);
+  --el-color-danger: var(--ys-yanzhi);
+  --el-color-danger-light-9: var(--ys-yanzhi-wash);
+  --el-color-error: var(--ys-yanzhi);
+  --el-color-error-light-9: var(--ys-yanzhi-wash);
+  --el-color-info: #8a8171;
+  --el-color-info-light-9: var(--ys-warm-100);
+
+  --el-text-color-primary: var(--ys-mo);
+  --el-text-color-regular: var(--ys-mo-2);
+  --el-text-color-secondary: var(--ys-mo-3);
+  --el-text-color-placeholder: var(--ys-mo-5);
+  --el-text-color-disabled: var(--ys-mo-5);
+
+  --el-border-color: var(--ys-line);
+  --el-border-color-light: var(--ys-line-soft);
+  --el-border-color-lighter: var(--ys-line-soft);
+  --el-border-color-extra-light: #f6f1e8;
+  --el-border-color-dark: var(--ys-line-strong);
+  --el-border-color-darker: var(--ys-line-strong);
+
+  --el-fill-color: var(--ys-warm-50);
+  --el-fill-color-light: var(--ys-warm-50);
+  --el-fill-color-lighter: #fdfbf6;
+  --el-fill-color-blank: var(--ys-cibai);
+  --el-bg-color: var(--ys-cibai);
+  --el-bg-color-page: var(--ys-nuanbai);
+  --el-bg-color-overlay: var(--ys-cibai);
+
+  --el-border-radius-base: var(--ys-r-ctl);
+  --el-border-radius-small: 7px;
+  --el-border-radius-round: 999px;
+
+  --el-font-family: var(--ys-font-cn);
+  --el-font-size-base: 14px;
+
+  --el-box-shadow-light: var(--ys-shadow-card);
+  --el-box-shadow: var(--ys-shadow-card);
+  --el-box-shadow-lighter: var(--ys-shadow-card);
+
+  --el-disabled-bg-color: var(--ys-warm-50);
+  --el-disabled-border-color: var(--ys-line);
+  --el-disabled-text-color: var(--ys-mo-5);
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   全局基底
+   ══════════════════════════════════════════════════════════════════════ */
+
+body {
+  font-family: var(--ys-font-cn);
+  color: var(--ys-mo);
+  background-color: var(--ys-nuanbai);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 数字与金额：Inter + 等宽数字，表格里能对齐比较 */
+.amount,
+.el-table .cell .num {
+  font-family: var(--ys-font-num);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.005em;
+}
+
+/* 暖色调滚动条 —— 默认的冷灰在暖白底上很扎眼 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #d6cbbb transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+*::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 9px;
+  background-clip: content-box;
+  background-color: #d6cbbb;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: #c2b49e;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::selection {
+  background: var(--ys-daiqing-wash);
+  color: var(--ys-daiqing-deep);
+}
+
+/* 键盘焦点必须看得见 */
+:focus-visible {
+  outline: 2px solid var(--ys-daiqing);
+  outline-offset: 2px;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   Element Plus 结构微调
+   —— 只改"形状"和"密度"，不改内部布局逻辑
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* ── 按钮 ── */
+.el-button {
+  border-radius: var(--ys-r-ctl);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+.el-button--primary {
+  --el-button-bg-color: var(--ys-daiqing);
+  --el-button-border-color: var(--ys-daiqing);
+  --el-button-hover-bg-color: var(--ys-daiqing-deep);
+  --el-button-hover-border-color: var(--ys-daiqing-deep);
+  --el-button-active-bg-color: #1d3c40;
+  --el-button-active-border-color: #1d3c40;
+}
+
+.el-button--default {
+  --el-button-bg-color: var(--ys-cibai);
+  --el-button-border-color: var(--ys-line);
+  --el-button-hover-bg-color: var(--ys-warm-50);
+  --el-button-hover-border-color: var(--ys-line-strong);
+  --el-button-hover-text-color: var(--ys-mo);
+}
+
+/* ── 输入 / 选择 ── */
+.el-input__wrapper,
+.el-textarea__inner,
+.el-select__wrapper {
+  border-radius: var(--ys-r-ctl);
+  background-color: var(--ys-cibai);
+  box-shadow: 0 0 0 1px var(--ys-line) inset;
+  transition: box-shadow 0.16s ease, background-color 0.16s ease;
+}
+
+.el-input__wrapper:hover,
+.el-textarea__inner:hover,
+.el-select__wrapper:hover {
+  box-shadow: 0 0 0 1px var(--ys-line-strong) inset;
+}
+
+.el-input__wrapper.is-focus,
+.el-textarea__inner:focus,
+.el-select__wrapper.is-focused {
+  box-shadow: 0 0 0 1px var(--ys-daiqing) inset, 0 0 0 3px rgba(46, 93, 99, 0.1);
+}
+
+/* ── 卡片：唯一允许的容器圆角 ── */
+.el-card {
+  border-radius: var(--ys-r-card);
+  border-color: var(--ys-line);
+  box-shadow: var(--ys-shadow-card);
+  background-color: var(--ys-cibai);
+}
+
+.el-card__header {
+  border-bottom-color: var(--ys-line-soft);
+  padding: 14px 18px 12px;
+  font-weight: 500;
+}
+
+.el-card__body {
+  padding: 16px 18px;
+}
+
+/* ── 表格：数据密集，行高收紧，表头浅暖底 ── */
+.el-table {
+  --el-table-border-color: var(--ys-line-soft);
+  --el-table-header-bg-color: var(--ys-cibai);
+  --el-table-header-text-color: var(--ys-mo-3);
+  --el-table-text-color: var(--ys-mo-2);
+  --el-table-row-hover-bg-color: #fdfaf4;
+  --el-table-current-row-bg-color: var(--ys-daiqing-wash);
+  font-size: 13px;
+}
+
+.el-table th.el-table__cell {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  border-bottom-color: var(--ys-line);
+  padding: 7px 0;
+}
+
+.el-table td.el-table__cell {
+  padding: 7px 0;
+}
+
+.el-table .el-table__cell .cell {
+  line-height: 1.45;
+}
+
+/* 表格里的次行说明（款号、电话、备注）用更浅一档 */
+.el-table .cell .sub,
+.el-table .cell .text-muted {
+  color: var(--ys-mo-4);
+  font-size: 12px;
+}
+
+/* ── 标签：小圆点 + 文字，不再用大片浅色底 ── */
+.el-tag {
+  border-radius: 7px;
+  font-weight: 500;
+  border-color: transparent;
+}
+
+/* ── 分页 ── */
+.el-pagination {
+  --el-pagination-button-bg-color: transparent;
+  --el-pagination-hover-color: var(--ys-daiqing);
+  font-family: var(--ys-font-num);
+}
+
+.el-pagination.is-background .el-pager li {
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ys-mo-2);
+}
+
+.el-pagination.is-background .el-pager li.is-active {
+  background: var(--ys-daiqing);
+  color: #fdfbf6;
+}
+
+/* ── 弹层 ── */
+.el-dialog {
+  border-radius: var(--ys-r-card);
+  box-shadow: var(--ys-shadow-float);
+  border: 1px solid var(--ys-line);
+}
+
+.el-dialog__header {
+  padding: 18px 20px 12px;
+  margin-right: 0;
+  border-bottom: 1px solid var(--ys-line-soft);
+}
+
+.el-dialog__title {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--ys-mo);
+}
+
+.el-dialog__body {
+  padding: 18px 20px;
+}
+
+.el-dialog__footer {
+  padding: 12px 20px;
+  border-top: 1px solid var(--ys-line-soft);
+  background: var(--ys-warm-50);
+  border-radius: 0 0 var(--ys-r-card) var(--ys-r-card);
+}
+
+.el-drawer {
+  background: var(--ys-cibai);
+}
+
+.el-drawer__header {
+  margin-bottom: 0;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--ys-line-soft);
+  color: var(--ys-mo);
+  font-weight: 500;
+}
+
+.el-drawer__body {
+  padding: 18px 20px;
+}
+
+.el-message-box {
+  border-radius: var(--ys-r-card);
+  border-color: var(--ys-line);
+}
+
+/* ── 下拉菜单 / 弹层底色 ── */
+.el-popper.is-light,
+.el-dropdown__popper.el-popper,
+.el-select__popper.el-popper {
+  border-radius: 10px;
+  border-color: var(--ys-line);
+  box-shadow: var(--ys-shadow-card);
+}
+
+.el-menu--popup {
+  border-radius: 10px;
+}
+
+/* ── 消息条：不要整屏发光的浅色块 ── */
+.el-message {
+  border-radius: 10px;
+  border-color: var(--ys-line);
+  background: var(--ys-cibai);
+  box-shadow: var(--ys-shadow-card);
+}
+
+/* ── 步骤条 / 进度条 ── */
+.el-progress-bar__outer {
+  background-color: var(--ys-warm-100);
+}
+
+/* ── 描述列表（详情页常用）── */
+.el-descriptions__label {
+  color: var(--ys-mo-3);
+  font-weight: 400;
+}
+
+.el-descriptions__content {
+  color: var(--ys-mo);
+}
+
+/* ── 表单 ── */
+.el-form-item__label {
+  color: var(--ys-mo-3);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* ── 空状态 ── */
+.el-empty__description p {
+  color: var(--ys-mo-4);
+}
+
+/* ── 骨架屏：暖色，别用冷灰 ── */
+.el-skeleton {
+  --el-skeleton-color: #f1eadf;
+  --el-skeleton-to-color: #f7f2e8;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   业务页面的通用骨架（沿用现有类名，只调视觉）
+   ══════════════════════════════════════════════════════════════════════ */
+
+.page {
+  padding: 22px 24px 40px;
+}
+
+.page-header {
+  margin-bottom: 18px;
+}
+
+.page-title {
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--ys-mo);
+}
+
+.page-hint {
+  color: var(--ys-mo-3);
+  font-size: 12px;
+}
+
+.text-muted {
+  color: var(--ys-mo-3);
+}
+
+.empty-block {
+  color: var(--ys-mo-4);
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   动效：只保留用户动作引起的过渡，干扰性动画一律不做
+   ══════════════════════════════════════════════════════════════════════ */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

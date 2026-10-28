@@ -4,10 +4,8 @@ import {
   invApi,
   mdmApi,
   fenToYuan,
-  type InventoryBalance,
+  type InventoryPageRow,
   type LedgerEntry,
-  type Product,
-  type Sku,
   type Warehouse,
 } from '@/api/client'
 import PageTable from '@/components/PageTable.vue'
@@ -24,59 +22,34 @@ import PageTable from '@/components/PageTable.vue'
  *   availableQty 由后端返回，这里不校验"是否等于 onHand − reserved"；
  *   够不够卖、能不能下单，全部是后端的规则。
  *
- * ★ 名称字典：后端余额与流水只返回 skuId / warehouseId，界面必须可读，
- *   因此用主数据接口取一份字典做**显示映射**（不是业务计算）。
- *   取不到名字时退回显示 ID —— 宁可不完整，也不要显示成空白让人以为没数据。
+ * ★ <b>余额必须服务端分页</b>（2026-10-27 改）：
+ *   原来一次性拉全量（演示库 2000+ 行）再前端渲染，打开页面要等好几秒。
+ *   现在走 /inventory/page：一页 50 行、关键字过滤，首屏只查一次。
+ *   顺带把"名称翻译"挪到后端 —— 之前前端拉 200 条 SKU 字典做映射，
+ *   而 SKU 有 600 个，字典外的行只能显示 SKU#123。
  */
 
 const activeTab = ref<'balance' | 'ledger'>('balance')
 
-// ─────────────────────────── 主数据字典 ───────────────────────────
+// ─────────────────────────── 仓库字典 ───────────────────────────
 
+/**
+ * 仓库只有十来个，仍然值得拉一份做下拉。
+ *
+ * 刻意用 onlyEnabled=false：余额/流水里的仓库可能是已停用的仓，
+ * 过滤掉就查不出名字、也没法按它筛选。
+ */
 const warehouses = ref<Warehouse[]>([])
-const skus = ref<Sku[]>([])
-const products = ref<Product[]>([])
-/** 后端 /skus、/products 的 size 上限是 200，超出部分字典里没有 → 界面要说明。 */
-const dictTruncated = ref(false)
 
-/** 停用仓库也要能显示名字：这里刻意用 onlyEnabled=false。 */
-async function loadDictionary() {
-  const [wh, sku, prod] = await Promise.allSettled([
-    // 余额/流水里的仓库可能是已停用的仓，过滤掉就查不出名字了
-    mdmApi.listWarehouses(false),
-    mdmApi.listSkus({ page: 1, pageSize: 200 }),
-    mdmApi.listProducts({ page: 1, size: 200 }),
-  ])
-  if (wh.status === 'fulfilled') warehouses.value = wh.value
-  if (sku.status === 'fulfilled') skus.value = sku.value.items
-  if (prod.status === 'fulfilled') products.value = prod.value.items
-  dictTruncated.value =
-    (sku.status === 'fulfilled' && sku.value.total > sku.value.items.length) ||
-    (prod.status === 'fulfilled' && prod.value.total > prod.value.items.length)
-}
-
-const warehouseNames = computed(() => {
-  const map = new Map<number, string>()
-  for (const w of warehouses.value) map.set(w.id, w.enabled ? w.name : `${w.name}（已停用）`)
-  return map
-})
-
-const skuNames = computed(() => {
-  const productNames = new Map<number, string>(products.value.map((p) => [p.id, p.name]))
-  const map = new Map<number, string>()
-  for (const s of skus.value) {
-    const product = productNames.get(s.productId) ?? `商品#${s.productId}`
-    map.set(s.id, `${product} · ${s.color}-${s.size}`)
-  }
-  return map
-})
-
-function warehouseText(id: number): string {
-  return warehouseNames.value.get(id) ?? `仓库#${id}`
-}
-
-function skuText(id: number): string {
-  return skuNames.value.get(id) ?? `SKU#${id}`
+async function loadWarehouses() {
+  await mdmApi.listWarehouses(false).then(
+    (list) => {
+      warehouses.value = list
+    },
+    () => {
+      /* 仓库字典失败不影响查库存：后端会直接返回仓库名 */
+    },
+  )
 }
 
 /** 拦截器已经弹过一次 ElMessage，这里只是把消息留在页面上（刷新后仍可回看）。 */
@@ -88,18 +61,21 @@ function errorMessage(error: unknown): string {
 // ─────────────────────────── 库存余额 ───────────────────────────
 
 const balanceFilters = reactive({
-  skuId: undefined as number | undefined,
+  keyword: '',
   warehouseId: undefined as number | undefined,
   batchNo: '',
   onlyAvailable: false,
 })
 
-const balances = ref<InventoryBalance[]>([])
+const balances = ref<InventoryPageRow[]>([])
+const balanceTotal = ref(0)
+const balancePage = ref(1)
+const balancePageSize = ref(50)
 const balanceLoading = ref(false)
 const balanceError = ref('')
 const balanceFiltered = computed(
   () =>
-    balanceFilters.skuId !== undefined ||
+    balanceFilters.keyword.trim() !== '' ||
     balanceFilters.warehouseId !== undefined ||
     balanceFilters.batchNo.trim() !== '' ||
     balanceFilters.onlyAvailable,
@@ -109,26 +85,107 @@ async function loadBalances() {
   balanceLoading.value = true
   balanceError.value = ''
   try {
-    balances.value = await invApi.query({
-      skuId: balanceFilters.skuId,
+    const data = await invApi.page({
+      keyword: balanceFilters.keyword.trim() || undefined,
       warehouseId: balanceFilters.warehouseId,
       batchNo: balanceFilters.batchNo.trim() || undefined,
       onlyAvailable: balanceFilters.onlyAvailable,
+      page: balancePage.value,
+      size: balancePageSize.value,
     })
+    balances.value = data.items
+    balanceTotal.value = data.total
+    cacheFromBalances(data.items)
   } catch (error) {
     balances.value = []
+    balanceTotal.value = 0
     balanceError.value = errorMessage(error)
   } finally {
     balanceLoading.value = false
   }
 }
 
+function searchBalances() {
+  balancePage.value = 1
+  loadBalances()
+}
+
 function resetBalanceFilters() {
-  balanceFilters.skuId = undefined
+  balanceFilters.keyword = ''
   balanceFilters.warehouseId = undefined
   balanceFilters.batchNo = ''
   balanceFilters.onlyAvailable = false
+  searchBalances()
+}
+
+function onBalancePageChange(page: number, pageSize: number) {
+  balancePage.value = page
+  balancePageSize.value = pageSize
   loadBalances()
+}
+
+// ─────────────────────────── 名称缓存（流水页用） ───────────────────────────
+
+/**
+ * 余额行自带名称（后端 join 出来的），顺手存进缓存；
+ * 流水行只有 skuId / warehouseId，需要靠这份缓存翻译。
+ *
+ * 字典是**懒加载**的：只有切到流水页才拉（SKU 600 条要三页）。
+ * 余额页因此完全不依赖字典 —— 这正是把 2000 行一次性拉慢的旧路径。
+ */
+const skuCache = ref(new Map<number, string>())
+const warehouseCache = ref(new Map<number, string>())
+/** 流水页的 SKU 下拉选项：字典拉完后才可用（此前只有 id 没有名字，筛了也看不懂）。 */
+const skuOptions = ref<{ id: number; name: string }[]>([])
+let dictLoaded = false
+
+function cacheFromBalances(rows: InventoryPageRow[]) {
+  const nextSku = new Map(skuCache.value)
+  const nextWh = new Map(warehouseCache.value)
+  for (const r of rows) {
+    if (r.skuName) nextSku.set(r.skuId, r.skuName)
+    if (r.warehouseName) nextWh.set(r.warehouseId, r.warehouseName)
+  }
+  skuCache.value = nextSku
+  warehouseCache.value = nextWh
+}
+
+/** 拉一份全量 SKU/商品字典（分页拉完，最多 8 页）。只在首次进入流水页时发生。 */
+async function ensureNameDict() {
+  if (dictLoaded) return
+  dictLoaded = true
+  try {
+    const products = await mdmApi.listProducts({ page: 1, size: 200 })
+    const productNames = new Map(products.items.map((p) => [p.id, p.name]))
+    const nextSku = new Map(skuCache.value)
+    for (let page = 1; page <= 8; page++) {
+      const res = await mdmApi.listSkus({ page, pageSize: 200 })
+      for (const s of res.items) {
+        const product = productNames.get(s.productId) ?? `商品#${s.productId}`
+        nextSku.set(s.id, `${product} · ${s.color}-${s.size}`)
+      }
+      if (res.items.length === 0 || nextSku.size >= res.total) break
+    }
+    skuCache.value = nextSku
+    skuOptions.value = [...nextSku]
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+  } catch {
+    // 字典拉不到就退回显示 ID —— 宁可不完整，也不要让流水页打不开
+    dictLoaded = false
+  }
+}
+
+function skuText(id: number): string {
+  return skuCache.value.get(id) ?? `SKU#${id}`
+}
+
+function warehouseText(id: number): string {
+  const fromCache = warehouseCache.value.get(id)
+  if (fromCache) return fromCache
+  const w = warehouses.value.find((x) => x.id === id)
+  if (!w) return `仓库#${id}`
+  return w.enabled ? w.name : `${w.name}（已停用）`
 }
 
 // ─────────────────────────── 库存流水 ───────────────────────────
@@ -202,20 +259,24 @@ function onLedgerPageChange(page: number, pageSize: number) {
 }
 
 function onTabChange(name: string | number) {
-  if (name === 'ledger' && !ledgerLoaded.value) loadLedger()
+  if (name !== 'ledger') return
+  // 流水页要翻译 SKU 名称，字典在这里才拉（余额页不依赖它）
+  void ensureNameDict()
+  if (!ledgerLoaded.value) loadLedger()
 }
 
 /**
  * 从余额行跳到流水：带上同一 SKU、同一仓库。
  * 批次没法带过去 —— 后端 /inventory/ledger 没有 batchNo 参数（已记为缺口）。
  */
-function inspectBalance(row: InventoryBalance) {
+function inspectBalance(row: InventoryPageRow) {
   ledgerFilters.skuId = row.skuId
   ledgerFilters.warehouseId = row.warehouseId
   ledgerFilters.bizRefNo = ''
   ledgerFilters.range = null
   ledgerPage.value = 1
   activeTab.value = 'ledger'
+  void ensureNameDict()
   loadLedger()
 }
 
@@ -254,7 +315,8 @@ function dateTimeText(iso: string | null | undefined): string {
 }
 
 onMounted(async () => {
-  await loadDictionary()
+  // 首屏只查一页库存 + 一份仓库下拉；SKU 字典等切到流水页再拉
+  await loadWarehouses()
   await loadBalances()
 })
 
@@ -275,16 +337,6 @@ function refresh() {
       可用量是下单依据，实存与预占的差额由后端计算并返回。
     </p>
 
-    <el-alert
-      v-if="dictTruncated"
-      type="info"
-      show-icon
-      :closable="false"
-      class="mb-16"
-      title="部分 SKU / 商品名称未能显示"
-      description="主数据查询接口每页最多 200 条，且后端没有按 ID 批量取名的接口；字典外的行会显示 SKU#编号、仓库#编号。"
-    />
-
     <el-tabs v-model="activeTab" class="inv-tabs" @tab-change="onTabChange">
       <!-- ─────────── 库存余额 ─────────── -->
       <el-tab-pane label="库存余额" name="balance">
@@ -302,30 +354,33 @@ function refresh() {
         <PageTable
           :rows="balances"
           :loading="balanceLoading"
-          :paginated="false"
+          :total="balanceTotal"
+          :page="balancePage"
+          :page-size="balancePageSize"
           :filtered="balanceFiltered"
           :load-failed="!!balanceError"
           empty-text="还没有库存"
           empty-hint="库存由进货单入库产生；也可以放宽筛选条件再试。"
           table-size="small"
+          @update:page="balancePage = $event"
+          @update:page-size="balancePageSize = $event"
+          @change="onBalancePageChange"
         >
           <template #filters>
-            <el-select
-              v-model="balanceFilters.skuId"
-              placeholder="全部 SKU"
-              filterable
+            <el-input
+              v-model="balanceFilters.keyword"
+              placeholder="搜商品编码/名称、条码、批次、仓库"
               clearable
-              class="filter-select"
-              @change="loadBalances"
-            >
-              <el-option v-for="s in skus" :key="s.id" :label="skuText(s.id)" :value="s.id" />
-            </el-select>
+              class="filter-keyword"
+              @keyup.enter="searchBalances"
+              @clear="searchBalances"
+            />
             <el-select
               v-model="balanceFilters.warehouseId"
               placeholder="全部仓库"
               clearable
               class="filter-select-sm"
-              @change="loadBalances"
+              @change="searchBalances"
             >
               <el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" />
             </el-select>
@@ -334,20 +389,20 @@ function refresh() {
               placeholder="批次号（精确匹配）"
               clearable
               class="filter-input"
-              @keyup.enter="loadBalances"
-              @clear="loadBalances"
+              @keyup.enter="searchBalances"
+              @clear="searchBalances"
             />
-            <el-checkbox v-model="balanceFilters.onlyAvailable" @change="loadBalances">
+            <el-checkbox v-model="balanceFilters.onlyAvailable" @change="searchBalances">
               只看有可用量的行
             </el-checkbox>
-            <el-button type="primary" @click="loadBalances">查询</el-button>
+            <el-button type="primary" @click="searchBalances">查询</el-button>
             <el-button @click="resetBalanceFilters">重置</el-button>
           </template>
 
           <template #header>
             <div class="table-title">
               库存行（SKU × 仓库 × 批次）
-              <span class="text-muted">共 {{ balances.length }} 行</span>
+              <span class="text-muted">共 {{ balanceTotal }} 行，按页加载</span>
             </div>
             <div class="qty-legend">
               <span><i class="qty-dot dot-onhand" />实存：仓库里实际有多少</span>
@@ -356,11 +411,16 @@ function refresh() {
             </div>
           </template>
 
-          <el-table-column label="SKU" min-width="200">
-            <template #default="{ row }">{{ skuText(row.skuId) }}</template>
+          <el-table-column label="SKU" min-width="240">
+            <template #default="{ row }">
+              <div class="sku-cell">
+                <span class="sku-name">{{ row.skuName || `SKU#${row.skuId}` }}</span>
+                <span v-if="row.productCode" class="sku-code">{{ row.productCode }}</span>
+              </div>
+            </template>
           </el-table-column>
           <el-table-column label="仓库" min-width="140">
-            <template #default="{ row }">{{ warehouseText(row.warehouseId) }}</template>
+            <template #default="{ row }">{{ row.warehouseName || warehouseText(row.warehouseId) }}</template>
           </el-table-column>
           <el-table-column label="批次" min-width="120">
             <template #default="{ row }">
@@ -449,7 +509,7 @@ function refresh() {
               class="filter-select"
               @change="searchLedger"
             >
-              <el-option v-for="s in skus" :key="s.id" :label="skuText(s.id)" :value="s.id" />
+              <el-option v-for="s in skuOptions" :key="s.id" :label="s.name" :value="s.id" />
             </el-select>
             <el-select
               v-model="ledgerFilters.warehouseId"
@@ -542,6 +602,11 @@ function refresh() {
   margin-top: 4px;
 }
 
+.filter-keyword {
+  width: 300px;
+}
+
+/* 流水页的 SKU 下拉仍用这个宽度 */
 .filter-select {
   width: 260px;
 }
@@ -563,6 +628,23 @@ function refresh() {
   display: flex;
   align-items: baseline;
   gap: 8px;
+}
+
+/* SKU 两行：主名 + 商品编码，避免长名字把表格撑歪 */
+.sku-cell {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+}
+
+.sku-name {
+  font-weight: 500;
+}
+
+.sku-code {
+  font-size: 12px;
+  color: #909399;
+  font-variant-numeric: tabular-nums;
 }
 
 /* 三个数字的语义靠"同色的点 + 同色的数"绑定，避免只看数字猜是哪个 */
