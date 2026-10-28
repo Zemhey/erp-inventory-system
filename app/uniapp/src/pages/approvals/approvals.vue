@@ -479,14 +479,14 @@ onReachBottom(() => {
   display: block;
   font-size: 29rpx;
   font-weight: 600;
-  color: #9c3a26;
+  color: var(--c-danger);
 }
 
 .notice-text {
   display: block;
   margin-top: 10rpx;
   font-size: 25rpx;
-  color: #6e7585;
+  color: var(--c-text-2);
   line-height: 1.55;
 }
 
@@ -498,23 +498,23 @@ onReachBottom(() => {
   display: block;
   font-size: 28rpx;
   font-weight: 700;
-  color: #1c2230;
+  color: var(--c-text);
 }
 
 .mode-sub {
   display: block;
   margin-top: 6rpx;
   font-size: 21rpx;
-  color: #8a90a2;
+  color: var(--c-text-3);
 }
 
 .mode-note {
   display: block;
   margin-top: 14rpx;
   padding-top: 14rpx;
-  border-top: 1rpx solid #f0f2f6;
+  border-top: 1rpx solid var(--c-line);
   font-size: 21rpx;
-  color: #6e7585;
+  color: var(--c-text-2);
   line-height: 1.55;
 }
 
@@ -522,14 +522,14 @@ onReachBottom(() => {
   width: 84rpx;
   height: 44rpx;
   border-radius: 999rpx;
-  background: #dfe3ea;
+  background: var(--c-fill-strong);
   padding: 4rpx;
   display: flex;
   flex-shrink: 0;
 }
 
 .switch.on {
-  background: #1f3a63;
+  background: var(--c-brand);
   justify-content: flex-end;
 }
 
@@ -537,7 +537,7 @@ onReachBottom(() => {
   width: 36rpx;
   height: 36rpx;
   border-radius: 50%;
-  background: #ffffff;
+  background: var(--c-surface);
 }
 
 .chips {
@@ -550,13 +550,13 @@ onReachBottom(() => {
 .chip {
   padding: 12rpx 26rpx;
   border-radius: 999rpx;
-  background: #e9edf3;
-  color: #586176;
+  background: var(--c-fill-strong);
+  color: var(--c-text-2);
   font-size: 24rpx;
 }
 
 .chip.active {
-  background: #1f3a63;
+  background: var(--c-brand);
   color: #ffffff;
   font-weight: 600;
 }
@@ -567,7 +567,7 @@ onReachBottom(() => {
 
 .summary-text {
   font-size: 23rpx;
-  color: #8a90a2;
+  color: var(--c-text-3);
 }
 
 .cap-note {
@@ -577,7 +577,7 @@ onReachBottom(() => {
 
 .cap-text {
   font-size: 22rpx;
-  color: #a86a1f;
+  color: var(--c-warn);
   line-height: 1.5;
 }
 
@@ -600,7 +600,7 @@ onReachBottom(() => {
   min-width: 0;
   font-size: 27rpx;
   font-weight: 700;
-  color: #1c2230;
+  color: var(--c-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -617,28 +617,28 @@ onReachBottom(() => {
 }
 
 .atone-wait {
-  background: #e8eefb;
-  color: #2c4f8a;
+  background: var(--c-info-wash);
+  color: var(--c-info-text);
 }
 
 .atone-handover {
-  background: #f0ecfb;
-  color: #5b4a91;
+  background: var(--c-purple-wash);
+  color: var(--c-purple-text);
 }
 
 .atone-pass {
-  background: #e9f5ef;
-  color: #2f7d5b;
+  background: var(--c-ok-wash);
+  color: var(--c-success);
 }
 
 .atone-refuse {
-  background: #fdf0ec;
-  color: #b4462f;
+  background: var(--c-danger-wash);
+  color: var(--c-danger);
 }
 
 .atone-quiet {
-  background: #f1f2f5;
-  color: #8a90a2;
+  background: var(--c-fill-strong);
+  color: var(--c-text-3);
 }
 
 .approval-meta {
@@ -647,12 +647,12 @@ onReachBottom(() => {
 
 .meta-text {
   font-size: 23rpx;
-  color: #6e7585;
+  color: var(--c-text-2);
 }
 
 .meta-text.amount {
   font-weight: 700;
-  color: #b4702f;
+  color: var(--c-warn);
 }
 
 .step-line {
@@ -660,13 +660,13 @@ onReachBottom(() => {
   align-items: center;
   margin-top: 14rpx;
   padding: 14rpx 18rpx;
-  background: #f7f9fc;
+  background: var(--c-fill);
   border-radius: 12rpx;
 }
 
 .step-label {
   font-size: 21rpx;
-  color: #8a90a2;
+  color: var(--c-text-3);
 }
 
 .step-name {
@@ -674,7 +674,7 @@ onReachBottom(() => {
   min-width: 0;
   margin-left: 14rpx;
   font-size: 23rpx;
-  color: #2b3245;
+  color: var(--c-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -682,29 +682,29 @@ onReachBottom(() => {
 
 .step-index {
   font-size: 21rpx;
-  color: #586176;
+  color: var(--c-text-2);
 }
 
 .approval-foot {
   margin-top: 16rpx;
   padding-top: 14rpx;
-  border-top: 1rpx solid #f0f2f6;
+  border-top: 1rpx solid var(--c-line);
 }
 
 .link {
   font-size: 23rpx;
-  color: #2c4066;
+  color: var(--c-brand-text);
 }
 
 .accept-flag {
   font-size: 22rpx;
   font-weight: 700;
-  color: #5b4a91;
+  color: var(--c-purple-text);
 }
 
 .arrow {
   font-size: 23rpx;
-  color: #2c4066;
+  color: var(--c-brand-text);
 }
 
 .list-footer {
@@ -721,7 +721,7 @@ onReachBottom(() => {
   display: block;
   text-align: center;
   font-size: 22rpx;
-  color: #a2a8b6;
+  color: var(--c-text-4);
 }
 
 .block-text {
@@ -737,11 +737,11 @@ onReachBottom(() => {
 .inline-error {
   margin-top: 16rpx;
   padding: 18rpx 22rpx;
-  background: #fdf1ee;
+  background: var(--c-danger-wash);
   border-radius: 14rpx;
   text-align: center;
   font-size: 23rpx;
-  color: #9c3a26;
+  color: var(--c-danger);
 }
 
 .inline-retry {
@@ -755,7 +755,7 @@ onReachBottom(() => {
   display: flex;
   padding: 6rpx;
   margin-bottom: 20rpx;
-  background: #e9edf3;
+  background: var(--c-fill-strong);
   border-radius: 18rpx;
 }
 
@@ -766,12 +766,12 @@ onReachBottom(() => {
   text-align: center;
   border-radius: 14rpx;
   font-size: 25rpx;
-  color: #6e7585;
+  color: var(--c-text-2);
 }
 
 .todo-tabs .tab.active {
-  background: #ffffff;
-  color: #1f3a63;
+  background: var(--c-surface);
+  color: var(--c-brand-text);
   font-weight: 600;
   box-shadow: 0 4rpx 14rpx rgba(31, 58, 99, 0.12);
 }
@@ -781,7 +781,7 @@ onReachBottom(() => {
 }
 
 .todo-card.clickable:active {
-  background: #f2f5fa;
+  background: var(--c-fill);
 }
 
 .todo-head {
@@ -793,7 +793,7 @@ onReachBottom(() => {
   min-width: 0;
   font-size: 27rpx;
   font-weight: 700;
-  color: #1c2230;
+  color: var(--c-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -809,11 +809,11 @@ onReachBottom(() => {
   gap: 4rpx;
   margin-top: 12rpx;
   padding-top: 12rpx;
-  border-top: 1rpx solid #f0f2f6;
+  border-top: 1rpx solid var(--c-line);
 }
 
 .amount {
   font-weight: 700;
-  color: #b4702f;
+  color: var(--c-warn);
 }
 </style>

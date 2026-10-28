@@ -666,14 +666,14 @@ onPullDownRefresh(() => {
   display: block;
   font-size: 29rpx;
   font-weight: 600;
-  color: #9c3a26;
+  color: var(--c-danger);
 }
 
 .notice-text {
   display: block;
   margin-top: 10rpx;
   font-size: 25rpx;
-  color: #6e7585;
+  color: var(--c-text-2);
   line-height: 1.55;
 }
 
@@ -686,7 +686,7 @@ onPullDownRefresh(() => {
   min-width: 0;
   font-size: 32rpx;
   font-weight: 700;
-  color: #1c2230;
+  color: var(--c-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -702,42 +702,42 @@ onPullDownRefresh(() => {
 }
 
 .tone-info {
-  background: #eef1f6;
-  color: #586176;
+  background: var(--c-fill-strong);
+  color: var(--c-text-2);
 }
 
 .tone-primary {
-  background: #e8eefb;
-  color: #2c4f8a;
+  background: var(--c-info-wash);
+  color: var(--c-info-text);
 }
 
 .tone-success {
-  background: #e9f5ef;
-  color: #2f7d5b;
+  background: var(--c-ok-wash);
+  color: var(--c-success);
 }
 
 .tone-warning {
-  background: #fbf1e3;
-  color: #a86a1f;
+  background: var(--c-warn-wash);
+  color: var(--c-warn);
 }
 
 .tone-danger {
-  background: #fdf0ec;
-  color: #b4462f;
+  background: var(--c-danger-wash);
+  color: var(--c-danger);
 }
 
 .status-desc {
   display: block;
   margin-top: 10rpx;
   font-size: 23rpx;
-  color: #8a90a2;
+  color: var(--c-text-3);
 }
 
 .hero-grid {
   display: flex;
   margin-top: 22rpx;
   padding: 18rpx 0;
-  background: #f7f9fc;
+  background: var(--c-fill);
   border-radius: 16rpx;
 }
 
@@ -749,7 +749,7 @@ onPullDownRefresh(() => {
 .hero-label {
   display: block;
   font-size: 21rpx;
-  color: #8a90a2;
+  color: var(--c-text-3);
 }
 
 .hero-value {
@@ -757,16 +757,16 @@ onPullDownRefresh(() => {
   margin-top: 4rpx;
   font-size: 34rpx;
   font-weight: 700;
-  color: #1c2230;
+  color: var(--c-text);
 }
 
 .hero-value.open {
-  color: #b4702f;
+  color: var(--c-warn);
 }
 
 .hero-value.amount {
   font-size: 28rpx;
-  color: #2c4066;
+  color: var(--c-brand-text);
 }
 
 .kv {
@@ -778,19 +778,19 @@ onPullDownRefresh(() => {
 .kv-label {
   width: 130rpx;
   flex-shrink: 0;
-  color: #8a90a2;
+  color: var(--c-text-3);
 }
 
 .kv-value {
   flex: 1;
-  color: #1c2230;
+  color: var(--c-text);
 }
 
 .back-link {
   display: block;
   margin-top: 18rpx;
   font-size: 23rpx;
-  color: #2c4066;
+  color: var(--c-brand-text);
 }
 
 .section-head {
@@ -799,7 +799,7 @@ onPullDownRefresh(() => {
 
 .section-hint {
   font-size: 21rpx;
-  color: #a2a8b6;
+  color: var(--c-text-4);
 }
 
 .scan-card {
@@ -819,12 +819,12 @@ onPullDownRefresh(() => {
   margin-top: 16rpx;
   text-align: center;
   font-size: 23rpx;
-  color: #2c4066;
+  color: var(--c-brand-text);
 }
 
 .manual-note {
   padding: 18rpx 22rpx;
-  background: #fbf4e8;
+  background: var(--c-warn-wash);
   border-radius: 14rpx;
 }
 
@@ -839,14 +839,14 @@ onPullDownRefresh(() => {
   align-items: center;
   min-height: 78rpx;
   margin-top: 12rpx;
-  border-bottom: 1rpx solid #f0f2f6;
+  border-bottom: 1rpx solid var(--c-line);
 }
 
 .form-label {
   width: 140rpx;
   flex-shrink: 0;
   font-size: 24rpx;
-  color: #586176;
+  color: var(--c-text-2);
 }
 
 .form-input {
@@ -854,30 +854,30 @@ onPullDownRefresh(() => {
   min-width: 0;
   height: 70rpx;
   padding: 0 16rpx;
-  background: #f4f6fa;
+  background: var(--c-fill);
   border-radius: 12rpx;
   font-size: 25rpx;
-  color: #2b3245;
+  color: var(--c-text);
 }
 
 .focus-line {
   display: flex;
   margin-top: 18rpx;
   padding: 16rpx 20rpx;
-  background: #f7f9fc;
+  background: var(--c-fill);
   border-radius: 12rpx;
   font-size: 23rpx;
 }
 
 .focus-label {
   flex-shrink: 0;
-  color: #8a90a2;
+  color: var(--c-text-3);
 }
 
 .focus-value {
   flex: 1;
   margin-left: 16rpx;
-  color: #2b3245;
+  color: var(--c-text);
 }
 
 .btn-scan-submit {
@@ -891,7 +891,7 @@ onPullDownRefresh(() => {
 .scan-disabled {
   display: block;
   font-size: 24rpx;
-  color: #6e7585;
+  color: var(--c-text-2);
   line-height: 1.55;
 }
 
@@ -901,16 +901,16 @@ onPullDownRefresh(() => {
   background: #eef5f0;
   border-radius: 12rpx;
   font-size: 23rpx;
-  color: #2f7d5b;
+  color: var(--c-success);
 }
 
 .inline-error {
   margin-top: 16rpx;
   padding: 20rpx 24rpx;
-  background: #fdf1ee;
+  background: var(--c-danger-wash);
   border-radius: 14rpx;
   font-size: 23rpx;
-  color: #9c3a26;
+  color: var(--c-danger);
 }
 
 .block-text {
@@ -939,11 +939,11 @@ onPullDownRefresh(() => {
 
 .meta-text {
   font-size: 22rpx;
-  color: #6e7585;
+  color: var(--c-text-2);
 }
 
 .amount {
-  color: #2c4066;
+  color: var(--c-brand-text);
   font-weight: 600;
 }
 
@@ -954,7 +954,7 @@ onPullDownRefresh(() => {
 
 .line-focused {
   border-color: #2c4066;
-  background: #f6f9ff;
+  background: var(--c-info-wash);
 }
 
 .line-done {
@@ -970,7 +970,7 @@ onPullDownRefresh(() => {
   min-width: 0;
   font-size: 26rpx;
   font-weight: 600;
-  color: #1c2230;
+  color: var(--c-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -981,11 +981,11 @@ onPullDownRefresh(() => {
   margin-left: 14rpx;
   font-size: 23rpx;
   font-weight: 700;
-  color: #b4702f;
+  color: var(--c-warn);
 }
 
 .remaining-zero {
-  color: #2f7d5b;
+  color: var(--c-success);
 }
 
 .line-meta {
@@ -1001,14 +1001,14 @@ onPullDownRefresh(() => {
   display: block;
   font-size: 28rpx;
   font-weight: 700;
-  color: #1c2230;
+  color: var(--c-text);
 }
 
 .action-desc {
   display: block;
   margin-top: 8rpx;
   font-size: 23rpx;
-  color: #6e7585;
+  color: var(--c-text-2);
   line-height: 1.55;
 }
 
@@ -1036,20 +1036,20 @@ onPullDownRefresh(() => {
 
 .action-note-text {
   font-size: 23rpx;
-  color: #6e7585;
+  color: var(--c-text-2);
   line-height: 1.55;
 }
 
 .success-card {
   margin-top: 20rpx;
   padding: 24rpx;
-  border-left: 8rpx solid #2f7d5b;
+  border-left: 8rpx solid var(--c-success);
 }
 
 .success-title {
   display: block;
   font-size: 24rpx;
-  color: #2f7d5b;
+  color: var(--c-success);
 }
 
 .success-link {
@@ -1057,7 +1057,7 @@ onPullDownRefresh(() => {
   margin-top: 10rpx;
   font-size: 23rpx;
   font-weight: 600;
-  color: #2c4066;
+  color: var(--c-brand-text);
 }
 
 .receipt-card {
@@ -1067,7 +1067,7 @@ onPullDownRefresh(() => {
 .receipt-no {
   font-size: 25rpx;
   font-weight: 600;
-  color: #1c2230;
+  color: var(--c-text);
 }
 
 .dict-warning {
@@ -1075,6 +1075,6 @@ onPullDownRefresh(() => {
   margin-top: 22rpx;
   text-align: center;
   font-size: 21rpx;
-  color: #a2a8b6;
+  color: var(--c-text-4);
 }
 </style>

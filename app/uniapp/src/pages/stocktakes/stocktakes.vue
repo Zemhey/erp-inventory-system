@@ -350,14 +350,14 @@ onReachBottom(() => {
   display: block;
   font-size: 29rpx;
   font-weight: 600;
-  color: #9c3a26;
+  color: var(--c-danger);
 }
 
 .notice-text {
   display: block;
   margin-top: 10rpx;
   font-size: 25rpx;
-  color: #6e7585;
+  color: var(--c-text-2);
   line-height: 1.55;
 }
 
@@ -370,13 +370,13 @@ onReachBottom(() => {
 .chip {
   padding: 10rpx 26rpx;
   border-radius: 999rpx;
-  background: #e9edf3;
+  background: var(--c-fill-strong);
   font-size: 24rpx;
-  color: #6e7585;
+  color: var(--c-text-2);
 }
 
 .chip.active {
-  background: #1f3a63;
+  background: var(--c-brand);
   color: #ffffff;
   font-weight: 600;
 }
@@ -395,7 +395,7 @@ onReachBottom(() => {
   width: 120rpx;
   flex-shrink: 0;
   font-size: 25rpx;
-  color: #6e7585;
+  color: var(--c-text-2);
 }
 
 .picker-flex {
@@ -407,12 +407,12 @@ onReachBottom(() => {
   align-items: center;
   justify-content: flex-end;
   font-size: 27rpx;
-  color: #1c2230;
+  color: var(--c-text);
 }
 
 .picker-arrow {
   margin-left: 10rpx;
-  color: #a2a8b6;
+  color: var(--c-text-4);
 }
 
 .create-btn {
@@ -426,7 +426,7 @@ onReachBottom(() => {
   display: block;
   margin-top: 12rpx;
   font-size: 23rpx;
-  color: #8a90a2;
+  color: var(--c-text-3);
 }
 
 .summary {
@@ -435,7 +435,7 @@ onReachBottom(() => {
 
 .summary-text {
   font-size: 23rpx;
-  color: #8a90a2;
+  color: var(--c-text-3);
 }
 
 .list {
@@ -457,7 +457,7 @@ onReachBottom(() => {
   min-width: 0;
   font-size: 28rpx;
   font-weight: 700;
-  color: #1c2230;
+  color: var(--c-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -473,18 +473,18 @@ onReachBottom(() => {
 }
 
 .tone-wait {
-  background: #fbf1e3;
-  color: #a86a1f;
+  background: var(--c-warn-wash);
+  color: var(--c-warn);
 }
 
 .tone-done {
-  background: #e9f5ef;
-  color: #2f7d5b;
+  background: var(--c-ok-wash);
+  color: var(--c-success);
 }
 
 .tone-quiet {
-  background: #f1f2f5;
-  color: #8a90a2;
+  background: var(--c-fill-strong);
+  color: var(--c-text-3);
 }
 
 .meta-row {
@@ -493,23 +493,23 @@ onReachBottom(() => {
 
 .meta-text {
   font-size: 22rpx;
-  color: #6e7585;
+  color: var(--c-text-2);
 }
 
 .diff-value {
   font-size: 24rpx;
   font-weight: 700;
-  color: #2f7d5b;
+  color: var(--c-success);
 }
 
 .diff-active {
-  color: #b4702f;
+  color: var(--c-warn);
 }
 
 .line-table {
   margin-top: 16rpx;
   padding: 14rpx 18rpx;
-  background: #f7f9fc;
+  background: var(--c-fill);
   border-radius: 14rpx;
 }
 
@@ -518,7 +518,7 @@ onReachBottom(() => {
   align-items: center;
   padding: 6rpx 0;
   font-size: 21rpx;
-  color: #586176;
+  color: var(--c-text-2);
 }
 
 .line-sku {
@@ -533,7 +533,7 @@ onReachBottom(() => {
   width: 150rpx;
   flex-shrink: 0;
   margin-left: 10rpx;
-  color: #8a90a2;
+  color: var(--c-text-3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -550,7 +550,7 @@ onReachBottom(() => {
   flex-shrink: 0;
   text-align: right;
   font-weight: 700;
-  color: #2f7d5b;
+  color: var(--c-success);
 }
 
 .card-actions {
@@ -567,16 +567,16 @@ onReachBottom(() => {
   display: block;
   margin-top: 14rpx;
   font-size: 21rpx;
-  color: #a2a8b6;
+  color: var(--c-text-4);
 }
 
 .inline-error {
   margin-top: 18rpx;
   padding: 18rpx 22rpx;
-  background: #fdf1ee;
+  background: var(--c-danger-wash);
   border-radius: 14rpx;
   font-size: 23rpx;
-  color: #9c3a26;
+  color: var(--c-danger);
 }
 
 .inline-retry {
@@ -609,7 +609,7 @@ onReachBottom(() => {
   display: block;
   text-align: center;
   font-size: 22rpx;
-  color: #a2a8b6;
+  color: var(--c-text-4);
 }
 
 .dict-warning {
@@ -617,6 +617,6 @@ onReachBottom(() => {
   margin-top: 22rpx;
   text-align: center;
   font-size: 21rpx;
-  color: #a2a8b6;
+  color: var(--c-text-4);
 }
 </style>

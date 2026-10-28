@@ -367,14 +367,14 @@ onReachBottom(() => {
   display: block;
   font-size: 29rpx;
   font-weight: 600;
-  color: #9c3a26;
+  color: var(--c-danger);
 }
 
 .notice-text {
   display: block;
   margin-top: 10rpx;
   font-size: 25rpx;
-  color: #6e7585;
+  color: var(--c-text-2);
   line-height: 1.55;
 }
 
@@ -390,7 +390,7 @@ onReachBottom(() => {
 .form-label {
   width: 120rpx;
   font-size: 24rpx;
-  color: #586176;
+  color: var(--c-text-2);
 }
 
 .picker-flex {
@@ -403,14 +403,14 @@ onReachBottom(() => {
   justify-content: space-between;
   align-items: center;
   padding: 14rpx 20rpx;
-  background: #f4f6fa;
+  background: var(--c-fill);
   border-radius: 12rpx;
   font-size: 24rpx;
-  color: #2b3245;
+  color: var(--c-text);
 }
 
 .picker-arrow {
-  color: #a2a8b6;
+  color: var(--c-text-4);
 }
 
 .switch-row {
@@ -421,13 +421,13 @@ onReachBottom(() => {
   width: 84rpx;
   height: 44rpx;
   border-radius: 999rpx;
-  background: #dfe3ea;
+  background: var(--c-fill-strong);
   padding: 4rpx;
   display: flex;
 }
 
 .switch.on {
-  background: #1f3a63;
+  background: var(--c-brand);
   justify-content: flex-end;
 }
 
@@ -435,7 +435,7 @@ onReachBottom(() => {
   width: 36rpx;
   height: 36rpx;
   border-radius: 50%;
-  background: #ffffff;
+  background: var(--c-surface);
 }
 
 .summary-card {
@@ -446,12 +446,12 @@ onReachBottom(() => {
 .summary-title {
   font-size: 27rpx;
   font-weight: 700;
-  color: #1c2230;
+  color: var(--c-text);
 }
 
 .summary-note {
   font-size: 21rpx;
-  color: #8a90a2;
+  color: var(--c-text-3);
 }
 
 .summary-grid {
@@ -467,7 +467,7 @@ onReachBottom(() => {
 .cell-label {
   display: block;
   font-size: 21rpx;
-  color: #8a90a2;
+  color: var(--c-text-3);
 }
 
 .cell-value {
@@ -475,18 +475,18 @@ onReachBottom(() => {
   margin-top: 6rpx;
   font-size: 24rpx;
   font-weight: 600;
-  color: #2b3245;
+  color: var(--c-text);
 }
 
 .cell-value.balance {
-  color: #b4702f;
+  color: var(--c-warn);
 }
 
 .summary-overdue {
   display: block;
   margin-top: 14rpx;
   font-size: 22rpx;
-  color: #b4462f;
+  color: var(--c-danger);
 }
 
 .chips {
@@ -499,13 +499,13 @@ onReachBottom(() => {
 .chip {
   padding: 12rpx 26rpx;
   border-radius: 999rpx;
-  background: #e9edf3;
-  color: #586176;
+  background: var(--c-fill-strong);
+  color: var(--c-text-2);
   font-size: 24rpx;
 }
 
 .chip.active {
-  background: #1f3a63;
+  background: var(--c-brand);
   color: #ffffff;
   font-weight: 600;
 }
@@ -516,7 +516,7 @@ onReachBottom(() => {
 
 .summary-text {
   font-size: 23rpx;
-  color: #8a90a2;
+  color: var(--c-text-3);
 }
 
 .list {
@@ -538,7 +538,7 @@ onReachBottom(() => {
   min-width: 0;
   font-size: 28rpx;
   font-weight: 700;
-  color: #1c2230;
+  color: var(--c-text);
 }
 
 .status-tag {
@@ -551,18 +551,18 @@ onReachBottom(() => {
 }
 
 .tone-open {
-  background: #fbf1e3;
-  color: #a86a1f;
+  background: var(--c-warn-wash);
+  color: var(--c-warn);
 }
 
 .tone-settled {
-  background: #e9f5ef;
-  color: #2f7d5b;
+  background: var(--c-ok-wash);
+  color: var(--c-success);
 }
 
 .tone-void {
-  background: #f1f2f5;
-  color: #8a90a2;
+  background: var(--c-fill-strong);
+  color: var(--c-text-3);
 }
 
 .debt-meta,
@@ -572,29 +572,29 @@ onReachBottom(() => {
 
 .meta-text {
   font-size: 23rpx;
-  color: #6e7585;
+  color: var(--c-text-2);
 }
 
 .meta-text.link {
-  color: #2c4066;
+  color: var(--c-brand-text);
   font-weight: 600;
 }
 
 .debt-foot {
   margin-top: 16rpx;
   padding-top: 14rpx;
-  border-top: 1rpx solid #f0f2f6;
+  border-top: 1rpx solid var(--c-line);
 }
 
 .debt-balance {
   font-size: 25rpx;
   font-weight: 700;
-  color: #b4702f;
+  color: var(--c-warn);
 }
 
 .debt-overdue {
   font-size: 22rpx;
-  color: #b4462f;
+  color: var(--c-danger);
   font-weight: 600;
 }
 
@@ -612,7 +612,7 @@ onReachBottom(() => {
   display: block;
   text-align: center;
   font-size: 22rpx;
-  color: #a2a8b6;
+  color: var(--c-text-4);
 }
 
 .block-text {
@@ -628,11 +628,11 @@ onReachBottom(() => {
 .inline-error {
   margin-top: 16rpx;
   padding: 18rpx 22rpx;
-  background: #fdf1ee;
+  background: var(--c-danger-wash);
   border-radius: 14rpx;
   text-align: center;
   font-size: 23rpx;
-  color: #9c3a26;
+  color: var(--c-danger);
 }
 
 .inline-retry {
@@ -646,6 +646,6 @@ onReachBottom(() => {
   margin-top: 22rpx;
   text-align: center;
   font-size: 21rpx;
-  color: #a2a8b6;
+  color: var(--c-text-4);
 }
 </style>

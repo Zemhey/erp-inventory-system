@@ -554,14 +554,14 @@ onReachBottom(() => {
   display: block;
   font-size: 29rpx;
   font-weight: 600;
-  color: #9c3a26;
+  color: var(--c-danger);
 }
 
 .notice-text {
   display: block;
   margin-top: 10rpx;
   font-size: 25rpx;
-  color: #6e7585;
+  color: var(--c-text-2);
   line-height: 1.55;
 }
 
@@ -569,7 +569,7 @@ onReachBottom(() => {
   display: flex;
   padding: 6rpx;
   margin-bottom: 20rpx;
-  background: #e9edf3;
+  background: var(--c-fill-strong);
   border-radius: 18rpx;
 }
 
@@ -580,12 +580,12 @@ onReachBottom(() => {
   text-align: center;
   border-radius: 14rpx;
   font-size: 27rpx;
-  color: #6e7585;
+  color: var(--c-text-2);
 }
 
 .tab.active {
-  background: #ffffff;
-  color: #1f3a63;
+  background: var(--c-surface);
+  color: var(--c-brand-text);
   font-weight: 600;
   box-shadow: 0 4rpx 14rpx rgba(31, 58, 99, 0.12);
 }
@@ -598,7 +598,7 @@ onReachBottom(() => {
   display: flex;
   align-items: center;
   min-height: 82rpx;
-  border-bottom: 1rpx solid #f0f2f6;
+  border-bottom: 1rpx solid var(--c-line);
 }
 
 .filter-row:last-of-type {
@@ -609,7 +609,7 @@ onReachBottom(() => {
   width: 120rpx;
   flex-shrink: 0;
   font-size: 25rpx;
-  color: #6e7585;
+  color: var(--c-text-2);
 }
 
 .picker-flex {
@@ -621,12 +621,12 @@ onReachBottom(() => {
   align-items: center;
   justify-content: flex-end;
   font-size: 27rpx;
-  color: #1c2230;
+  color: var(--c-text);
 }
 
 .picker-arrow {
   margin-left: 10rpx;
-  color: #a2a8b6;
+  color: var(--c-text-4);
   font-size: 26rpx;
 }
 
@@ -634,7 +634,7 @@ onReachBottom(() => {
   flex: 1;
   height: 72rpx;
   font-size: 27rpx;
-  color: #1c2230;
+  color: var(--c-text);
   text-align: right;
 }
 
@@ -660,11 +660,11 @@ onReachBottom(() => {
 
 .summary-text {
   font-size: 23rpx;
-  color: #8a90a2;
+  color: var(--c-text-3);
 }
 
 .summary-strong {
-  color: #1f3a63;
+  color: var(--c-brand-text);
   font-weight: 700;
 }
 
@@ -688,7 +688,7 @@ onReachBottom(() => {
   min-width: 0;
   font-size: 28rpx;
   font-weight: 600;
-  color: #1c2230;
+  color: var(--c-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -698,7 +698,7 @@ onReachBottom(() => {
   display: flex;
   align-items: center;
   padding: 18rpx 0;
-  background: #f7f9fc;
+  background: var(--c-fill);
   border-radius: 16rpx;
 }
 
@@ -711,22 +711,22 @@ onReachBottom(() => {
   display: block;
   font-size: 40rpx;
   font-weight: 700;
-  color: #1c2230;
+  color: var(--c-text);
 }
 
 .qty-value.reserved {
-  color: #b4702f;
+  color: var(--c-warn);
 }
 
 .qty-value.available {
-  color: #2f7d5b;
+  color: var(--c-success);
 }
 
 .qty-label {
   display: block;
   margin-top: 2rpx;
   font-size: 21rpx;
-  color: #8a90a2;
+  color: var(--c-text-3);
 }
 
 .card-foot {
@@ -735,7 +735,7 @@ onReachBottom(() => {
 
 .meta {
   font-size: 22rpx;
-  color: #8a90a2;
+  color: var(--c-text-3);
 }
 
 .type-badge {
@@ -751,19 +751,19 @@ onReachBottom(() => {
 }
 
 .badge-in {
-  background: #e9f5ef;
-  color: #2f7d5b;
+  background: var(--c-ok-wash);
+  color: var(--c-success);
 }
 
 .badge-out {
-  background: #fdf0ec;
-  color: #b4462f;
+  background: var(--c-danger-wash);
+  color: var(--c-danger);
 }
 
 .type-name {
   font-size: 27rpx;
   font-weight: 600;
-  color: #1c2230;
+  color: var(--c-text);
 }
 
 .change-qty {
@@ -772,11 +772,11 @@ onReachBottom(() => {
 }
 
 .qty-in {
-  color: #2f7d5b;
+  color: var(--c-success);
 }
 
 .qty-out {
-  color: #b4462f;
+  color: var(--c-danger);
 }
 
 .ledger-sku {
@@ -788,7 +788,7 @@ onReachBottom(() => {
   display: block;
   margin-top: 14rpx;
   font-size: 21rpx;
-  color: #a2a8b6;
+  color: var(--c-text-4);
 }
 
 .block-text {
@@ -815,17 +815,17 @@ onReachBottom(() => {
   display: block;
   text-align: center;
   font-size: 22rpx;
-  color: #a2a8b6;
+  color: var(--c-text-4);
 }
 
 .inline-error {
   margin-top: 16rpx;
   padding: 18rpx 22rpx;
-  background: #fdf1ee;
+  background: var(--c-danger-wash);
   border-radius: 14rpx;
   text-align: center;
   font-size: 23rpx;
-  color: #9c3a26;
+  color: var(--c-danger);
 }
 
 .inline-retry {
@@ -839,6 +839,6 @@ onReachBottom(() => {
   margin-top: 22rpx;
   text-align: center;
   font-size: 21rpx;
-  color: #a2a8b6;
+  color: var(--c-text-4);
 }
 </style>

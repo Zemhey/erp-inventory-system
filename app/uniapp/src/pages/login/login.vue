@@ -179,7 +179,7 @@ async function handleLogin(): Promise<void> {
 
 .form-card {
   position: relative;
-  background: #ffffff;
+  background: var(--c-surface);
   border-radius: 32rpx;
   padding: 44rpx 36rpx 36rpx;
   box-shadow: 0 30rpx 80rpx rgba(4, 8, 16, 0.35);
@@ -189,7 +189,7 @@ async function handleLogin(): Promise<void> {
   display: block;
   font-size: 40rpx;
   font-weight: 700;
-  color: #1c2230;
+  color: var(--c-text);
 }
 
 .form-subtitle {
@@ -197,7 +197,7 @@ async function handleLogin(): Promise<void> {
   margin-top: 8rpx;
   margin-bottom: 36rpx;
   font-size: 24rpx;
-  color: #8a90a2;
+  color: var(--c-text-3);
 }
 
 .field {
@@ -208,7 +208,7 @@ async function handleLogin(): Promise<void> {
   display: block;
   margin-bottom: 12rpx;
   font-size: 24rpx;
-  color: #586176;
+  color: var(--c-text-2);
   letter-spacing: 1rpx;
 }
 
@@ -216,11 +216,11 @@ async function handleLogin(): Promise<void> {
   width: 100%;
   height: 88rpx;
   padding: 0 24rpx;
-  background: #f4f6fa;
-  border: 1rpx solid #e4e8ef;
+  background: var(--c-fill);
+  border: 1rpx solid var(--c-line-strong);
   border-radius: 16rpx;
   font-size: 30rpx;
-  color: #1c2230;
+  color: var(--c-text);
 }
 
 .error-banner {
@@ -228,7 +228,7 @@ async function handleLogin(): Promise<void> {
   align-items: flex-start;
   padding: 20rpx 22rpx;
   margin-bottom: 24rpx;
-  background: #fdf1ee;
+  background: var(--c-danger-wash);
   border: 1rpx solid #f3d3ca;
   border-radius: 14rpx;
 }
@@ -239,7 +239,7 @@ async function handleLogin(): Promise<void> {
   height: 32rpx;
   margin-right: 14rpx;
   border-radius: 50%;
-  background: #b4462f;
+  background: var(--c-danger);
   color: #ffffff;
   font-size: 22rpx;
   line-height: 32rpx;
@@ -249,7 +249,7 @@ async function handleLogin(): Promise<void> {
 
 .error-text {
   flex: 1;
-  color: #9c3a26;
+  color: var(--c-danger);
   font-size: 25rpx;
   line-height: 1.45;
 }
@@ -264,7 +264,7 @@ async function handleLogin(): Promise<void> {
   margin-top: 24rpx;
   text-align: center;
   font-size: 22rpx;
-  color: #a2a8b6;
+  color: var(--c-text-4);
 }
 
 .footer {
@@ -276,7 +276,7 @@ async function handleLogin(): Promise<void> {
 
 .footer-main {
   display: block;
-  color: #6f7a90;
+  color: var(--c-text-2);
   font-size: 23rpx;
   letter-spacing: 1rpx;
 }
@@ -284,7 +284,7 @@ async function handleLogin(): Promise<void> {
 .footer-sub {
   display: block;
   margin-top: 8rpx;
-  color: #4c5568;
+  color: var(--c-text-2);
   font-size: 21rpx;
 }
 </style>

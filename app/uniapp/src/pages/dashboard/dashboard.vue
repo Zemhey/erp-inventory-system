@@ -365,7 +365,7 @@ function openPage(path: string): void {
 }
 
 .hero {
-  background: linear-gradient(135deg, #1b2233 0%, #2c4066 100%);
+  background: linear-gradient(135deg, var(--c-brand) 0%, var(--c-brand) 100%);
   border-radius: 30rpx;
   padding: 32rpx;
   color: #ffffff;
@@ -453,14 +453,14 @@ function openPage(path: string): void {
   display: block;
   font-size: 29rpx;
   font-weight: 600;
-  color: #9c3a26;
+  color: var(--c-danger);
 }
 
 .notice-text {
   display: block;
   margin-top: 10rpx;
   font-size: 25rpx;
-  color: #6e7585;
+  color: var(--c-text-2);
   line-height: 1.55;
 }
 
@@ -470,7 +470,7 @@ function openPage(path: string): void {
   justify-content: space-between;
   margin-top: 24rpx;
   padding: 20rpx 24rpx;
-  background: #fdf1ee;
+  background: var(--c-danger-wash);
   border: 1rpx solid #f3d3ca;
   border-radius: 16rpx;
 }
@@ -478,7 +478,7 @@ function openPage(path: string): void {
 .error-strip-text {
   flex: 1;
   font-size: 24rpx;
-  color: #9c3a26;
+  color: var(--c-danger);
   line-height: 1.45;
 }
 
@@ -487,7 +487,7 @@ function openPage(path: string): void {
   margin-left: 20rpx;
   font-size: 24rpx;
   font-weight: 600;
-  color: #9c3a26;
+  color: var(--c-danger);
 }
 
 .grid {
@@ -504,7 +504,7 @@ function openPage(path: string): void {
 .stat-label {
   display: block;
   font-size: 23rpx;
-  color: #8a90a2;
+  color: var(--c-text-3);
 }
 
 .stat-value {
@@ -512,14 +512,14 @@ function openPage(path: string): void {
   margin-top: 8rpx;
   font-size: 46rpx;
   font-weight: 700;
-  color: #1c2230;
+  color: var(--c-text);
 }
 
 .stat-hint {
   display: block;
   margin-top: 4rpx;
   font-size: 20rpx;
-  color: #a2a8b6;
+  color: var(--c-text-4);
 }
 
 .triple {
@@ -538,28 +538,28 @@ function openPage(path: string): void {
   display: block;
   font-size: 40rpx;
   font-weight: 700;
-  color: #1c2230;
+  color: var(--c-text);
 }
 
 .triple-value.reserved {
-  color: #b4702f;
+  color: var(--c-warn);
 }
 
 .triple-value.available {
-  color: #2f7d5b;
+  color: var(--c-success);
 }
 
 .triple-label {
   display: block;
   margin-top: 4rpx;
   font-size: 22rpx;
-  color: #8a90a2;
+  color: var(--c-text-3);
 }
 
 .triple-divider {
   width: 1rpx;
   height: 56rpx;
-  background: #edf0f5;
+  background: var(--c-fill-strong);
 }
 
 .consistency {
@@ -571,19 +571,19 @@ function openPage(path: string): void {
   margin-top: 12rpx;
   font-size: 24rpx;
   line-height: 1.55;
-  color: #6e7585;
+  color: var(--c-text-2);
 }
 
 .consistency-ok {
-  border-left: 8rpx solid #2f7d5b;
+  border-left: 8rpx solid var(--c-success);
 }
 
 .consistency-bad {
-  border-left: 8rpx solid #b4462f;
+  border-left: 8rpx solid var(--c-danger);
 }
 
 .consistency-unknown {
-  border-left: 8rpx solid #b4702f;
+  border-left: 8rpx solid var(--c-warn);
 }
 
 .section-head {
@@ -592,7 +592,7 @@ function openPage(path: string): void {
 
 .link {
   font-size: 24rpx;
-  color: #2c4066;
+  color: var(--c-brand-text);
 }
 
 .ledger-list {
@@ -621,13 +621,13 @@ function openPage(path: string): void {
 }
 
 .badge-in {
-  background: #e9f5ef;
-  color: #2f7d5b;
+  background: var(--c-ok-wash);
+  color: var(--c-success);
 }
 
 .badge-out {
-  background: #fdf0ec;
-  color: #b4462f;
+  background: var(--c-danger-wash);
+  color: var(--c-danger);
 }
 
 .ledger-main {
@@ -639,7 +639,7 @@ function openPage(path: string): void {
   display: block;
   font-size: 26rpx;
   font-weight: 600;
-  color: #1c2230;
+  color: var(--c-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -649,14 +649,14 @@ function openPage(path: string): void {
   display: block;
   margin-top: 4rpx;
   font-size: 22rpx;
-  color: #6e7585;
+  color: var(--c-text-2);
 }
 
 .ledger-time {
   display: block;
   margin-top: 2rpx;
   font-size: 20rpx;
-  color: #a2a8b6;
+  color: var(--c-text-4);
 }
 
 .ledger-qty {
@@ -667,11 +667,11 @@ function openPage(path: string): void {
 }
 
 .qty-in {
-  color: #2f7d5b;
+  color: var(--c-success);
 }
 
 .qty-out {
-  color: #b4462f;
+  color: var(--c-danger);
 }
 
 .quick-actions {
@@ -690,14 +690,14 @@ function openPage(path: string): void {
   display: block;
   font-size: 29rpx;
   font-weight: 600;
-  color: #1c2230;
+  color: var(--c-text);
 }
 
 .action-sub {
   display: block;
   margin-top: 6rpx;
   font-size: 23rpx;
-  color: #8a90a2;
+  color: var(--c-text-3);
 }
 
 .action-arrow {
@@ -714,7 +714,7 @@ function openPage(path: string): void {
   margin-top: 20rpx;
   text-align: center;
   font-size: 21rpx;
-  color: #a2a8b6;
+  color: var(--c-text-4);
 }
 
 .todo-overview {
@@ -735,17 +735,17 @@ function openPage(path: string): void {
   display: block;
   font-size: 44rpx;
   font-weight: 700;
-  color: #1c2230;
+  color: var(--c-text);
 }
 
 .todo-num.available {
-  color: #2f7d5b;
+  color: var(--c-success);
 }
 
 .todo-label {
   display: block;
   margin-top: 4rpx;
   font-size: 22rpx;
-  color: #8a90a2;
+  color: var(--c-text-3);
 }
 </style>

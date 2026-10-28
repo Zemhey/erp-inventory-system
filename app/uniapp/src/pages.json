@@ -188,12 +188,13 @@
     "navigationBarTextStyle": "white",
     "navigationBarTitleText": "云裳进销存",
     "navigationBarBackgroundColor": "#1b2233",
-    "backgroundColor": "#f4f5f7"
+    "backgroundColor": "@bgColor",
+    "backgroundTextStyle": "@bgTxtStyle"
   },
   "tabBar": {
-    "color": "#8a90a2",
-    "selectedColor": "#1f3a63",
-    "backgroundColor": "#ffffff",
+    "color": "@tabFontColor",
+    "selectedColor": "@tabSelectedColor",
+    "backgroundColor": "@tabBgColor",
     "borderStyle": "black",
     "list": [
       {

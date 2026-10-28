@@ -274,9 +274,10 @@ onShow(() => {
       </view>
       <text v-if="conclusion" class="result-desc">{{ conclusion }}</text>
 
-      <!-- 列表型结果只给前 5 条样本，剩下的靠"原始返回"看，不占屏 -->
+      <!-- 列表型结果只给前 5 条样本，剩下的靠"原始返回"看，不占屏。
+           颜色走 CSS 变量：内联样式同样认 var()，深色下才不会留一块白底。 -->
       <view v-if="resultItems.length" :style="{ marginTop: '16rpx' }">
-        <text :style="{ display: 'block', fontSize: '22rpx', color: '#8a90a2' }">
+        <text :style="{ display: 'block', fontSize: '22rpx', color: 'var(--c-text-3)' }">
           共 {{ resultTotal }} 条，展示前 {{ Math.min(resultItems.length, 5) }} 条
         </text>
         <text
@@ -286,22 +287,22 @@ onShow(() => {
             display: 'block',
             marginTop: '10rpx',
             padding: '12rpx 16rpx',
-            background: '#f6f7f9',
+            background: 'var(--c-fill)',
             borderRadius: '10rpx',
             fontSize: '24rpx',
-            color: '#1c2230',
+            color: 'var(--c-text)',
           }"
         >{{ rowLine(row) }}</text>
         <text
           v-if="resultItems.length > 5"
-          :style="{ display: 'block', marginTop: '10rpx', fontSize: '22rpx', color: '#8a90a2' }"
+          :style="{ display: 'block', marginTop: '10rpx', fontSize: '22rpx', color: 'var(--c-text-3)' }"
         >还有 {{ resultItems.length - 5 }} 条未展开</text>
       </view>
 
       <!-- 原始返回默认收起：第一眼该看到的是结论，不是引号和逗号 -->
       <view v-if="resultJson && resultJson !== 'null'" :style="{ marginTop: '16rpx' }">
         <text
-          :style="{ fontSize: '22rpx', color: '#2f5d8a' }"
+          :style="{ fontSize: '22rpx', color: 'var(--c-brand-text)' }"
           @click="rawOpen = !rawOpen"
         >{{ rawOpen ? '收起原始返回' : '查看原始返回' }}</text>
         <view v-if="rawOpen" class="result-json">
@@ -329,14 +330,14 @@ onShow(() => {
   display: block;
   font-size: 38rpx;
   font-weight: 700;
-  color: #1c2230;
+  color: var(--c-text);
 }
 
 .hero-sub {
   display: block;
   margin-top: 8rpx;
   font-size: 23rpx;
-  color: #8a90a2;
+  color: var(--c-text-3);
 }
 
 .cmd-card {
@@ -344,7 +345,7 @@ onShow(() => {
   align-items: flex-end;
   gap: 16rpx;
   padding: 20rpx;
-  background: #ffffff;
+  background: var(--c-surface);
   border-radius: 20rpx;
   box-shadow: 0 6rpx 20rpx rgba(21, 33, 56, 0.06);
 }
@@ -356,9 +357,9 @@ onShow(() => {
   padding: 16rpx;
   font-size: 27rpx;
   line-height: 1.5;
-  background: #f7f9fc;
+  background: var(--c-fill);
   border-radius: 14rpx;
-  color: #1c2230;
+  color: var(--c-text);
 }
 
 .cmd-run {
@@ -366,7 +367,7 @@ onShow(() => {
   height: 76rpx;
   padding: 0 30rpx;
   font-size: 26rpx;
-  background: #1f3a63;
+  background: var(--c-brand);
   color: #ffffff;
   border-radius: 14rpx;
 }
@@ -381,14 +382,14 @@ onShow(() => {
 .chip {
   padding: 12rpx 22rpx;
   border-radius: 999rpx;
-  background: #e9edf3;
-  color: #586176;
+  background: var(--c-fill-strong);
+  color: var(--c-text-2);
   font-size: 23rpx;
 }
 
 .error-block {
   padding: 24rpx;
-  background: #fdf1ee;
+  background: var(--c-danger-wash);
   border: 1rpx solid #f3d3ca;
   border-radius: 16rpx;
 }
@@ -397,14 +398,14 @@ onShow(() => {
   display: block;
   line-height: 1.5;
   font-size: 24rpx;
-  color: #9c3a26;
+  color: var(--c-danger);
 }
 
 .plan-card {
   padding: 24rpx;
-  border: 1rpx solid #cdd9e8;
+  border: 1rpx solid var(--c-line-strong);
   border-radius: 18rpx;
-  background: #f3f7fc;
+  background: var(--c-fill);
 }
 
 .plan-head {
@@ -414,7 +415,7 @@ onShow(() => {
 .plan-tag {
   padding: 4rpx 16rpx;
   border-radius: 999rpx;
-  background: #1f3a63;
+  background: var(--c-brand);
   color: #ffffff;
   font-size: 21rpx;
 }
@@ -422,14 +423,14 @@ onShow(() => {
 .plan-intent {
   font-size: 24rpx;
   font-weight: 600;
-  color: #2c4066;
+  color: var(--c-brand-text);
 }
 
 .plan-summary {
   display: block;
   font-size: 26rpx;
   font-weight: 600;
-  color: #1c2230;
+  color: var(--c-text);
   line-height: 1.5;
 }
 
@@ -437,20 +438,20 @@ onShow(() => {
   margin-top: 16rpx;
   padding: 16rpx;
   border-radius: 12rpx;
-  border-left: 6rpx solid #b4702f;
-  background: #ffffff;
+  border-left: 6rpx solid var(--c-warn);
+  background: var(--c-surface);
 }
 
 .review--approve {
-  border-left-color: #2f7d5b;
+  border-left-color: var(--c-success);
 }
 
 .review--need_human {
-  border-left-color: #b4702f;
+  border-left-color: var(--c-warn);
 }
 
 .review--reject {
-  border-left-color: #b4462f;
+  border-left-color: var(--c-danger);
 }
 
 .review-head {
@@ -467,7 +468,7 @@ onShow(() => {
 
 .review-summary {
   font-size: 22rpx;
-  color: #6e7585;
+  color: var(--c-text-2);
 }
 
 .finding {
@@ -476,14 +477,14 @@ onShow(() => {
 
 .finding-text {
   font-size: 22rpx;
-  color: #6e7585;
+  color: var(--c-text-2);
   line-height: 1.5;
 }
 
 .impact {
   margin-top: 16rpx;
   padding-top: 14rpx;
-  border-top: 1rpx dashed #dbe2ec;
+  border-top: 1rpx dashed var(--c-line-strong);
 }
 
 .impact-row {
@@ -496,13 +497,13 @@ onShow(() => {
 .impact-label {
   flex-shrink: 0;
   width: 140rpx;
-  color: #8a90a2;
+  color: var(--c-text-3);
 }
 
 .impact-value {
   flex: 1;
   min-width: 0;
-  color: #2b3245;
+  color: var(--c-text);
 }
 
 .plan-warns {
@@ -513,7 +514,7 @@ onShow(() => {
 
 .warn-text {
   font-size: 22rpx;
-  color: #b4702f;
+  color: var(--c-warn);
   line-height: 1.5;
 }
 
@@ -534,7 +535,7 @@ onShow(() => {
   flex: 1;
   height: 76rpx;
   font-size: 26rpx;
-  background: #1f3a63;
+  background: var(--c-brand);
   color: #ffffff;
   border-radius: 14rpx;
 }
@@ -543,9 +544,9 @@ onShow(() => {
   flex: 1;
   height: 76rpx;
   font-size: 26rpx;
-  background: #ffffff;
-  color: #586176;
-  border: 1rpx solid #dbe2ec;
+  background: var(--c-surface);
+  color: var(--c-text-2);
+  border: 1rpx solid var(--c-line-strong);
   border-radius: 14rpx;
 }
 
@@ -553,7 +554,7 @@ onShow(() => {
   display: block;
   margin-top: 12rpx;
   font-size: 21rpx;
-  color: #a2a8b6;
+  color: var(--c-text-4);
   line-height: 1.5;
 }
 
@@ -568,14 +569,14 @@ onShow(() => {
 .result-intent {
   font-size: 26rpx;
   font-weight: 700;
-  color: #1c2230;
+  color: var(--c-text);
 }
 
 .result-write {
   padding: 4rpx 14rpx;
   border-radius: 999rpx;
-  background: #fdf0ec;
-  color: #b4462f;
+  background: var(--c-danger-wash);
+  color: var(--c-danger);
   font-size: 20rpx;
 }
 
@@ -583,7 +584,7 @@ onShow(() => {
   display: block;
   font-size: 25rpx;
   line-height: 1.6;
-  color: #2b3245;
+  color: var(--c-text);
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -591,13 +592,13 @@ onShow(() => {
 .result-json {
   margin-top: 14rpx;
   padding: 16rpx;
-  background: #f3f5f8;
+  background: var(--c-fill-strong);
   border-radius: 12rpx;
 }
 
 .json-text {
   font-size: 20rpx;
-  color: #586176;
+  color: var(--c-text-2);
   white-space: pre-wrap;
   word-break: break-all;
 }
@@ -608,6 +609,6 @@ onShow(() => {
 
 .typing-text {
   font-size: 23rpx;
-  color: #8a90a2;
+  color: var(--c-text-3);
 }
 </style>

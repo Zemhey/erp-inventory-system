@@ -44,6 +44,10 @@
   },
   "mp-weixin": {
     "appid": "touristappid",
+    // 深色跟随系统：页面内的颜色由 App.vue 的 CSS 变量管，
+    // 原生导航栏/标签栏/下拉背景这些"框架自己画的"只能交给 theme.json（见 src/theme.json）。
+    "darkmode": true,
+    "themeLocation": "theme.json",
     "setting": {
       "urlCheck": false,
       "es6": true,

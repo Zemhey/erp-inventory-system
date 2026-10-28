@@ -342,6 +342,26 @@ npm run build:app
 
 ---
 
+## 7.1 深色主题（跟随系统，2026-10-28）
+
+- **页面色全部走语义变量**：定义在 `src/App.vue` 的 `page, :root` 上（`--c-page / --c-surface /
+  --c-text / --c-line / --c-brand / --c-danger…`）。23 个页面共 **737 处**硬编码色值已迁完，
+  浅色值与迁移前逐字相同 —— 所以浅色外观零变化，深色只是换了一组变量值。
+- **深色不是把浅色反过来**：底用 `#0f1116` 冷墨，卡片抬一档 `#1b1e25`，文字 `#e9edf4`
+  （不用纯白，纯白在深底上会"发光"）。品牌色拆成两个变量：
+  `--c-brand` 给按钮底（上面压白字），`--c-brand-text` 给文字（深底上要够亮）。
+- **触发生效**：`@media (prefers-color-scheme: dark)`。移动端**不做应用内开关** ——
+  跟随系统是最不容易出错的做法（Web 端有开关是因为要跨平台演示，两端策略不同是有意的）。
+- **原生层 CSS 管不到**，分两处补：
+  - 小程序：`src/theme.json` + `manifest.json` 的 `mp-weixin.darkmode / themeLocation`，
+    导航栏、标签栏、下拉回弹背景由微信原生换色；`pages.json` 里用 `@bgColor` 这类变量引用。
+  - H5：标签栏是 uni-app 自己画的 DOM，读不到 theme.json，在 `App.vue` 里用 `uni-tabbar`
+    类名补了一层覆盖（只命中 H5，小程序端没有这些节点）。
+- **验收方式**：Playwright 用 `colorScheme: 'dark' | 'light'` 各跑工作台 / 我的 / 待办中心，
+  浅色与迁移前一致、深色无残留白块；H5 与 mp-weixin 均构建通过。
+
+---
+
 ## 8. 第一批实测证据（2026-10-23）
 
 | 项 | 命令 / 结果 |

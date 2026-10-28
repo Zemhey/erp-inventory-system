@@ -556,7 +556,7 @@ onPullDownRefresh(() => {
   min-width: 0;
   font-size: 30rpx;
   font-weight: 700;
-  color: #1c2230;
+  color: var(--c-text);
 }
 
 .status-tag {
@@ -570,42 +570,42 @@ onPullDownRefresh(() => {
 
 /* ★ 审批专用色板 atone-*（与单据页 tone-* 不共用），见 utils/approvalStatus.ts */
 .atone-wait {
-  background: #e8eefb;
-  color: #2c4f8a;
+  background: var(--c-info-wash);
+  color: var(--c-info-text);
 }
 
 .atone-handover {
-  background: #f0ecfb;
-  color: #5b4a91;
+  background: var(--c-purple-wash);
+  color: var(--c-purple-text);
 }
 
 .atone-pass {
-  background: #e9f5ef;
-  color: #2f7d5b;
+  background: var(--c-ok-wash);
+  color: var(--c-success);
 }
 
 .atone-refuse {
-  background: #fdf0ec;
-  color: #b4462f;
+  background: var(--c-danger-wash);
+  color: var(--c-danger);
 }
 
 .atone-quiet {
-  background: #f1f2f5;
-  color: #8a90a2;
+  background: var(--c-fill-strong);
+  color: var(--c-text-3);
 }
 
 .status-desc {
   display: block;
   margin-top: 12rpx;
   font-size: 23rpx;
-  color: #6e7585;
+  color: var(--c-text-2);
 }
 
 .hero-grid {
   display: flex;
   margin-top: 22rpx;
   padding: 18rpx 0;
-  background: #f7f9fc;
+  background: var(--c-fill);
   border-radius: 16rpx;
 }
 
@@ -617,7 +617,7 @@ onPullDownRefresh(() => {
 .hero-label {
   display: block;
   font-size: 21rpx;
-  color: #8a90a2;
+  color: var(--c-text-3);
 }
 
 .hero-value {
@@ -625,11 +625,11 @@ onPullDownRefresh(() => {
   margin-top: 8rpx;
   font-size: 28rpx;
   font-weight: 700;
-  color: #1c2230;
+  color: var(--c-text);
 }
 
 .hero-value.amount {
-  color: #b4702f;
+  color: var(--c-warn);
 }
 
 .kv {
@@ -640,7 +640,7 @@ onPullDownRefresh(() => {
 }
 
 .kv-label {
-  color: #8a90a2;
+  color: var(--c-text-3);
 }
 
 .kv-value {
@@ -648,16 +648,16 @@ onPullDownRefresh(() => {
   min-width: 0;
   margin-left: 20rpx;
   text-align: right;
-  color: #2b3245;
+  color: var(--c-text);
 }
 
 .me-tag {
-  color: #2c4f8a;
+  color: var(--c-info-text);
   font-weight: 600;
 }
 
 .link {
-  color: #2c4066;
+  color: var(--c-brand-text);
   font-weight: 600;
 }
 
@@ -667,7 +667,7 @@ onPullDownRefresh(() => {
 
 .section-hint {
   font-size: 21rpx;
-  color: #a2a8b6;
+  color: var(--c-text-4);
 }
 
 .timeline {
@@ -678,12 +678,12 @@ onPullDownRefresh(() => {
 
 .step-card {
   padding: 22rpx 24rpx;
-  border-left: 6rpx solid #e6e9ef;
+  border-left: 6rpx solid var(--c-line-strong);
 }
 
 .step-current {
   border-left-color: #2c4066;
-  background: #f8fbff;
+  background: var(--c-fill);
 }
 
 .step-head {
@@ -695,7 +695,7 @@ onPullDownRefresh(() => {
   min-width: 0;
   font-size: 26rpx;
   font-weight: 600;
-  color: #1c2230;
+  color: var(--c-text);
 }
 
 .step-tag {
@@ -713,7 +713,7 @@ onPullDownRefresh(() => {
 
 .meta-text {
   font-size: 22rpx;
-  color: #6e7585;
+  color: var(--c-text-2);
 }
 
 .step-decided {
@@ -724,18 +724,18 @@ onPullDownRefresh(() => {
   display: block;
   margin-top: 10rpx;
   padding-top: 10rpx;
-  border-top: 1rpx solid #f0f2f6;
+  border-top: 1rpx solid var(--c-line);
   font-size: 22rpx;
-  color: #586176;
+  color: var(--c-text-2);
 }
 
 .inline-error {
   margin-top: 16rpx;
   padding: 20rpx 24rpx;
-  background: #fdf1ee;
+  background: var(--c-danger-wash);
   border-radius: 14rpx;
   font-size: 23rpx;
-  color: #9c3a26;
+  color: var(--c-danger);
 }
 
 .block-text {
@@ -757,14 +757,14 @@ onPullDownRefresh(() => {
   display: block;
   font-size: 28rpx;
   font-weight: 700;
-  color: #1c2230;
+  color: var(--c-text);
 }
 
 .form-desc {
   display: block;
   margin-top: 10rpx;
   font-size: 23rpx;
-  color: #6e7585;
+  color: var(--c-text-2);
   line-height: 1.55;
 }
 
@@ -777,7 +777,7 @@ onPullDownRefresh(() => {
 .form-label {
   width: 160rpx;
   font-size: 24rpx;
-  color: #586176;
+  color: var(--c-text-2);
 }
 
 .form-input {
@@ -785,10 +785,10 @@ onPullDownRefresh(() => {
   min-width: 0;
   height: 74rpx;
   padding: 0 20rpx;
-  background: #f4f6fa;
+  background: var(--c-fill);
   border-radius: 12rpx;
   font-size: 25rpx;
-  color: #2b3245;
+  color: var(--c-text);
 }
 
 .btn-row {
@@ -809,14 +809,14 @@ onPullDownRefresh(() => {
 }
 
 .act-approve {
-  background: #1f3a63;
+  background: var(--c-brand);
   color: #ffffff;
 }
 
 .act-reject {
-  background: #ffffff;
-  color: #b4462f;
-  border: 1rpx solid #e7c4bb;
+  background: var(--c-surface);
+  color: var(--c-danger);
+  border: 1rpx solid var(--c-danger-line);
 }
 
 .act-accept {
@@ -829,43 +829,43 @@ onPullDownRefresh(() => {
 .act-withdraw {
   width: 100%;
   margin-top: 18rpx;
-  background: #ffffff;
-  color: #586176;
-  border: 1rpx solid #d8dde6;
+  background: var(--c-surface);
+  color: var(--c-text-2);
+  border: 1rpx solid var(--c-line-strong);
 }
 
 .transfer-block {
   margin-top: 22rpx;
   padding-top: 18rpx;
-  border-top: 1rpx solid #f0f2f6;
+  border-top: 1rpx solid var(--c-line);
 }
 
 .transfer-title {
   display: block;
   font-size: 25rpx;
   font-weight: 700;
-  color: #1c2230;
+  color: var(--c-text);
 }
 
 .picker-link {
   margin-left: 16rpx;
   font-size: 23rpx;
-  color: #2c4066;
+  color: var(--c-brand-text);
 }
 
 .transfer-hint {
   display: block;
   margin-top: 10rpx;
   font-size: 21rpx;
-  color: #a86a1f;
+  color: var(--c-warn);
   line-height: 1.5;
 }
 
 .act-transfer {
   width: 100%;
   margin-top: 16rpx;
-  background: #f0ecfb;
-  color: #5b4a91;
+  background: var(--c-purple-wash);
+  color: var(--c-purple-text);
 }
 
 .action-note {
@@ -875,7 +875,7 @@ onPullDownRefresh(() => {
 
 .action-note-text {
   font-size: 23rpx;
-  color: #6e7585;
+  color: var(--c-text-2);
   line-height: 1.55;
 }
 
@@ -894,7 +894,7 @@ onPullDownRefresh(() => {
 .sheet {
   width: 100%;
   padding: 28rpx;
-  background: #ffffff;
+  background: var(--c-surface);
   border-radius: 28rpx 28rpx 0 0;
 }
 
@@ -902,13 +902,13 @@ onPullDownRefresh(() => {
   display: block;
   font-size: 27rpx;
   font-weight: 700;
-  color: #1c2230;
+  color: var(--c-text);
 }
 
 .sheet-empty {
   margin-top: 18rpx;
   font-size: 23rpx;
-  color: #8a90a2;
+  color: var(--c-text-3);
   line-height: 1.5;
 }
 
@@ -921,17 +921,17 @@ onPullDownRefresh(() => {
   display: flex;
   justify-content: space-between;
   padding: 20rpx 4rpx;
-  border-bottom: 1rpx solid #f0f2f6;
+  border-bottom: 1rpx solid var(--c-line);
 }
 
 .sheet-name {
   font-size: 25rpx;
-  color: #2b3245;
+  color: var(--c-text);
 }
 
 .sheet-id {
   font-size: 23rpx;
-  color: #8a90a2;
+  color: var(--c-text-3);
 }
 
 .sheet-close {

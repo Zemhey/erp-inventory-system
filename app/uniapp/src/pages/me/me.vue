@@ -210,7 +210,7 @@ onShow(() => {
   width: 96rpx;
   height: 96rpx;
   border-radius: 28rpx;
-  background: #1f3a63;
+  background: var(--c-brand);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -231,13 +231,13 @@ onShow(() => {
 .identity-name {
   font-size: 36rpx;
   font-weight: 700;
-  color: #1c2230;
+  color: var(--c-text);
 }
 
 .identity-sub {
   margin-top: 6rpx;
   font-size: 23rpx;
-  color: #8a90a2;
+  color: var(--c-text-3);
 }
 
 .identity-meta {
@@ -250,23 +250,23 @@ onShow(() => {
 .meta-item {
   padding: 6rpx 16rpx;
   border-radius: 999rpx;
-  background: #f2f4f8;
+  background: var(--c-fill-strong);
   font-size: 21rpx;
-  color: #4d5666;
+  color: var(--c-text-2);
 }
 
 .meta-tenant {
-  background: #eef4fb;
-  color: #2f5d8a;
+  background: var(--c-brand-wash);
+  color: var(--c-brand-text);
 }
 
 .identity-warn {
   display: block;
   margin-top: 18rpx;
   padding-top: 16rpx;
-  border-top: 1rpx solid #f0f2f6;
+  border-top: 1rpx solid var(--c-line);
   font-size: 21rpx;
-  color: #9c3a26;
+  color: var(--c-danger);
   line-height: 1.55;
 }
 
@@ -278,12 +278,12 @@ onShow(() => {
 .section-title {
   font-size: 28rpx;
   font-weight: 700;
-  color: #1c2230;
+  color: var(--c-text);
 }
 
 .section-hint {
   font-size: 21rpx;
-  color: #8a90a2;
+  color: var(--c-text-3);
 }
 
 .kv {
@@ -292,30 +292,30 @@ onShow(() => {
   align-items: center;
   margin-top: 18rpx;
   padding-bottom: 14rpx;
-  border-bottom: 1rpx solid #f0f2f6;
+  border-bottom: 1rpx solid var(--c-line);
 }
 
 .kv-label {
   font-size: 24rpx;
-  color: #6e7585;
+  color: var(--c-text-2);
 }
 
 .kv-value {
   font-size: 24rpx;
-  color: #1c2230;
+  color: var(--c-text);
   max-width: 60%;
   text-align: right;
 }
 
 .kv-empty {
-  color: #b3b9c6;
+  color: var(--c-text-4);
 }
 
 .remark {
   display: block;
   margin-top: 16rpx;
   font-size: 21rpx;
-  color: #8a90a2;
+  color: var(--c-text-3);
   line-height: 1.6;
 }
 
@@ -325,21 +325,21 @@ onShow(() => {
   align-items: center;
   margin-top: 18rpx;
   padding: 18rpx 0;
-  border-bottom: 1rpx solid #f0f2f6;
+  border-bottom: 1rpx solid var(--c-line);
 }
 
 .action-text {
   font-size: 26rpx;
-  color: #1c2230;
+  color: var(--c-text);
 }
 
 .action-text-danger {
-  color: #c0392b;
+  color: var(--c-danger);
 }
 
 .action-caret {
   font-size: 22rpx;
-  color: #8a90a2;
+  color: var(--c-text-3);
 }
 
 .action-danger {
@@ -350,7 +350,7 @@ onShow(() => {
   margin-top: 6rpx;
   padding: 18rpx;
   border-radius: 14rpx;
-  background: #f8f9fb;
+  background: var(--c-fill);
 }
 
 .pwd-input {
@@ -358,16 +358,16 @@ onShow(() => {
   margin-bottom: 12rpx;
   padding: 0 18rpx;
   border-radius: 12rpx;
-  background: #ffffff;
+  background: var(--c-surface);
   font-size: 25rpx;
-  color: #1c2230;
+  color: var(--c-text);
 }
 
 .pwd-error {
   display: block;
   margin: 6rpx 4rpx;
   font-size: 22rpx;
-  color: #c0392b;
+  color: var(--c-danger);
   line-height: 1.5;
 }
 
@@ -375,7 +375,7 @@ onShow(() => {
   display: block;
   margin: 6rpx 4rpx;
   font-size: 22rpx;
-  color: #2e7d54;
+  color: var(--c-success);
   line-height: 1.5;
 }
 
@@ -388,6 +388,6 @@ onShow(() => {
   margin: 28rpx 0 10rpx;
   text-align: center;
   font-size: 20rpx;
-  color: #b3b9c6;
+  color: var(--c-text-4);
 }
 </style>

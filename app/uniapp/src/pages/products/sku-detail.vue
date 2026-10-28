@@ -151,14 +151,14 @@ onPullDownRefresh(() => {
   display: block;
   font-size: 29rpx;
   font-weight: 600;
-  color: #9c3a26;
+  color: var(--c-danger);
 }
 
 .notice-text {
   display: block;
   margin-top: 10rpx;
   font-size: 25rpx;
-  color: #6e7585;
+  color: var(--c-text-2);
   line-height: 1.55;
 }
 
@@ -171,27 +171,27 @@ onPullDownRefresh(() => {
   min-width: 0;
   font-size: 36rpx;
   font-weight: 700;
-  color: #1c2230;
+  color: var(--c-text);
 }
 
 .sku-code {
   display: block;
   margin-top: 8rpx;
   font-size: 23rpx;
-  color: #8a90a2;
+  color: var(--c-text-3);
 }
 
 .price-block {
   margin-top: 24rpx;
   padding: 20rpx 24rpx;
-  background: #f7f9fc;
+  background: var(--c-fill);
   border-radius: 16rpx;
 }
 
 .price-label {
   display: block;
   font-size: 21rpx;
-  color: #8a90a2;
+  color: var(--c-text-3);
 }
 
 .price-value {
@@ -199,7 +199,7 @@ onPullDownRefresh(() => {
   margin-top: 4rpx;
   font-size: 42rpx;
   font-weight: 700;
-  color: #2c4066;
+  color: var(--c-brand-text);
 }
 
 .kv {
@@ -212,36 +212,36 @@ onPullDownRefresh(() => {
   width: 130rpx;
   flex-shrink: 0;
   font-size: 24rpx;
-  color: #8a90a2;
+  color: var(--c-text-3);
 }
 
 .kv-value {
   flex: 1;
   font-size: 25rpx;
-  color: #1c2230;
+  color: var(--c-text);
   line-height: 1.45;
 }
 
 .link {
-  color: #2c4066;
+  color: var(--c-brand-text);
   font-weight: 600;
 }
 
 .tag-off {
-  color: #9c3a26;
-  background: #fdf0ec;
+  color: var(--c-danger);
+  background: var(--c-danger-wash);
 }
 
 .partial-error {
   margin-top: 18rpx;
   padding: 20rpx 24rpx;
-  background: #fdf1ee;
+  background: var(--c-danger-wash);
 }
 
 .partial-error-text {
   font-size: 22rpx;
   line-height: 1.5;
-  color: #9c3a26;
+  color: var(--c-danger);
 }
 
 .inline-retry {
@@ -249,7 +249,7 @@ onPullDownRefresh(() => {
   margin-top: 10rpx;
   font-size: 23rpx;
   font-weight: 600;
-  color: #9c3a26;
+  color: var(--c-danger);
   text-decoration: underline;
 }
 
@@ -261,7 +261,7 @@ onPullDownRefresh(() => {
 .read-only-text {
   font-size: 22rpx;
   line-height: 1.5;
-  color: #8a90a2;
+  color: var(--c-text-3);
 }
 
 .block-text {

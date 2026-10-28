@@ -166,14 +166,14 @@ onPullDownRefresh(() => {
   display: block;
   font-size: 29rpx;
   font-weight: 600;
-  color: #9c3a26;
+  color: var(--c-danger);
 }
 
 .notice-text {
   display: block;
   margin-top: 10rpx;
   font-size: 25rpx;
-  color: #6e7585;
+  color: var(--c-text-2);
   line-height: 1.55;
 }
 
@@ -186,14 +186,14 @@ onPullDownRefresh(() => {
   min-width: 0;
   font-size: 36rpx;
   font-weight: 700;
-  color: #1c2230;
+  color: var(--c-text);
 }
 
 .product-code {
   display: block;
   margin-top: 8rpx;
   font-size: 24rpx;
-  color: #6e7585;
+  color: var(--c-text-2);
 }
 
 .kv {
@@ -206,13 +206,13 @@ onPullDownRefresh(() => {
   width: 120rpx;
   flex-shrink: 0;
   font-size: 24rpx;
-  color: #8a90a2;
+  color: var(--c-text-3);
 }
 
 .kv-value {
   flex: 1;
   font-size: 25rpx;
-  color: #1c2230;
+  color: var(--c-text);
   line-height: 1.45;
 }
 
@@ -222,7 +222,7 @@ onPullDownRefresh(() => {
 
 .section-hint {
   font-size: 21rpx;
-  color: #a2a8b6;
+  color: var(--c-text-4);
 }
 
 .list {
@@ -240,7 +240,7 @@ onPullDownRefresh(() => {
   min-width: 0;
   font-size: 27rpx;
   font-weight: 600;
-  color: #1c2230;
+  color: var(--c-text);
 }
 
 .price {
@@ -248,7 +248,7 @@ onPullDownRefresh(() => {
   margin-left: 14rpx;
   font-size: 27rpx;
   font-weight: 700;
-  color: #2c4066;
+  color: var(--c-brand-text);
 }
 
 .sku-foot {
@@ -257,23 +257,23 @@ onPullDownRefresh(() => {
 
 .meta-text {
   font-size: 22rpx;
-  color: #8a90a2;
+  color: var(--c-text-3);
 }
 
 .tag-off {
-  color: #9c3a26;
-  background: #fdf0ec;
+  color: var(--c-danger);
+  background: var(--c-danger-wash);
 }
 
 .truncate-note {
   display: block;
   margin-top: 18rpx;
   padding: 16rpx 20rpx;
-  background: #fbf1e3;
+  background: var(--c-warn-wash);
   border-radius: 12rpx;
   font-size: 21rpx;
   line-height: 1.5;
-  color: #a86a1f;
+  color: var(--c-warn);
 }
 
 .block-text {

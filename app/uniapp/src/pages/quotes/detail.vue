@@ -395,7 +395,7 @@ onPullDownRefresh(() => {
   min-width: 0;
   font-size: 32rpx;
   font-weight: 700;
-  color: #1c2230;
+  color: var(--c-text);
 }
 
 .status-tag {
@@ -408,42 +408,42 @@ onPullDownRefresh(() => {
 }
 
 .tone-info {
-  background: #eef1f6;
-  color: #586176;
+  background: var(--c-fill-strong);
+  color: var(--c-text-2);
 }
 
 .tone-primary {
-  background: #e8eefb;
-  color: #2c4f8a;
+  background: var(--c-info-wash);
+  color: var(--c-info-text);
 }
 
 .tone-success {
-  background: #e9f5ef;
-  color: #2f7d5b;
+  background: var(--c-ok-wash);
+  color: var(--c-success);
 }
 
 .tone-warning {
-  background: #fbf1e3;
-  color: #a86a1f;
+  background: var(--c-warn-wash);
+  color: var(--c-warn);
 }
 
 .tone-danger {
-  background: #fdf0ec;
-  color: #b4462f;
+  background: var(--c-danger-wash);
+  color: var(--c-danger);
 }
 
 .status-desc {
   display: block;
   margin-top: 12rpx;
   font-size: 23rpx;
-  color: #6e7585;
+  color: var(--c-text-2);
 }
 
 .hero-grid {
   display: flex;
   margin-top: 22rpx;
   padding: 18rpx 0;
-  background: #f7f9fc;
+  background: var(--c-fill);
   border-radius: 16rpx;
 }
 
@@ -455,7 +455,7 @@ onPullDownRefresh(() => {
 .hero-label {
   display: block;
   font-size: 21rpx;
-  color: #8a90a2;
+  color: var(--c-text-3);
 }
 
 .hero-value {
@@ -463,12 +463,12 @@ onPullDownRefresh(() => {
   margin-top: 8rpx;
   font-size: 32rpx;
   font-weight: 700;
-  color: #1c2230;
+  color: var(--c-text);
 }
 
 .hero-value.amount {
   font-size: 26rpx;
-  color: #b4702f;
+  color: var(--c-warn);
 }
 
 .kv {
@@ -479,7 +479,7 @@ onPullDownRefresh(() => {
 }
 
 .kv-label {
-  color: #8a90a2;
+  color: var(--c-text-3);
 }
 
 .kv-value {
@@ -487,16 +487,16 @@ onPullDownRefresh(() => {
   min-width: 0;
   margin-left: 20rpx;
   text-align: right;
-  color: #2b3245;
+  color: var(--c-text);
 }
 
 .kv-hint {
-  color: #b4702f;
+  color: var(--c-warn);
   font-size: 21rpx;
 }
 
 .link {
-  color: #2c4066;
+  color: var(--c-brand-text);
   font-weight: 600;
 }
 
@@ -506,7 +506,7 @@ onPullDownRefresh(() => {
 
 .section-hint {
   font-size: 21rpx;
-  color: #a2a8b6;
+  color: var(--c-text-4);
 }
 
 .list {
@@ -528,7 +528,7 @@ onPullDownRefresh(() => {
   min-width: 0;
   font-size: 26rpx;
   font-weight: 600;
-  color: #1c2230;
+  color: var(--c-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -539,7 +539,7 @@ onPullDownRefresh(() => {
   margin-left: 14rpx;
   font-size: 25rpx;
   font-weight: 700;
-  color: #b4702f;
+  color: var(--c-warn);
 }
 
 .line-meta {
@@ -548,16 +548,16 @@ onPullDownRefresh(() => {
 
 .meta-text {
   font-size: 22rpx;
-  color: #6e7585;
+  color: var(--c-text-2);
 }
 
 .inline-error {
   margin-top: 18rpx;
   padding: 20rpx 24rpx;
-  background: #fdf1ee;
+  background: var(--c-danger-wash);
   border-radius: 14rpx;
   font-size: 23rpx;
-  color: #9c3a26;
+  color: var(--c-danger);
 }
 
 .block-text {
@@ -579,14 +579,14 @@ onPullDownRefresh(() => {
   display: block;
   font-size: 28rpx;
   font-weight: 700;
-  color: #1c2230;
+  color: var(--c-text);
 }
 
 .action-desc {
   display: block;
   margin-top: 10rpx;
   font-size: 23rpx;
-  color: #6e7585;
+  color: var(--c-text-2);
   line-height: 1.55;
 }
 
@@ -599,7 +599,7 @@ onPullDownRefresh(() => {
 .form-label {
   width: 160rpx;
   font-size: 24rpx;
-  color: #586176;
+  color: var(--c-text-2);
 }
 
 .picker-flex {
@@ -612,21 +612,21 @@ onPullDownRefresh(() => {
   justify-content: space-between;
   align-items: center;
   padding: 14rpx 20rpx;
-  background: #f4f6fa;
+  background: var(--c-fill);
   border-radius: 12rpx;
   font-size: 24rpx;
-  color: #2b3245;
+  color: var(--c-text);
 }
 
 .picker-arrow {
-  color: #a2a8b6;
+  color: var(--c-text-4);
 }
 
 .form-hint {
   display: block;
   margin-top: 12rpx;
   font-size: 21rpx;
-  color: #8a90a2;
+  color: var(--c-text-3);
   line-height: 1.5;
 }
 
@@ -645,7 +645,7 @@ onPullDownRefresh(() => {
   margin: 0;
   padding: 0 16rpx;
   border-radius: 12rpx;
-  background: #1f3a63;
+  background: var(--c-brand);
   color: #ffffff;
   font-size: 25rpx;
   font-weight: 600;
@@ -656,9 +656,9 @@ onPullDownRefresh(() => {
 }
 
 .action-danger {
-  background: #ffffff;
-  color: #b4462f;
-  border: 1rpx solid #e7c4bb;
+  background: var(--c-surface);
+  color: var(--c-danger);
+  border: 1rpx solid var(--c-danger-line);
 }
 
 .action-note {
@@ -668,7 +668,7 @@ onPullDownRefresh(() => {
 
 .action-note-text {
   font-size: 23rpx;
-  color: #6e7585;
+  color: var(--c-text-2);
   line-height: 1.55;
 }
 
@@ -677,6 +677,6 @@ onPullDownRefresh(() => {
   margin-top: 22rpx;
   text-align: center;
   font-size: 21rpx;
-  color: #a2a8b6;
+  color: var(--c-text-4);
 }
 </style>

@@ -373,7 +373,7 @@ function onRemarkChange(event: unknown): void {
   min-width: 0;
   font-size: 32rpx;
   font-weight: 700;
-  color: #1c2230;
+  color: var(--c-text);
 }
 
 .status-tag {
@@ -386,32 +386,32 @@ function onRemarkChange(event: unknown): void {
 }
 
 .tone-open {
-  background: #fbf1e3;
-  color: #a86a1f;
+  background: var(--c-warn-wash);
+  color: var(--c-warn);
 }
 
 .tone-settled {
-  background: #e9f5ef;
-  color: #2f7d5b;
+  background: var(--c-ok-wash);
+  color: var(--c-success);
 }
 
 .tone-void {
-  background: #f1f2f5;
-  color: #8a90a2;
+  background: var(--c-fill-strong);
+  color: var(--c-text-3);
 }
 
 .status-desc {
   display: block;
   margin-top: 12rpx;
   font-size: 23rpx;
-  color: #6e7585;
+  color: var(--c-text-2);
 }
 
 .hero-grid {
   display: flex;
   margin-top: 22rpx;
   padding: 18rpx 0;
-  background: #f7f9fc;
+  background: var(--c-fill);
   border-radius: 16rpx;
 }
 
@@ -423,7 +423,7 @@ function onRemarkChange(event: unknown): void {
 .hero-label {
   display: block;
   font-size: 21rpx;
-  color: #8a90a2;
+  color: var(--c-text-3);
 }
 
 .hero-value {
@@ -431,11 +431,11 @@ function onRemarkChange(event: unknown): void {
   margin-top: 8rpx;
   font-size: 28rpx;
   font-weight: 700;
-  color: #1c2230;
+  color: var(--c-text);
 }
 
 .hero-value.amount {
-  color: #b4702f;
+  color: var(--c-warn);
 }
 
 .kv {
@@ -446,7 +446,7 @@ function onRemarkChange(event: unknown): void {
 }
 
 .kv-label {
-  color: #8a90a2;
+  color: var(--c-text-3);
 }
 
 .kv-value {
@@ -454,11 +454,11 @@ function onRemarkChange(event: unknown): void {
   min-width: 0;
   margin-left: 20rpx;
   text-align: right;
-  color: #2b3245;
+  color: var(--c-text);
 }
 
 .link {
-  color: #2c4066;
+  color: var(--c-brand-text);
   font-weight: 600;
 }
 
@@ -471,7 +471,7 @@ function onRemarkChange(event: unknown): void {
   display: block;
   font-size: 25rpx;
   font-weight: 700;
-  color: #1c2230;
+  color: var(--c-text);
 }
 
 .check-row {
@@ -483,32 +483,32 @@ function onRemarkChange(event: unknown): void {
 
 .check-cell {
   font-size: 22rpx;
-  color: #586176;
+  color: var(--c-text-2);
 }
 
 .check-op {
   margin: 0 10rpx;
   font-size: 22rpx;
-  color: #a2a8b6;
+  color: var(--c-text-4);
 }
 
 .check-result {
   margin-top: 14rpx;
   padding-top: 14rpx;
-  border-top: 1rpx solid #f0f2f6;
+  border-top: 1rpx solid var(--c-line);
 }
 
 .check-line {
   display: block;
   font-size: 22rpx;
-  color: #6e7585;
+  color: var(--c-text-2);
 }
 
 .check-ok {
   display: block;
   margin-top: 8rpx;
   font-size: 22rpx;
-  color: #2f7d5b;
+  color: var(--c-success);
   font-weight: 600;
 }
 
@@ -516,7 +516,7 @@ function onRemarkChange(event: unknown): void {
   display: block;
   margin-top: 8rpx;
   font-size: 22rpx;
-  color: #b4462f;
+  color: var(--c-danger);
   font-weight: 600;
 }
 
@@ -529,14 +529,14 @@ function onRemarkChange(event: unknown): void {
   display: block;
   font-size: 28rpx;
   font-weight: 700;
-  color: #1c2230;
+  color: var(--c-text);
 }
 
 .form-desc {
   display: block;
   margin-top: 10rpx;
   font-size: 23rpx;
-  color: #6e7585;
+  color: var(--c-text-2);
   line-height: 1.55;
 }
 
@@ -549,7 +549,7 @@ function onRemarkChange(event: unknown): void {
 .form-label {
   width: 200rpx;
   font-size: 24rpx;
-  color: #586176;
+  color: var(--c-text-2);
 }
 
 .form-input {
@@ -557,23 +557,23 @@ function onRemarkChange(event: unknown): void {
   min-width: 0;
   height: 74rpx;
   padding: 0 20rpx;
-  background: #f4f6fa;
+  background: var(--c-fill);
   border-radius: 12rpx;
   font-size: 25rpx;
-  color: #2b3245;
+  color: var(--c-text);
 }
 
 .form-computed {
   margin-top: 14rpx;
   font-size: 22rpx;
-  color: #8a90a2;
+  color: var(--c-text-3);
 }
 
 .form-warn {
   display: block;
   margin-top: 8rpx;
   font-size: 22rpx;
-  color: #a86a1f;
+  color: var(--c-warn);
 }
 
 .btn-receipt {
@@ -589,16 +589,16 @@ function onRemarkChange(event: unknown): void {
   margin-top: 14rpx;
   text-align: center;
   font-size: 22rpx;
-  color: #2f7d5b;
+  color: var(--c-success);
 }
 
 .inline-error {
   margin-top: 16rpx;
   padding: 20rpx 24rpx;
-  background: #fdf1ee;
+  background: var(--c-danger-wash);
   border-radius: 14rpx;
   font-size: 23rpx;
-  color: #9c3a26;
+  color: var(--c-danger);
 }
 
 .block-text {
@@ -618,7 +618,7 @@ function onRemarkChange(event: unknown): void {
 
 .action-note-text {
   font-size: 23rpx;
-  color: #6e7585;
+  color: var(--c-text-2);
   line-height: 1.55;
 }
 
@@ -639,13 +639,13 @@ function onRemarkChange(event: unknown): void {
 .receipt-no {
   font-size: 26rpx;
   font-weight: 700;
-  color: #1c2230;
+  color: var(--c-text);
 }
 
 .receipt-amount {
   font-size: 25rpx;
   font-weight: 700;
-  color: #2f7d5b;
+  color: var(--c-success);
 }
 
 .receipt-meta {
@@ -654,13 +654,13 @@ function onRemarkChange(event: unknown): void {
 
 .meta-text {
   font-size: 22rpx;
-  color: #6e7585;
+  color: var(--c-text-2);
 }
 
 .receipt-remark {
   display: block;
   margin-top: 8rpx;
   font-size: 21rpx;
-  color: #8a90a2;
+  color: var(--c-text-3);
 }
 </style>
