@@ -4,3 +4,8 @@ build/
 app/build/
 *.iml
 build-android.log
+
+# release 签名材料：证书路径与口令绝不入库（模板见 keystore.properties.example）
+keystore.properties
+*.jks
+*.keystore

@@ -26,9 +26,9 @@
 |---|---|---|---|
 | 服务端 | 必做 | 25% 内 | ✅ 44+ 控制器，Flyway V29，契约 260 操作 |
 | Web 端 | 必做 | 25% 内 | ✅ 10 组路由（新增「自然语言」组），浅色/深色双主题，演示数据已灌 |
-| 微信小程序 | **必做** | 25% 内 | ⚠️ **配置齐了，卡在外部资源**：24 页，`build:mp-weixin` 通过。已按新口径补齐：库存页改服务端分页（行内直接带 `skuName`，不再靠 200 条字典翻名）、工作台接 `/dashboard/summary`、待办扩到四类、新增自然语言页与「我的」个人中心（工号/部门/岗位/入职日取自 `/auth/me` 的 `employee`）。**第三批体验整改**：9 个列表页由无限滚动改成一页 20 条 + 翻页条、底栏自绘成 6 项含「我的」（原生 tabBar 上限 5 项且高度改不了）、主题改三档（跟随系统/浅色/深色）并新增设置页，配色整体照搬 Web 端 `--ys-*` 令牌（见 `app/uniapp/README.md` §7.1–7.3）。`manifest.json` 里 `appid` 仍是 `touristappid`（游客号）→ 传不上去、真机预览开不了 |
-| 安卓 APP | **必做** | 25% 内 | ⚠️ **已有本地演示 APK，正式云打包仍差账号与证书**：`app/yunshang-erp-demo.apk`（WebView 壳，加载 3008 手机预览，debug 签名）；壳层配色已跟随系统深色、返回键改为先回退。**未真机验证**；正式包仍需 DCloud 账号 + `.jks` + 图标主图 |
-| PC 端 | 可选 +5% | +5% | ✅ **壳能跑，业务界面零重复建设**：`app/desktop/` Electron 33 本地静态服务 + `/api` 反代，`npm run smoke` 12/12 通过；窗口底色跟随主题、菜单与托盘新增 AI 相关页面入口。**未验**：物理打印机套打、深链系统注册、electron-builder 安装包、断网数据缓存 |
+| 微信小程序 | **必做** | 25% 内 | ✅ **AppID 已换成正式号，构建通过**（24 页）。2026-10-29 修掉一个只在微信里才暴露的缺陷：主题变量原本写成 `page,:root` 合并选择器，WXSS 不认识 `:root`、整条规则被丢弃 → **小程序整页白屏**；改成条件编译（H5 出 `:root`、小程序出 `page`）。`preflight mp-weixin` 阻塞项 0。剩余都是后台动作：上传头像、配 request 合法域名 `https://xuliu.zemworld.cn`、上传并选为体验版（正式发布才需要小程序备案） |
+| 安卓 APP | **必做** | 25% 内 | ✅ **本机 Gradle 出正式签名包，不需要 DCloud**：`app/yunshang-erp-0.2.0.apk`（119 KB，`apksigner verify` 确认是自签 release 证书而非 debug key；包名 `com.yunshang.erp.demo`、`versionCode 2`、INTERNET+CAMERA、5 个密度图标）。默认地址 `https://m.zemworld.cn/`，加载失败自动回落 `https://xuliu.zemworld.cn/`，保留「设置服务器」供内网调试。**未真机验证**（本机无设备也无模拟器）。注：它仍是 WebView 壳，界面在服务器侧；"断网也能开界面"见 `.plan/上线收尾与三端交付-计划书.md` 阶段 C |
+| PC 端 | 可选 +5% | +5% | ✅ **便携包 0.2.1，含正式图标与 `/readyz` 反代**：`app/desktop/` Electron 33 本地静态服务 + `/api`·`/actuator`·`/readyz` 反代，`npm run smoke` 12/12；实测壳内 `/readyz` 透传云端返回 UP。图标与其余各端共用同一张织纹方块（`assets/icon.ico`，7 个尺寸）。**未验**：物理打印机套打、深链系统注册、断网数据缓存 |
 | 自然语言操作 | 可选 +5% | +5% | ✅ **不再只是"查库存 + 建草稿"**：`/nl/plan`（计划 + 复核 + 确认凭据）→ `/nl/pending`（人签字）→ `/nl/command`（执行）→ `/nl/audit`（审计），另有 SQL 沙箱与模型设置；Web 三个页面，移动端有入口，MCP 走同一条链路 |
 | MCP 让 Agent 操作 | 加分 | 加分 | ✅ `packages/mcp-server`（`erp-inventory-mcp`，9 工具，stdio + http 双传输） |
 | 单机版 | 必做 | 10% | ⚠️ `infra/standalone/` 15 文件齐全，根目录 `启动系统.cmd` 一键起后端与 Web，**仍未在真实离线环境验证过** |
@@ -77,22 +77,30 @@
       包名缺失、扫码缺权限）在**构建前**报出来；逃生口 `--warn-only` / `npm run build:*:force`
 - [ ] 图标：脚本与目录已就绪，**缺一张 ≥1024×1024 的主图**（设计资产）。没图标不阻塞出包 ——
       HBuilderX 会用它的默认图标，只是图标不是我们的
-- [ ] 注册/取得正式小程序 `appid`，替换 `touristappid` → 拿到就跑 `node scripts/set-appid.mjs <AppID>`
-      （脚本已用格式合法的假号验过：写入 → `build:mp-weixin` 通过 → 产物 `project.config.json` 带上新号）
+- [x] 注册/取得正式小程序 `appid`，已用 `node scripts/set-appid.mjs wxea41f80cdf0f0971` 写入
+      （只改 value 那一小段字节，注释与键序逐字节不变；产物 `project.config.json` 已带上新号）
 - [x] **本地 WebView 演示包**：`app/android-demo/` + `app/yunshang-erp-demo.apk`（加载 3008 的 H5 预览；
-      不是 HBuilderX 正式包，未真机验证）
-- [ ] HBuilderX 云打包出 APK（要 DCloud 账号 + `.jks` 签名证书，都是外部资源）
+      debug 签名，已被下面的正式包取代）
+- [x] **本机 Gradle 出正式签名 APK**：`app/yunshang-erp-0.2.0.apk` —— 原以为必须 DCloud 云打包，
+      实测本机 `D:\android-sdk` + 工程自带 `gradlew` 就能出 release 包，签名证书用 keytool 自签即可；
+      **备案与软著只影响"上架应用商店"，不影响生成与安装 APK**
+- [ ] HBuilderX 云打包（只有需要"uni 运行时打进包、断网也能开界面"时才做；
+      本机替代方案见 `.plan/上线收尾与三端交付-计划书.md` 阶段 C）
 
-### 本地 Android 演示包（2026-10-26）
+### 安卓包：从演示壳到正式签名包（2026-10-29）
 
-正式云打包拿不到，但先做了一个能装的演示壳：
+| | 旧演示包 | 现正式包 |
+|---|---|---|
+| 文件 | `app/yunshang-erp-demo.apk`（18 KB） | `app/yunshang-erp-0.2.0.apk`（119 KB） |
+| 签名 | Android Debug key | 自签 release 证书（`apksigner verify` 已比对 digest） |
+| 默认地址 | 电脑局域网 3008 预览服务 | `https://m.zemworld.cn/`，失败自动回落 `https://xuliu.zemworld.cn/` |
+| 图标 | 矢量占位方块 | 与其余各端同一张织纹方块，5 个密度 |
+| 构建 | `gradlew assembleDebug` | `gradlew assembleRelease`（口令走 `keystore.properties`，已 gitignore） |
 
-- 位置：`app/yunshang-erp-demo.apk`（源码 `app/android-demo/`，包名 `com.yunshang.erp.demo`）
-- 原理：WebView 加载 `scripts/mobile-preview.mjs` 在 3008 托管的 H5 产物，`/api` 同源反代到 8080
-- 用法：电脑运行根目录 `启动系统.cmd` → 手机连同一 Wi-Fi → 安装 APK → 默认地址是电脑局域网 IP，
-  可在右上角菜单「设置服务器」或长按页面修改
-- 限制：电脑上的预览服务必须开着；H5 扫码页走手输降级，不调摄像头；未在真机上安装验证
-- 正式 APK 仍需 DCloud 账号 + 签名证书 + 图标主图，步骤见 `app/uniapp/README.md` §6
+- 仍是 **WebView 壳**：界面和数据都在服务器侧，断网打不开界面；包体积增量来自图标与回落逻辑。
+- 「设置服务器」入口保留（右上角菜单 / 长按），内网 3008 调试仍可用；自动回落不写回偏好，
+  所以 `m.zemworld.cn` 上线后无需重装即自动接上。
+- **未验**：真机安装、登录主链路、回落表现、摄像头扫码（本机既无设备也无模拟器）。
 
 ### P2 · 联调与验收（依赖 P1，不依赖公网）
 

@@ -2,6 +2,21 @@ plugins {
     id 'com.android.application'
 }
 
+/*
+ * release 签名：证书与口令都不入库。
+ * 本机在 app/android-demo/keystore.properties 里放 storeFile / storePassword / keyAlias / keyPassword
+ * （已被 .gitignore 忽略，模板见 keystore.properties.example），缺该文件时 release 退回 debug 签名，
+ * 目的是让干净克隆仍能构建，同时避免把口令写进任何会被提交的文件。
+ */
+def keystorePropsFile = rootProject.file('keystore.properties')
+def keystoreProps = new Properties()
+if (keystorePropsFile.exists()) {
+    keystorePropsFile.withInputStream { keystoreProps.load(it) }
+}
+def releaseSigningReady = ['storeFile', 'storePassword', 'keyAlias', 'keyPassword'].every {
+    keystoreProps.getProperty(it)?.trim()
+}
+
 android {
     namespace 'com.yunshang.erp.demo'
     compileSdk 34
@@ -10,13 +25,34 @@ android {
         applicationId 'com.yunshang.erp.demo'
         minSdk 23
         targetSdk 34
-        versionCode 1
-        versionName '0.1.0-demo'
+        versionCode 2
+        versionName '0.2.0'
+    }
+
+    signingConfigs {
+        release {
+            if (releaseSigningReady) {
+                def storePath = keystoreProps.getProperty('storeFile').trim()
+                // storeFile 支持绝对路径，也支持相对工程根目录（app/android-demo）的路径
+                def storeFileObj = new File(storePath).absolute ? new File(storePath) : rootProject.file(storePath)
+                storeFile = storeFileObj
+                storePassword = keystoreProps.getProperty('storePassword').trim()
+                keyAlias = keystoreProps.getProperty('keyAlias').trim()
+                keyPassword = keystoreProps.getProperty('keyPassword').trim()
+            }
+        }
     }
 
     buildTypes {
         release {
+            // 保持零代码压缩：壳层只有 Activity + WebView，引 proguard 只会带来反射/裁剪风险
             minifyEnabled false
+            if (releaseSigningReady) {
+                signingConfig signingConfigs.release
+            } else {
+                logger.warn('未找到可用的 keystore.properties，release 将使用 debug 签名（仅本机自测，分发包必须补签名）')
+                signingConfig signingConfigs.debug
+            }
         }
     }
 

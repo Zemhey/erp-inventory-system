@@ -1,4 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    明文（http）策略：
+    - 云端两个站点走 HTTPS 优先， zemworld.cn 及其子域显式禁止明文，防误填 http:// 后把口令发成明文；
+    - base-config 仍保留明文许可，因为「设置服务器」支持填电脑上 http://<局域网IP>:3008/ 的手机预览服务，
+      关掉会让内网调试直接连不上（这是刻意保留的口子，只影响非 zemworld.cn 的主机）。
+-->
 <network-security-config>
-    <base-config cleartextTrafficPermitted="true" />
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">zemworld.cn</domain>
+    </domain-config>
 </network-security-config>
