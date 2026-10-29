@@ -27,7 +27,7 @@
 | 服务端 | 必做 | 25% 内 | ✅ 44+ 控制器，Flyway V29，契约 260 操作 |
 | Web 端 | 必做 | 25% 内 | ✅ 10 组路由（新增「自然语言」组），浅色/深色双主题，演示数据已灌 |
 | 微信小程序 | **必做** | 25% 内 | ✅ **AppID 已换成正式号，构建通过**（24 页）。2026-10-29 修掉一个只在微信里才暴露的缺陷：主题变量原本写成 `page,:root` 合并选择器，WXSS 不认识 `:root`、整条规则被丢弃 → **小程序整页白屏**；改成条件编译（H5 出 `:root`、小程序出 `page`）。`preflight mp-weixin` 阻塞项 0。剩余都是后台动作：上传头像、配 request 合法域名 `https://xuliu.zemworld.cn`、上传并选为体验版（正式发布才需要小程序备案） |
-| 安卓 APP | **必做** | 25% 内 | ✅ **本机 Gradle 出正式签名包，不需要 DCloud**：`app/yunshang-erp-0.2.0.apk`（119 KB，`apksigner verify` 确认是自签 release 证书而非 debug key；包名 `com.yunshang.erp.demo`、`versionCode 2`、INTERNET+CAMERA、5 个密度图标）。默认地址 `https://m.zemworld.cn/`，加载失败自动回落 `https://xuliu.zemworld.cn/`，保留「设置服务器」供内网调试。**未真机验证**（本机无设备也无模拟器）。注：它仍是 WebView 壳，界面在服务器侧；"断网也能开界面"见 `.plan/上线收尾与三端交付-计划书.md` 阶段 C |
+| 安卓 APP | **必做** | 25% 内 | ✅ **界面已打进安装包（0.3.0）**：`app/yunshang-erp-0.3.0.apk`（333 KB，`apksigner verify` 确认自签 release 证书；包名 `com.yunshang.erp.demo`、`versionCode 3`、INTERNET+CAMERA、5 个密度图标）。移动端界面 68 个文件内置在 `assets/www`，冷启动不查 DNS、不依赖服务器；`/api/v1` 仍打真实后端，文档与接口同源所以不需要 CORS，也不需要给后端加任何头。**0.2.0 的问题已定位并修掉**：默认地址 `m.zemworld.cn` 还没解析 → 回落加载了桌面网页版，加上系统 ActionBar 那条深蓝横带，看起来就是"白屏 + 一块蓝的挡着"；现在没有 ActionBar，状态栏取 `theme.json` 的 navBg 与界面顶栏同色。**仍未真机验证**（本机既无设备也无模拟器），但拦截规则已用 Chromium 按同一套判定跑通：离线渲染登录页 + 真后端登录进工作台 |
 | PC 端 | 可选 +5% | +5% | ✅ **便携包 0.2.1，含正式图标与 `/readyz` 反代**：`app/desktop/` Electron 33 本地静态服务 + `/api`·`/actuator`·`/readyz` 反代，`npm run smoke` 12/12；实测壳内 `/readyz` 透传云端返回 UP。图标与其余各端共用同一张织纹方块（`assets/icon.ico`，7 个尺寸）。**未验**：物理打印机套打、深链系统注册、断网数据缓存 |
 | 自然语言操作 | 可选 +5% | +5% | ✅ **不再只是"查库存 + 建草稿"**：`/nl/plan`（计划 + 复核 + 确认凭据）→ `/nl/pending`（人签字）→ `/nl/command`（执行）→ `/nl/audit`（审计），另有 SQL 沙箱与模型设置；Web 三个页面，移动端有入口，MCP 走同一条链路 |
 | MCP 让 Agent 操作 | 加分 | 加分 | ✅ `packages/mcp-server`（`erp-inventory-mcp`，9 工具，stdio + http 双传输） |
@@ -79,28 +79,33 @@
       HBuilderX 会用它的默认图标，只是图标不是我们的
 - [x] 注册/取得正式小程序 `appid`，已用 `node scripts/set-appid.mjs wxea41f80cdf0f0971` 写入
       （只改 value 那一小段字节，注释与键序逐字节不变；产物 `project.config.json` 已带上新号）
-- [x] **本地 WebView 演示包**：`app/android-demo/` + `app/yunshang-erp-demo.apk`（加载 3008 的 H5 预览；
-      debug 签名，已被下面的正式包取代）
-- [x] **本机 Gradle 出正式签名 APK**：`app/yunshang-erp-0.2.0.apk` —— 原以为必须 DCloud 云打包，
+- [x] **本地 WebView 演示包**：`app/android-demo/`（加载 3008 的 H5 预览；debug 签名，已被下面的正式包取代）
+- [x] **本机 Gradle 出正式签名 APK**：原以为必须 DCloud 云打包，
       实测本机 `D:\android-sdk` + 工程自带 `gradlew` 就能出 release 包，签名证书用 keytool 自签即可；
       **备案与软著只影响"上架应用商店"，不影响生成与安装 APK**
-- [ ] HBuilderX 云打包（只有需要"uni 运行时打进包、断网也能开界面"时才做；
-      本机替代方案见 `.plan/上线收尾与三端交付-计划书.md` 阶段 C）
+- [x] **界面打进安装包（阶段 C，2026-10-29）**：`assets/www` 内置 uni-app 的 H5 产物，
+      冷启动不依赖网络与 DNS；HBuilderX 云打包因此不再是必需项
 
-### 安卓包：从演示壳到正式签名包（2026-10-29）
+### 安卓包：从在线壳到内置界面（2026-10-29 两轮）
 
-| | 旧演示包 | 现正式包 |
-|---|---|---|
-| 文件 | `app/yunshang-erp-demo.apk`（18 KB） | `app/yunshang-erp-0.2.0.apk`（119 KB） |
-| 签名 | Android Debug key | 自签 release 证书（`apksigner verify` 已比对 digest） |
-| 默认地址 | 电脑局域网 3008 预览服务 | `https://m.zemworld.cn/`，失败自动回落 `https://xuliu.zemworld.cn/` |
-| 图标 | 矢量占位方块 | 与其余各端同一张织纹方块，5 个密度 |
-| 构建 | `gradlew assembleDebug` | `gradlew assembleRelease`（口令走 `keystore.properties`，已 gitignore） |
+| | 演示包（已删） | 在线壳 0.2.0 | 内置包 0.3.0 |
+|---|---|---|---|
+| 界面来自 | 电脑 3008 预览 | **服务器**：`m.zemworld.cn`，失败回落 `xuliu.zemworld.cn` | **安装包内** `assets/www`（68 文件） |
+| 断网 | 打不开 | 打不开（只剩错误页） | 照样开到登录页，只有接口需要网络 |
+| 顶栏 | 系统 ActionBar | 系统 ActionBar（那条深蓝横带）+ 进度条 + 地址徽标 | 无 ActionBar，状态栏=界面导航条同色 |
+| 文件 | 18 KB | 119 KB | 333 KB |
+| 签名 | Android Debug key | 自签 release 证书 | 同一把 release 证书（`apksigner` 已比对 digest） |
+| 图标 | 矢量占位方块 | 与其余各端同一张织纹方块 | 同上 + 品牌色冷启动底图 |
+| 构建 | `gradlew assembleDebug` | `gradlew assembleRelease` | `gradlew assembleRelease`（口令走 `keystore.properties`，已 gitignore） |
 
-- 仍是 **WebView 壳**：界面和数据都在服务器侧，断网打不开界面；包体积增量来自图标与回落逻辑。
-- 「设置服务器」入口保留（右上角菜单 / 长按），内网 3008 调试仍可用；自动回落不写回偏好，
-  所以 `m.zemworld.cn` 上线后无需重装即自动接上。
-- **未验**：真机安装、登录主链路、回落表现、摄像头扫码（本机既无设备也无模拟器）。
+- 为什么"文件还是这么小"：移动端界面本质是一个约 600 KB 的 Vue 包，壳层只做装载与转发；
+  体积从 119 KB 涨到 333 KB 就是"界面进了包"的证据，与原生渲染无关，也不会变成几十 MB。
+- 为什么接口不拦截：`shouldInterceptRequest` 拿不到 POST 请求体，所以 `/api` 一律放行给 WebView
+  真实发出；文档地址与接口同源（都是站点域名），浏览器不触发 CORS，后端一个响应头都不用加。
+- 「后端地址」入口改为长按页面（没有菜单栏了），内网联调仍可填 `http://<电脑IP>:8082`。
+- **未验**：真机安装后的顶栏颜色、登录主链路、摄像头扫码（本机既无设备也无模拟器）。
+  已验的是拦截规则本身：用 Chromium 按同一条判定跑内置包，离线渲染出登录页，
+  再用真账号打真后端，`POST /api/v1/auth/login` 之后工作台/库存/仓库/商品等接口全部返回，无控制台错误。
 
 ### P2 · 联调与验收（依赖 P1，不依赖公网）
 
@@ -108,8 +113,8 @@
       （合并后一直没验过小程序侧；web 侧普查过 62 条路由，小程序一条都没有）
 - [ ] 微信开发者工具导入 `dist/build/mp-weixin`，勾掉域名校验跑通主链路：
       登录 → 工作台 → 库存查询 → 收货/发货 → 审批
-- [ ] 安装 `app/yunshang-erp-demo.apk` 到安卓真机，验登录 + 一个写操作（本机无 adb 设备，尚未验证）
-- [ ] 正式包：HBuilderX 云打包出 APK，真机装一次，验登录 + 一个写操作
+- [ ] 安装 `app/yunshang-erp-0.3.0.apk` 到安卓真机，验登录 + 一个写操作（本机无 adb 设备，尚未验证）
+- [ ] 正式包：HBuilderX 云打包出 APK（要做推送、原生扫码、上架商店时才需要）
 
 ### P3 · 备案与 HTTPS（与 P1/P2 并行启动，谁先好谁先用）
 
