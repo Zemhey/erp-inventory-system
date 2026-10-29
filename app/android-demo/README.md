@@ -94,6 +94,10 @@ unzip -l app/yunshang-erp-0.3.0.apk | grep -c "assets/www/"
 versionName `0.3.0`、versionCode `3`；权限含 `INTERNET` 与 `CAMERA`；`application-label` 为「云裳进销存」；
 `assets/www/` 有 68 个文件。
 
+当前成品：`app/yunshang-erp-0.3.0.apk`，340,653 字节，
+sha256 `b6a14c7758669463…`（完整值见 `app/yunshang-erp-0.3.0.apk.sha256`）。
+底栏「我的」修好后重出过一次包，**之前那份 0.3.0 要覆盖重装**。
+
 ## 已验 / 未验
 
 | 项 | 状态 |
@@ -102,6 +106,7 @@ versionName `0.3.0`、versionCode `3`；权限含 `INTERNET` 与 `CAMERA`；`app
 | 包名 / 版本 / 权限 / 标签 / 图标 / 界面已打进包 | 已验（`aapt dump badging` + `unzip -l` 68 个 assets/www 文件） |
 | 拦截规则：静态走安装包、接口放行、SPA 兜底 | 已验（Chromium 按同一套判定跑 `assets/www`：离线渲染出登录页，无一条静态回源、无控制台错误） |
 | 内置界面 + 真后端跑通登录主链 | 已验（`POST /api/v1/auth/login` 成功后进工作台，随后 dashboard/库存/仓库/商品等接口全部返回） |
+| 移动端自绘底栏（含「我的」）在 H5 里真的看得见 | 已验（真站 `elementFromPoint` 命中测试 + 截图：`工作台 库存 出货 进货 商品 我的` 六项，点「我的」进 `#/pages/me/me`）。这一项曾经**看不见** —— H5 端 `uni.hideTabBar()` 不生效，uni-app 自画的原生栏（z 998）把自绘栏（z 900）整条盖住，修法见 `app/uniapp/src/App.vue` 的 `#ifdef H5` |
 | 真机安装后的顶栏颜色、返回键、冷启动观感 | **未验**（本机既无 adb 设备也无模拟器） |
 | WebView 调用摄像头扫码 | **未验** |
 
