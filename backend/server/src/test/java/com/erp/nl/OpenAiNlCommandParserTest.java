@@ -8,6 +8,9 @@ import com.erp.nl.domain.NlCommand;
 import com.erp.nl.domain.NlIntent;
 import com.erp.shared.error.BusinessException;
 import com.erp.shared.error.ErrorCode;
+import com.erp.shared.nl.NlModelConfigPort;
+import com.erp.shared.nl.NlModelSettings;
+import com.erp.shared.time.ClockProvider;
 import com.erp.support.CaseId;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
@@ -15,6 +18,7 @@ import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -45,6 +49,31 @@ class OpenAiNlCommandParserTest {
         }
     }
 
+    /**
+     * 解析器改成从 {@link NlModelConfigPort} 读配置（保存即生效，见 FR-SYS-04），
+     * 所以测试用这个假端口把 baseUrl/key/model 递进去，不再由构造器参数直传。
+     */
+    private static NlModelConfigPort configOf(String baseUrl, String apiKey, String model) {
+        NlModelSettings settings = new NlModelSettings(
+                NlModelSettings.PARSER_OPENAI, NlModelSettings.REVIEWER_RULE, baseUrl, model, apiKey);
+        return new NlModelConfigPort() {
+            @Override
+            public NlModelSettings current() {
+                return settings;
+            }
+
+            @Override
+            public void save(NlModelSettings changed) {
+                throw new UnsupportedOperationException("本用例只读配置");
+            }
+        };
+    }
+
+    /** 系统提示里要拼当前日期；测试固定到一个时间点，断言才不会被真实日期漂走。 */
+    private static ClockProvider fixedClock() {
+        return () -> LocalDateTime.of(2025, 6, 1, 9, 0, 0);
+    }
+
     @Test
     @CaseId("TC-NL-004")
     @DisplayName("★ tool_call 映射为意图与参数；请求带 Authorization、tools 与 tool_choice=auto")
@@ -55,7 +84,7 @@ class OpenAiNlCommandParserTest {
                   "arguments":"{\\"skuId\\":12,\\"warehouseId\\":3}"}}]}}]}
                 """);
         OpenAiNlCommandParser parser = new OpenAiNlCommandParser(
-                baseUrl, "test-key", "fake-model", 5, json);
+                configOf(baseUrl, "test-key", "fake-model"), fixedClock(), 5, json);
 
         NlCommand command = parser.parse("帮我看看 12 号 SKU 在 3 号仓还有多少");
 
@@ -76,7 +105,7 @@ class OpenAiNlCommandParserTest {
     void mapsInfrastructureFailures() throws Exception {
         String baseUrl = startServer("{\"choices\":[{\"message\":{\"content\":\"我不知道\"}}]}");
         OpenAiNlCommandParser parser = new OpenAiNlCommandParser(
-                baseUrl, "test-key", "fake-model", 5, json);
+                configOf(baseUrl, "test-key", "fake-model"), fixedClock(), 5, json);
 
         BusinessException noToolCall = catchThrowableOfType(
                 () -> parser.parse("今天天气怎么样"), BusinessException.class);
@@ -90,11 +119,15 @@ class OpenAiNlCommandParserTest {
         assertThat(upstream.getMessage()).contains("HTTP 500").doesNotContain("test-key");
 
         OpenAiNlCommandParser noKey = new OpenAiNlCommandParser(
-                baseUrl, "", "fake-model", 5, json);
+                configOf(baseUrl, "", "fake-model"), fixedClock(), 5, json);
         BusinessException missingKey = catchThrowableOfType(
                 () -> noKey.parse("查询库存"), BusinessException.class);
         assertThat(missingKey.getCode()).isEqualTo(ErrorCode.NL_PARSER_UNAVAILABLE);
-        assertThat(missingKey.getMessage()).contains("ERP_NL_API_KEY");
+        // 配置搬进「系统 → AI 接入」后，缺 key 的提示要指向界面而不是环境变量；
+        // 断言跟着改，否则这条用例会一直守着已经废弃的文案。
+        assertThat(missingKey.getMessage())
+                .contains("API Key")
+                .contains("AI 接入");
 
         responseStatus.set(200);
         responseBody.set("not-json");
