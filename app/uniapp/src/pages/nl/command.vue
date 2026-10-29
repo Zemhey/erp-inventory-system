@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { nlApi, type NlCommandResult, type NlPlanResult, type NlReview } from '@/api/client'
+import { useTheme } from '@/composables/useTheme'
 import { errorMessage } from '@/utils/error'
 import { intentLabel, verdictLabel } from '@/utils/nl'
 import { ensureLoggedIn } from '@/utils/routeGuard'
@@ -16,6 +17,8 @@ import { ensureLoggedIn } from '@/utils/routeGuard'
  *   操作台这种随问随答的场景用的是 plan/command + 回执令牌，绕开页面也绕不开服务端闸门。
  * ★ 错误一律内联展示：后端返回的是中文 message，直接给用户看，不白屏、不只弹 toast code。
  */
+
+const { themeClass } = useTheme()
 
 const examples = ['查询库存', '补货建议', '进货单列表 第1页', '账期 2026-10 进销存汇总', '查询商品 关键字 T恤']
 
@@ -181,7 +184,7 @@ onShow(() => {
 </script>
 
 <template>
-  <view class="page nl">
+  <view class="page nl" :class="themeClass">
     <view class="hero">
       <text class="hero-title">自然语言操作</text>
       <text class="hero-sub">一句话查库存、看单据、建草稿；写操作需你确认后才落地</text>
@@ -347,7 +350,7 @@ onShow(() => {
   padding: 20rpx;
   background: var(--c-surface);
   border-radius: 20rpx;
-  box-shadow: 0 6rpx 20rpx rgba(21, 33, 56, 0.06);
+  box-shadow: 0 6rpx 20rpx var(--c-shadow);
 }
 
 .cmd-input {
@@ -368,7 +371,7 @@ onShow(() => {
   padding: 0 30rpx;
   font-size: 26rpx;
   background: var(--c-brand);
-  color: #ffffff;
+  color: var(--c-on-brand);
   border-radius: 14rpx;
 }
 
@@ -390,7 +393,7 @@ onShow(() => {
 .error-block {
   padding: 24rpx;
   background: var(--c-danger-wash);
-  border: 1rpx solid #f3d3ca;
+  border: 1rpx solid var(--c-danger-line);
   border-radius: 16rpx;
 }
 
@@ -416,7 +419,7 @@ onShow(() => {
   padding: 4rpx 16rpx;
   border-radius: 999rpx;
   background: var(--c-brand);
-  color: #ffffff;
+  color: var(--c-on-brand);
   font-size: 21rpx;
 }
 
@@ -536,7 +539,7 @@ onShow(() => {
   height: 76rpx;
   font-size: 26rpx;
   background: var(--c-brand);
-  color: #ffffff;
+  color: var(--c-on-brand);
   border-radius: 14rpx;
 }
 

@@ -9,12 +9,14 @@ import {
   type IamUser,
 } from '@/api/client'
 import { session, hasPermission } from '@/stores/session'
+import { useTheme } from '@/composables/useTheme'
 import {
   approvalStatusMeta,
   canWithdraw,
   isPendingForMe,
   stepStatusMeta,
 } from '@/utils/approvalStatus'
+import { BRAND_CONFIRM, DANGER_CONFIRM } from '@/utils/dialog'
 import { errorMessage } from '@/utils/error'
 import { formatDateTime } from '@/utils/format'
 import { formatFen } from '@/utils/money'
@@ -31,6 +33,8 @@ import { safe } from '@/utils/safe'
  *   否则一个「能审批」的人就能审所有节点，金额阈值触发上级就失去意义。
  *   —— 页面照同一口径显示按钮，最终仍由后端拒。
  */
+
+const { themeClass } = useTheme()
 
 const BIZ_TYPE_LABELS: Record<string, string> = {
   PURCHASE_ORDER: '进货单',
@@ -137,10 +141,10 @@ function runDecision(kind: 'approve' | 'reject' | 'withdraw'): void {
 
   const copy =
     kind === 'approve'
-      ? { title: '同意审批', content: '同意后本节点通过；若还有下一节点会继续流转。确定同意吗？', color: '#1f3a63' }
+      ? { title: '同意审批', content: '同意后本节点通过；若还有下一节点会继续流转。确定同意吗？', color: BRAND_CONFIRM }
       : kind === 'reject'
-        ? { title: '驳回审批', content: '驳回是终态：这张单据要改内容重走，会生成一条新的审批记录。确定驳回吗？', color: '#b4462f' }
-        : { title: '撤回审批', content: '撤回是发起人收回自己提交的审批，终态。确定撤回吗？', color: '#b4462f' }
+        ? { title: '驳回审批', content: '驳回是终态：这张单据要改内容重走，会生成一条新的审批记录。确定驳回吗？', color: DANGER_CONFIRM }
+        : { title: '撤回审批', content: '撤回是发起人收回自己提交的审批，终态。确定撤回吗？', color: DANGER_CONFIRM }
 
   uni.showModal({
     title: copy.title,
@@ -328,7 +332,7 @@ onPullDownRefresh(() => {
 </script>
 
 <template>
-  <view class="page detail">
+  <view class="page detail" :class="themeClass">
     <view v-if="loading && !loaded" class="card loading-block">正在读取审批实例…</view>
 
     <view v-else-if="error && !instance" class="card error-block">
@@ -575,8 +579,8 @@ onPullDownRefresh(() => {
 }
 
 .atone-handover {
-  background: var(--c-purple-wash);
-  color: var(--c-purple-text);
+  background: var(--c-accent-wash);
+  color: var(--c-accent-text);
 }
 
 .atone-pass {
@@ -682,7 +686,7 @@ onPullDownRefresh(() => {
 }
 
 .step-current {
-  border-left-color: #2c4066;
+  border-left-color: var(--c-brand);
   background: var(--c-fill);
 }
 
@@ -810,7 +814,7 @@ onPullDownRefresh(() => {
 
 .act-approve {
   background: var(--c-brand);
-  color: #ffffff;
+  color: var(--c-on-brand);
 }
 
 .act-reject {
@@ -822,8 +826,8 @@ onPullDownRefresh(() => {
 .act-accept {
   width: 100%;
   margin-top: 22rpx;
-  background: #5b4a91;
-  color: #ffffff;
+  background: var(--c-success);
+  color: var(--c-on-brand);
 }
 
 .act-withdraw {
@@ -864,8 +868,8 @@ onPullDownRefresh(() => {
 .act-transfer {
   width: 100%;
   margin-top: 16rpx;
-  background: var(--c-purple-wash);
-  color: var(--c-purple-text);
+  background: var(--c-accent-wash);
+  color: var(--c-accent-text);
 }
 
 .action-note {
@@ -885,7 +889,7 @@ onPullDownRefresh(() => {
   right: 0;
   top: 0;
   bottom: 0;
-  background: rgba(15, 20, 32, 0.45);
+  background: var(--c-scrim);
   display: flex;
   align-items: flex-end;
   z-index: 90;

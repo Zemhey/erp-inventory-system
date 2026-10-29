@@ -8,7 +8,9 @@ import {
   type Receivable,
 } from '@/api/client'
 import { useDictionary } from '@/composables/useDictionary'
+import { useTheme } from '@/composables/useTheme'
 import { hasPermission } from '@/stores/session'
+import { BRAND_CONFIRM, DANGER_CONFIRM } from '@/utils/dialog'
 import { errorMessage } from '@/utils/error'
 import { formatDate } from '@/utils/format'
 import { formatFen, fenToYuan, yuanToFen } from '@/utils/money'
@@ -28,6 +30,8 @@ import { safe } from '@/utils/safe'
  *   - 单笔超过余额 → SAL_RECEIPT_OVER_ALLOCATED（「核销超额：应收 N 余额 X 分，本次核销 Y 分」）
  *   页面只给一条非阻断提示，提交照常发出，消息逐字显示 —— 那是账实一致的口径来源。
  */
+
+const { themeClass } = useTheme()
 
 const receivableId = ref(0)
 const row = ref<Receivable | null>(null)
@@ -122,7 +126,7 @@ function confirmReceipt(): void {
   uni.showModal({
     title: '登记收款',
     content: `收款 ${formatFen(inputFen.value)}，全额核销到本应收。${overBalance.value ? '注意：本次金额已超过该应收余额，后端会拒绝。' : ''}确定登记吗？`,
-    confirmColor: overBalance.value ? '#b4462f' : '#1f3a63',
+    confirmColor: overBalance.value ? DANGER_CONFIRM : BRAND_CONFIRM,
     success: (modal) => {
       if (modal.confirm) void doReceipt()
     },
@@ -194,7 +198,7 @@ function onRemarkChange(event: unknown): void {
 </script>
 
 <template>
-  <view class="page detail">
+  <view class="page detail" :class="themeClass">
     <view v-if="loading && !loaded" class="card loading-block">正在读取应收…</view>
 
     <view v-else-if="error && !row" class="card error-block">

@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { onPullDownRefresh, onReachBottom, onShow } from '@dcloudio/uni-app'
+import { onPullDownRefresh, onShow } from '@dcloudio/uni-app'
 import { salApi, type SalesOrder } from '@/api/client'
 import { useDictionary } from '@/composables/useDictionary'
+import { useTheme } from '@/composables/useTheme'
 import { hasPermission } from '@/stores/session'
 import { DOCUMENT_STATUSES, statusMeta } from '@/utils/documentStatus'
 import { errorMessage } from '@/utils/error'
 import { formatDate } from '@/utils/format'
 import { formatFen } from '@/utils/money'
+import { hideNativeTabBar } from '@/utils/navigation'
 import { ensureLoggedIn } from '@/utils/routeGuard'
 import { safe } from '@/utils/safe'
 
@@ -16,9 +18,14 @@ import { safe } from '@/utils/safe'
  *
  * 建单/编辑/审核/作废留在 Web；这里的列表只做状态筛选与查看，
  * 单动作「出货」在详情页完成。状态筛选取值来自镜像表，不自行发明状态。
+ *
+ * 分页：一页 20 张，翻页看后面的 —— 单据卡片一屏也就 3~4 张，
+ * 无限滚动往下滑几十张既累又记不住位置。
  */
 
 const PAGE_SIZE = 20
+
+const { themeClass } = useTheme()
 
 const allowed = computed(() => hasPermission('sal:read'))
 const { loadDictionary, customerText, warehouseText, warning: dictWarning } = useDictionary()
@@ -31,68 +38,70 @@ const statusFilters = [
 
 const orders = ref<SalesOrder[]>([])
 const total = ref(0)
-const page = ref(0)
+const page = ref(1)
 const loaded = ref(false)
 const loading = ref(false)
 const error = ref('')
 
-const hasMore = computed(() => page.value * PAGE_SIZE < total.value)
+let queued = false
+/** 上一次真正加载成功的页码：请求失败时把翻页条退回到这里，不停在没数据的页上。 */
+let goodPage = 1
 
-let queuedReset = false
-
-async function load(reset = true): Promise<void> {
+async function loadOrders(): Promise<void> {
   if (!allowed.value) return
   if (loading.value) {
-    if (reset) queuedReset = true
+    // 筛选在请求飞行中被再次修改：记住"还欠一次"，本次结束后补跑，避免界面与筛选不一致
+    queued = true
     return
   }
-  if (!reset && !hasMore.value) return
 
   loading.value = true
-  if (reset) {
-    error.value = ''
-    loaded.value = false
-  }
+  error.value = ''
 
-  const nextPage = reset ? 1 : page.value + 1
   const result = await safe(
     salApi.list({
       status: statusFilter.value || undefined,
-      page: nextPage,
+      page: page.value,
       size: PAGE_SIZE,
     }),
   )
 
   if (result.ok) {
-    orders.value = reset
-      ? result.value.items
-      : [...orders.value, ...result.value.items.filter(
-          (incoming) => !orders.value.some((existing) => existing.id === incoming.id),
-        )]
+    orders.value = result.value.items
     total.value = result.value.total
+    // 以后端回的值为准：筛选条件变了以后，请求的那一页可能已经不存在
     page.value = result.value.page
+    goodPage = result.value.page
   } else {
-    if (reset) {
-      orders.value = []
-      total.value = 0
-      page.value = 0
-    }
+    orders.value = []
+    page.value = goodPage
     error.value = errorMessage(result.error)
   }
 
   loaded.value = true
   loading.value = false
 
-  if (queuedReset) {
-    queuedReset = false
-    void load(true)
+  if (queued) {
+    queued = false
+    void loadOrders()
   }
+}
+
+function goOrdersPage(next: number): void {
+  page.value = next
+  void loadOrders()
+}
+
+/** 换筛选条件一律回到第 1 页：停在第 7 页换状态，多半只会看到空列表。 */
+function reloadOrders(): void {
+  page.value = 1
+  void loadOrders()
 }
 
 function selectStatus(value: string): void {
   if (statusFilter.value === value) return
   statusFilter.value = value
-  load(true)
+  reloadOrders()
 }
 
 function openDetail(order: SalesOrder): void {
@@ -105,28 +114,27 @@ function shippedQty(order: SalesOrder): number {
 
 onShow(() => {
   if (!ensureLoggedIn()) return
+  // 底栏自己画（原生那条最多 5 项、高度也改不了），每次显示都要重新藏一次
+  hideNativeTabBar()
+
   if (!allowed.value) return
   loadDictionary()
-  load(true)
+  // 停在原来那一页刷新：从详情页退回来不该被弹回第 1 页
+  void loadOrders()
 })
 
 onPullDownRefresh(() => {
   void (async () => {
     await loadDictionary(true)
-    await load(true)
+    // 下拉是"刷新我正在看的这一页"，翻页请走下面的翻页条
+    await loadOrders()
     uni.stopPullDownRefresh()
   })()
-})
-
-onReachBottom(() => {
-  if (!loading.value && hasMore.value) {
-    load(false)
-  }
 })
 </script>
 
 <template>
-  <view class="page sales">
+  <view class="page sales page--tabbar" :class="themeClass">
     <view v-if="!allowed" class="card notice">
       <text class="notice-title">当前账号没有出货单读权限</text>
       <text class="notice-text">
@@ -151,14 +159,14 @@ onReachBottom(() => {
         <text class="summary-text">
           {{ statusFilter ? statusMeta(statusFilter).label : '全部' }}单据 {{ total }} 张
         </text>
-        <text class="summary-text">已加载 {{ orders.length }} 张</text>
+        <text class="summary-text">本页 {{ orders.length }} 张</text>
       </view>
 
       <view v-if="loading && !loaded" class="card loading-block">正在读取出货单…</view>
 
       <view v-else-if="error && !orders.length" class="card error-block">
         <text class="block-text">{{ error }}</text>
-        <button class="btn-ghost block-btn" hover-class="none" @click="load(true)">重试</button>
+        <button class="btn-ghost block-btn" hover-class="none" @click="loadOrders">重试</button>
       </view>
 
       <view v-else-if="!orders.length" class="card empty-block">
@@ -201,27 +209,25 @@ onReachBottom(() => {
         </view>
       </view>
 
-      <view v-if="loaded" class="list-footer">
-        <!-- 加载更多在请求飞行中保持同一节点，只改文案 + 禁用：v-if 换节点会让重复点击打空 -->
-        <button
-          v-if="hasMore || loading"
-          class="btn-ghost load-more"
-          hover-class="none"
-          :disabled="loading"
-          @click="load(false)"
-        >
-          {{ loading ? '加载中…' : `加载更多（${orders.length} / ${total}）` }}
-        </button>
-        <text v-else-if="orders.length" class="footer-note">已全部加载，共 {{ total }} 张</text>
-
+      <view v-if="loaded && total" class="pager-wrap">
+        <list-pager
+          :page="page"
+          :size="PAGE_SIZE"
+          :total="total"
+          :loading="loading"
+          unit="张"
+          @change="goOrdersPage"
+        />
         <view v-if="error && orders.length" class="inline-error">
           <text class="block-text">{{ error }}</text>
-          <text class="inline-retry" @click="load(false)">重试</text>
+          <text class="inline-retry" @click="loadOrders">重试</text>
         </view>
       </view>
 
       <text v-if="dictWarning" class="dict-warning">{{ dictWarning }}</text>
     </template>
+
+    <app-tab-bar active="sales" />
   </view>
 </template>
 
@@ -262,7 +268,7 @@ onReachBottom(() => {
 
 .chip.active {
   background: var(--c-brand);
-  color: #ffffff;
+  color: var(--c-on-brand);
   font-weight: 600;
 }
 
@@ -360,21 +366,8 @@ onReachBottom(() => {
   color: var(--c-brand-text);
 }
 
-.list-footer {
+.pager-wrap {
   margin-top: 20rpx;
-}
-
-.load-more {
-  width: 100%;
-  height: 80rpx;
-  font-size: 26rpx;
-}
-
-.footer-note {
-  display: block;
-  text-align: center;
-  font-size: 22rpx;
-  color: var(--c-text-4);
 }
 
 .block-text {

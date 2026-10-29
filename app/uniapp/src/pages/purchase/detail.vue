@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { onLoad, onPullDownRefresh, onShow } from '@dcloudio/uni-app'
 import { purApi, type OrderLine, type PurchaseOrder } from '@/api/client'
 import { useDictionary } from '@/composables/useDictionary'
+import { useTheme } from '@/composables/useTheme'
 import { hasPermission } from '@/stores/session'
 import {
   ACTION_META,
@@ -24,6 +25,8 @@ import { safe } from '@/utils/safe'
  * 逐行改量、分批拆分与建单仍留在 Web（§8.5 的"单动作"约束）。
  * 按钮显隐只由后端状态镜像 + pur:receive 决定，不自行推断。
  */
+
+const { themeClass } = useTheme()
 
 const allowed = computed(() => hasPermission('pur:read'))
 const { loadDictionary, supplierText, warehouseText, skuText, warning: dictWarning } =
@@ -176,7 +179,7 @@ onPullDownRefresh(() => {
 </script>
 
 <template>
-  <view class="page detail">
+  <view class="page detail" :class="themeClass">
     <view v-if="!allowed" class="card notice">
       <text class="notice-title">当前账号没有进货单读权限</text>
       <text class="notice-text">本页依赖 pur:read；请联系管理员分配权限。</text>

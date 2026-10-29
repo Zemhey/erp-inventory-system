@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { onLoad, onPullDownRefresh, onReachBottom, onShow } from '@dcloudio/uni-app'
+import { onLoad, onPullDownRefresh, onShow } from '@dcloudio/uni-app'
 import { stocktakeApi, type Stocktake } from '@/api/client'
 import { useDictionary } from '@/composables/useDictionary'
+import { useTheme } from '@/composables/useTheme'
 import { hasPermission } from '@/stores/session'
+import { BRAND_CONFIRM } from '@/utils/dialog'
 import { errorMessage } from '@/utils/error'
 import { formatDate, signedQty } from '@/utils/format'
 import { ensureLoggedIn } from '@/utils/routeGuard'
@@ -15,9 +17,14 @@ import { safe } from '@/utils/safe'
  * 后端没有「盘点单详情」端点，列表本身返回 lines —— 这里直接展示差异明细，
  * 不再为了一个详情页去新增接口。草稿单可在本页过账；过账后替换本行，
  * 不整页刷新（保留筛选与滚动位置）。
+ *
+ * 分页：一页 20 张、翻页看下一页（盘点卡片带明细行，一屏也就一两张，
+ * 无限滚动滑起来最费劲）。
  */
 
 const PAGE_SIZE = 20
+
+const { themeClass } = useTheme()
 
 const allowed = computed(() => hasPermission('inv:read'))
 const canWrite = computed(() => hasPermission('inv:write'))
@@ -51,17 +58,18 @@ const warehouseIndex = computed(() => {
 
 const items = ref<Stocktake[]>([])
 const total = ref(0)
-const page = ref(0)
+const page = ref(1)
 const loaded = ref(false)
 const loading = ref(false)
 const error = ref('')
 const postingId = ref(0)
 const actionError = ref('')
 
-const hasMore = computed(() => page.value * PAGE_SIZE < total.value)
 const filtered = computed(() => statusFilter.value !== '' || warehouseId.value !== undefined)
 
-let queuedReset = false
+let queued = false
+/** 上一次真正加载成功的页码：请求失败时把翻页条退回到这里，不停在没数据的页上。 */
+let goodPage = 1
 
 function lineCount(item: Stocktake): number {
   return item.lines?.length ?? 0
@@ -71,68 +79,68 @@ function diffText(value: number): string {
   return value === 0 ? '0' : signedQty(value)
 }
 
-async function load(reset = true): Promise<void> {
+async function loadStocktakes(): Promise<void> {
   if (!allowed.value) return
   if (loading.value) {
-    if (reset) queuedReset = true
+    // 筛选在请求飞行中被再次修改：记住"还欠一次"，本次结束后补跑，避免界面与筛选不一致
+    queued = true
     return
   }
-  if (!reset && !hasMore.value) return
 
   loading.value = true
-  if (reset) {
-    error.value = ''
-    loaded.value = false
-  }
+  error.value = ''
 
   const result = await safe(
     stocktakeApi.list({
       status: statusFilter.value || undefined,
       warehouseId: warehouseId.value,
-      page: reset ? 1 : page.value + 1,
+      page: page.value,
       size: PAGE_SIZE,
     }),
   )
 
   if (result.ok) {
-    items.value = reset
-      ? result.value.items
-      : [
-          ...items.value,
-          ...result.value.items.filter(
-            (incoming) => !items.value.some((existing) => existing.id === incoming.id),
-          ),
-        ]
+    items.value = result.value.items
     total.value = result.value.total
+    // 以后端回的值为准：筛选条件变了以后，请求的那一页可能已经不存在
     page.value = result.value.page
+    goodPage = result.value.page
   } else {
-    if (reset) {
-      items.value = []
-      total.value = 0
-      page.value = 0
-    }
+    items.value = []
+    page.value = goodPage
     error.value = errorMessage(result.error)
   }
 
   loaded.value = true
   loading.value = false
 
-  if (queuedReset) {
-    queuedReset = false
-    void load(true)
+  if (queued) {
+    queued = false
+    void loadStocktakes()
   }
+}
+
+function goStocktakesPage(next: number): void {
+  page.value = next
+  void loadStocktakes()
+}
+
+/** 换筛选条件一律回到第 1 页：停在第 7 页换仓库，多半只会看到空列表。 */
+function reloadStocktakes(): void {
+  page.value = 1
+  void loadStocktakes()
 }
 
 function selectStatus(value: string): void {
   if (statusFilter.value === value) return
   statusFilter.value = value
-  load(true)
+  reloadStocktakes()
 }
 
 function onWarehouseChange(event: unknown): void {
   const index = Number((event as { detail?: { value?: string | number } })?.detail?.value ?? 0)
   warehouseId.value = index === 0 ? undefined : warehouses.value[index - 1]?.id
-  load(true)
+  reloadStocktakes()
 }
 
 function createStocktake(): void {
@@ -147,7 +155,7 @@ function confirmPost(item: Stocktake): void {
     content:
       `将按差异生成调整流水（盘盈 ADJUST_IN / 盘亏 ADJUST_OUT），本次差异合计 ` +
       `${diffText(item.totalDiffQty)} 件。过账后不可撤销，确定过账吗？`,
-    confirmColor: '#1f3a63',
+    confirmColor: BRAND_CONFIRM,
     success: (modal) => {
       if (modal.confirm) void doPost(item)
     },
@@ -183,24 +191,22 @@ onShow(() => {
     return
   }
   loadDictionary()
-  load(true)
+  // 停在原来那一页刷新：从扫码页退回来不该被弹回第 1 页
+  void loadStocktakes()
 })
 
 onPullDownRefresh(() => {
   void (async () => {
     await loadDictionary(true)
-    await load(true)
+    // 下拉是"刷新我正在看的这一页"，翻页请走下面的翻页条
+    await loadStocktakes()
     uni.stopPullDownRefresh()
   })()
-})
-
-onReachBottom(() => {
-  if (!loading.value && hasMore.value) load(false)
 })
 </script>
 
 <template>
-  <view class="page stocktakes">
+  <view class="page stocktakes" :class="themeClass">
     <view v-if="!allowed" class="card notice">
       <text class="notice-title">当前账号没有库存读权限</text>
       <text class="notice-text">本页依赖 inv:read；盘点建单与过账还需要 inv:write。</text>
@@ -247,14 +253,14 @@ onReachBottom(() => {
         <text class="summary-text">
           {{ statusFilter ? statusMeta(statusFilter).label : '全部' }}盘点单 {{ total }} 张
         </text>
-        <text class="summary-text">已加载 {{ items.length }} 张</text>
+        <text class="summary-text">本页 {{ items.length }} 张</text>
       </view>
 
       <view v-if="loading && !loaded" class="card loading-block">正在读取盘点单…</view>
 
       <view v-else-if="error && !items.length" class="card error-block">
         <text class="block-text">{{ error }}</text>
-        <button class="btn-ghost block-btn" hover-class="none" @click="load(true)">重试</button>
+        <button class="btn-ghost block-btn" hover-class="none" @click="loadStocktakes">重试</button>
       </view>
 
       <view v-else-if="!items.length" class="card empty-block">
@@ -323,17 +329,19 @@ onReachBottom(() => {
         <text class="inline-retry" @click="actionError = ''">知道了</text>
       </view>
 
-      <view v-if="loaded && items.length" class="footer">
-        <button
-          v-if="hasMore || loading"
-          class="btn-ghost load-more"
-          hover-class="none"
-          :disabled="loading"
-          @click="load(false)"
-        >
-          {{ loading ? '加载中…' : `加载更多（${items.length} / ${total}）` }}
-        </button>
-        <text v-else class="footer-note">已全部加载，共 {{ total }} 张</text>
+      <view v-if="loaded && total" class="pager-wrap">
+        <list-pager
+          :page="page"
+          :size="PAGE_SIZE"
+          :total="total"
+          :loading="loading"
+          unit="张"
+          @change="goStocktakesPage"
+        />
+        <view v-if="error && items.length" class="inline-error">
+          <text class="block-text">{{ error }}</text>
+          <text class="inline-retry" @click="loadStocktakes">重试</text>
+        </view>
       </view>
 
       <text v-if="dictWarning" class="dict-warning">{{ dictWarning }}</text>
@@ -377,7 +385,7 @@ onReachBottom(() => {
 
 .chip.active {
   background: var(--c-brand);
-  color: #ffffff;
+  color: var(--c-on-brand);
   font-weight: 600;
 }
 
@@ -595,21 +603,8 @@ onReachBottom(() => {
   margin: 24rpx auto 0;
 }
 
-.footer {
+.pager-wrap {
   margin-top: 20rpx;
-}
-
-.load-more {
-  width: 100%;
-  height: 80rpx;
-  font-size: 26rpx;
-}
-
-.footer-note {
-  display: block;
-  text-align: center;
-  font-size: 22rpx;
-  color: var(--c-text-4);
 }
 
 .dict-warning {

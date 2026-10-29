@@ -25,6 +25,16 @@
       // ★ icons 未配置：HBuilderX 云打包会用它的默认图标出 APK —— **能出包，但图标不是我们的**。
       //   准备一张 ≥1024×1024 的方形主图放 src/uni-app-icons/source/master.png，然后：
       //   node scripts/make-icons.mjs --write-manifest
+      "icons": {
+        "android": {
+          "ldpi": "src/uni-app-icons/android/ldpi.png",
+          "mdpi": "src/uni-app-icons/android/mdpi.png",
+          "hdpi": "src/uni-app-icons/android/hdpi.png",
+          "xhdpi": "src/uni-app-icons/android/xhdpi.png",
+          "xxhdpi": "src/uni-app-icons/android/xxhdpi.png",
+          "xxxhdpi": "src/uni-app-icons/android/xxxhdpi.png"
+        }
+      },
       "android": {
         // ★ 包名是**按应用名（云裳）取的占位值，不是终态**：上架/装机后改不了（同包名互相覆盖，
         //   签名与升级链路和包名绑死）。确定实际主体后替换成 com.<实际主体>.erp：
@@ -43,7 +53,7 @@
     }
   },
   "mp-weixin": {
-    "appid": "touristappid",
+    "appid": "wxea41f80cdf0f0971",
     // 深色跟随系统：页面内的颜色由 App.vue 的 CSS 变量管，
     // 原生导航栏/标签栏/下拉背景这些"框架自己画的"只能交给 theme.json（见 src/theme.json）。
     "darkmode": true,

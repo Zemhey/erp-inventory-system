@@ -9,7 +9,9 @@ import {
 } from '@/api/client'
 import { IS_H5 } from '@/config'
 import { useDictionary } from '@/composables/useDictionary'
+import { useTheme } from '@/composables/useTheme'
 import { hasPermission } from '@/stores/session'
+import { BRAND_CONFIRM } from '@/utils/dialog'
 import { errorMessage } from '@/utils/error'
 import { formatDate, signedQty } from '@/utils/format'
 import { openInventoryLedger } from '@/utils/navigation'
@@ -26,6 +28,8 @@ import { safe } from '@/utils/safe'
  * 条码只做 SKU 定位；批次必须能唯一定位库存行：
  * 同一 SKU 只有一条余额时自动带出批次；多条时必须手填，避免把两批库存合并盘点。
  */
+
+const { themeClass } = useTheme()
 
 const canWrite = computed(() => hasPermission('inv:write'))
 const canRead = computed(() => hasPermission('inv:read'))
@@ -363,7 +367,7 @@ function confirmPost(): void {
     content:
       `将按差异生成调整流水，本次差异合计 ${diffText(resultDiff.value)} 件。` +
       '过账后不可撤销，确定过账吗？',
-    confirmColor: '#1f3a63',
+    confirmColor: BRAND_CONFIRM,
     success: (modal) => {
       if (modal.confirm) void doPost()
     },
@@ -442,7 +446,7 @@ onPullDownRefresh(() => {
 </script>
 
 <template>
-  <view class="page scan-stocktake" :data-warehouse-id="warehouseId">
+  <view class="page scan-stocktake" :class="themeClass" :data-warehouse-id="warehouseId">
     <view v-if="!canWrite" class="card notice">
       <text class="notice-title">当前账号没有盘点建单权限</text>
       <text class="notice-text">本页依赖 inv:write；只能查看盘点单请回列表页。</text>
@@ -854,7 +858,7 @@ onPullDownRefresh(() => {
 
 .manual-note-text {
   font-size: 23rpx;
-  color: #8a5a1b;
+  color: var(--c-warn);
   line-height: 1.5;
 }
 
@@ -869,7 +873,7 @@ onPullDownRefresh(() => {
 .feedback {
   margin-top: 16rpx;
   padding: 16rpx 22rpx;
-  background: #eef5f0;
+  background: var(--c-ok-wash);
   border-radius: 12rpx;
   font-size: 23rpx;
   color: var(--c-success);
@@ -906,7 +910,7 @@ onPullDownRefresh(() => {
 }
 
 .line-focused {
-  border-color: #2c4066;
+  border-color: var(--c-brand);
   background: var(--c-info-wash);
 }
 
@@ -947,7 +951,7 @@ onPullDownRefresh(() => {
   align-items: center;
   margin-top: 14rpx;
   padding-top: 14rpx;
-  border-top: 1rpx dashed #e6eaf1;
+  border-top: 1rpx dashed var(--c-line);
 }
 
 .counted-label {

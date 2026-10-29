@@ -3,7 +3,9 @@ import { computed, ref } from 'vue'
 import { onLoad, onPullDownRefresh, onShow } from '@dcloudio/uni-app'
 import { quoteApi, type SalesQuote } from '@/api/client'
 import { useDictionary } from '@/composables/useDictionary'
+import { useTheme } from '@/composables/useTheme'
 import { hasPermission } from '@/stores/session'
+import { BRAND_CONFIRM, DANGER_CONFIRM } from '@/utils/dialog'
 import { isDocumentStatus, statusMeta, type DocumentStatus } from '@/utils/documentStatus'
 import { errorMessage } from '@/utils/error'
 import { formatDate } from '@/utils/format'
@@ -45,6 +47,8 @@ const ACTION_META: Record<QuoteAction, { label: string; confirm: string; danger:
     danger: false,
   },
 }
+
+const { themeClass } = useTheme()
 
 const quoteId = ref(0)
 const quote = ref<SalesQuote | null>(null)
@@ -148,7 +152,7 @@ function runAction(action: QuoteAction): void {
   uni.showModal({
     title: ACTION_META[action].label,
     content: ACTION_META[action].confirm,
-    confirmColor: ACTION_META[action].danger ? '#b4462f' : '#1f3a63',
+    confirmColor: ACTION_META[action].danger ? DANGER_CONFIRM : BRAND_CONFIRM,
     success: (modal) => {
       if (modal.confirm) void doAction(action)
     },
@@ -232,7 +236,7 @@ onPullDownRefresh(() => {
 </script>
 
 <template>
-  <view class="page detail">
+  <view class="page detail" :class="themeClass">
     <view v-if="loading && !loaded" class="card loading-block">正在读取报价单…</view>
 
     <view v-else-if="error && !quote" class="card error-block">
@@ -646,7 +650,7 @@ onPullDownRefresh(() => {
   padding: 0 16rpx;
   border-radius: 12rpx;
   background: var(--c-brand);
-  color: #ffffff;
+  color: var(--c-on-brand);
   font-size: 25rpx;
   font-weight: 600;
 }

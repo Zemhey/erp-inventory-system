@@ -4,7 +4,9 @@ import { onLoad, onPullDownRefresh, onShow } from '@dcloudio/uni-app'
 import { shipmentApi, type Shipment, type ShipmentLine } from '@/api/client'
 import { IS_H5 } from '@/config'
 import { useDictionary } from '@/composables/useDictionary'
+import { useTheme } from '@/composables/useTheme'
 import { hasPermission } from '@/stores/session'
+import { DANGER_CONFIRM } from '@/utils/dialog'
 import { errorMessage } from '@/utils/error'
 import { shipmentStatusMeta } from '@/utils/shipmentStatus'
 import { ensureLoggedIn } from '@/utils/routeGuard'
@@ -23,6 +25,8 @@ import { safe } from '@/utils/safe'
  * 数量默认给「本行还需扫」，可改：多扫会被后端按超扫拒掉（SAL_SHIPMENT_OVER_PICK），
  * 消息原样显示，移动端不自作主张截断数量。
  */
+
+const { themeClass } = useTheme()
 
 const shipmentId = ref(0)
 const shipment = ref<Shipment | null>(null)
@@ -180,7 +184,7 @@ function confirmShip(): void {
   uni.showModal({
     title: '确认发货',
     content: '将按拣货行真实出库并登记应收，不可撤销。确定发货吗？',
-    confirmColor: '#b4462f',
+    confirmColor: DANGER_CONFIRM,
     success: (modal) => {
       if (modal.confirm) void doConfirm()
     },
@@ -265,7 +269,7 @@ onPullDownRefresh(() => {
 </script>
 
 <template>
-  <view class="page detail">
+  <view class="page detail" :class="themeClass">
     <view v-if="loading && !loaded" class="card loading-block">正在读取发货单…</view>
 
     <view v-else-if="error && !shipment" class="card error-block">
@@ -531,7 +535,7 @@ onPullDownRefresh(() => {
   flex: 1;
   height: 12rpx;
   border-radius: 999rpx;
-  background: #eaedf3;
+  background: var(--c-fill-strong);
   overflow: hidden;
 }
 
@@ -613,7 +617,7 @@ onPullDownRefresh(() => {
 
 .manual-note-text {
   font-size: 23rpx;
-  color: #8a5a1b;
+  color: var(--c-warn);
   line-height: 1.5;
 }
 
@@ -677,7 +681,7 @@ onPullDownRefresh(() => {
 .feedback {
   margin-top: 16rpx;
   padding: 16rpx 22rpx;
-  background: #eef5f0;
+  background: var(--c-ok-wash);
   border-radius: 12rpx;
   font-size: 23rpx;
   color: var(--c-success);
@@ -714,7 +718,7 @@ onPullDownRefresh(() => {
 }
 
 .line-focused {
-  border-color: #2c4066;
+  border-color: var(--c-brand);
   background: var(--c-info-wash);
 }
 

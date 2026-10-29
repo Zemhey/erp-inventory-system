@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { onPullDownRefresh, onReachBottom, onShow } from '@dcloudio/uni-app'
+import { computed, ref, watch } from 'vue'
+import { onPullDownRefresh, onShow } from '@dcloudio/uni-app'
 import { mdmApi, type Product, type Sku } from '@/api/client'
 import { useDictionary } from '@/composables/useDictionary'
+import { useTheme } from '@/composables/useTheme'
 import { hasPermission } from '@/stores/session'
 import { errorMessage } from '@/utils/error'
 import { formatFen } from '@/utils/money'
+import { hideNativeTabBar } from '@/utils/navigation'
 import { ensureLoggedIn } from '@/utils/routeGuard'
 import { safe } from '@/utils/safe'
 
@@ -13,8 +15,10 @@ import { safe } from '@/utils/safe'
  * 商品 / SKU 只读。
  *
  * 移动端用于仓库现场查款号、条码、零售价；不做商品或 SKU 的增改、停用、矩阵生成。
- * 商品搜索走后端 keyword；SKU 搜索在后端没有 keyword 参数，这里对已加载的
- * 前 200 条做本地过滤，并把"只覆盖前 200 条"如实提示，不假装是全量搜索。
+ * 商品搜索走后端 keyword，并按后端分页一页 20 个翻页看；
+ * SKU 搜索在后端没有 keyword 参数，这里对已加载的
+ * 前 200 条做本地过滤，并把"只覆盖前 200 条"如实提示，不假装是全量搜索 ——
+ * 所以 SKU 那一侧的翻页是在这批已加载数据里翻，不是让后端换一页。
  */
 
 const PAGE_SIZE = 20
@@ -22,74 +26,78 @@ const SKU_LIMIT = 200
 
 type TabKey = 'product' | 'sku'
 
+const { themeClass } = useTheme()
+
 const tab = ref<TabKey>('product')
 const allowed = computed(() => hasPermission('mdm:read'))
 const { loadDictionary, productText, warning: dictWarning } = useDictionary()
 
-// ─────────────────────────── 商品 ───────────────────────────
+// ─────────────────────────── 商品（服务端分页 · 一页 20 个） ───────────────────────────
 
 const productKeyword = ref('')
 const products = ref<Product[]>([])
 const productTotal = ref(0)
-const productPage = ref(0)
+const productPage = ref(1)
 const productLoaded = ref(false)
 const productLoading = ref(false)
 const productError = ref('')
 
-const productHasMore = computed(() => productPage.value * PAGE_SIZE < productTotal.value)
+let productQueued = false
+/** 上一次真正加载成功的页码：请求失败时把翻页条退回到这里，不停在没数据的页上。 */
+let productGoodPage = 1
 
-let productQueuedReset = false
-
-async function loadProducts(reset = true): Promise<void> {
+async function loadProducts(): Promise<void> {
   if (!allowed.value) return
   if (productLoading.value) {
-    if (reset) productQueuedReset = true
+    // 关键字在请求飞行中被再次修改：记住"还欠一次"，本次结束后补跑
+    productQueued = true
     return
   }
-  if (!reset && !productHasMore.value) return
 
   productLoading.value = true
-  if (reset) {
-    productError.value = ''
-    productLoaded.value = false
-  }
+  productError.value = ''
 
-  const nextPage = reset ? 1 : productPage.value + 1
   const result = await safe(
     mdmApi.listProducts({
       keyword: productKeyword.value.trim() || undefined,
-      page: nextPage,
+      page: productPage.value,
       size: PAGE_SIZE,
     }),
   )
 
   if (result.ok) {
-    products.value = reset
-      ? result.value.items
-      : [...products.value, ...result.value.items.filter(
-          (incoming) => !products.value.some((existing) => existing.id === incoming.id),
-        )]
+    products.value = result.value.items
     productTotal.value = result.value.total
+    // 以后端回的值为准：关键字变了以后，请求的那一页可能已经不存在
     productPage.value = result.value.page
+    productGoodPage = result.value.page
   } else {
-    if (reset) {
-      products.value = []
-      productTotal.value = 0
-      productPage.value = 0
-    }
+    products.value = []
+    productPage.value = productGoodPage
     productError.value = errorMessage(result.error)
   }
 
   productLoaded.value = true
   productLoading.value = false
 
-  if (productQueuedReset) {
-    productQueuedReset = false
-    void loadProducts(true)
+  if (productQueued) {
+    productQueued = false
+    void loadProducts()
   }
 }
 
-// ─────────────────────────── SKU ───────────────────────────
+function goProductPage(next: number): void {
+  productPage.value = next
+  void loadProducts()
+}
+
+/** 换关键字/换标签一律回到第 1 页：停在第 7 页再搜，多半只会看到空列表。 */
+function reloadProducts(): void {
+  productPage.value = 1
+  void loadProducts()
+}
+
+// ─────────────────────────── SKU（后端无关键字参数：本地过滤 + 本地翻页） ───────────────────────────
 
 const skuKeyword = ref('')
 const skus = ref<Sku[]>([])
@@ -97,6 +105,7 @@ const skuTotal = ref(0)
 const skuLoaded = ref(false)
 const skuLoading = ref(false)
 const skuError = ref('')
+const skuPage = ref(1)
 
 const skuTruncated = computed(() => skuTotal.value > skus.value.length)
 
@@ -117,6 +126,22 @@ const filteredSkus = computed(() => {
   })
 })
 
+/** 过滤结果变少时把页码夹回最后一页，避免翻页条停在空页上。 */
+const skuPageCount = computed(() =>
+  Math.max(1, Math.ceil(filteredSkus.value.length / PAGE_SIZE)),
+)
+const skuCurrentPage = computed(() => Math.min(Math.max(1, skuPage.value), skuPageCount.value))
+
+const pagedSkus = computed(() => {
+  const start = (skuCurrentPage.value - 1) * PAGE_SIZE
+  return filteredSkus.value.slice(start, start + PAGE_SIZE)
+})
+
+// 关键字是即时过滤：一变就回第 1 页，否则停在第 3 页搜一个冷门条码只会看到空列表
+watch(skuKeyword, () => {
+  skuPage.value = 1
+})
+
 async function loadSkus(): Promise<void> {
   if (!allowed.value || skuLoading.value) return
   skuLoading.value = true
@@ -134,26 +159,36 @@ async function loadSkus(): Promise<void> {
   skuLoading.value = false
 }
 
+function goSkuPage(next: number): void {
+  skuPage.value = next
+}
+
+/** SKU 这批是一次取回的，翻页只动本地页码；换标签只需把页码归 1。 */
+function reloadSkus(): void {
+  skuPage.value = 1
+  if (!skuLoaded.value) void loadSkus()
+}
+
 // ─────────────────────────── 交互 ───────────────────────────
 
 function selectTab(next: TabKey): void {
   if (tab.value === next) return
   tab.value = next
-  if (next === 'sku' && !skuLoaded.value) {
-    loadSkus()
-  }
-  if (next === 'product' && !productLoaded.value) {
-    loadProducts(true)
+  // 切标签回到第 1 页：两个标签的总数与页数不同，沿用旧页码多半落在空页上
+  if (next === 'sku') {
+    reloadSkus()
+  } else {
+    reloadProducts()
   }
 }
 
 function searchProducts(): void {
-  loadProducts(true)
+  reloadProducts()
 }
 
 function resetProducts(): void {
   productKeyword.value = ''
-  loadProducts(true)
+  reloadProducts()
 }
 
 function clearSkuKeyword(): void {
@@ -174,12 +209,17 @@ function skuTitle(sku: Sku): string {
 
 onShow(() => {
   if (!ensureLoggedIn()) return
+  // 底栏自己画（原生那条最多 5 项、高度也改不了），每次显示都要重新藏一次
+  hideNativeTabBar()
+
   if (!allowed.value) return
   loadDictionary()
+  // 停在原来那一页刷新：从详情页退回来不该被弹回第 1 页
+  // （SKU 那一侧的页码是本地页，重新取回这批后由 skuCurrentPage 夹回有效页）
   if (tab.value === 'sku') {
-    loadSkus()
+    void loadSkus()
   } else {
-    loadProducts(true)
+    void loadProducts()
   }
 })
 
@@ -187,23 +227,18 @@ onPullDownRefresh(() => {
   void (async () => {
     await loadDictionary(true)
     if (tab.value === 'sku') {
+      // 下拉刷新这一批 SKU；翻页请走下面的翻页条
       await loadSkus()
     } else {
-      await loadProducts(true)
+      await loadProducts()
     }
     uni.stopPullDownRefresh()
   })()
 })
-
-onReachBottom(() => {
-  if (tab.value === 'product' && !productLoading.value && productHasMore.value) {
-    loadProducts(false)
-  }
-})
 </script>
 
 <template>
-  <view class="page products">
+  <view class="page products page--tabbar" :class="themeClass">
     <view v-if="!allowed" class="card notice">
       <text class="notice-title">当前账号没有主数据读权限</text>
       <text class="notice-text">
@@ -242,7 +277,7 @@ onReachBottom(() => {
 
         <view v-if="productLoaded" class="summary row-between">
           <text class="summary-text">共 {{ productTotal }} 个商品</text>
-          <text class="summary-text">已加载 {{ products.length }} 个</text>
+          <text class="summary-text">本页 {{ products.length }} 个</text>
         </view>
 
         <view v-if="productLoading && !productLoaded" class="card loading-block">
@@ -251,7 +286,7 @@ onReachBottom(() => {
 
         <view v-else-if="productError && !products.length" class="card error-block">
           <text class="block-text">{{ productError }}</text>
-          <button class="btn-ghost block-btn" hover-class="none" @click="loadProducts(true)">重试</button>
+          <button class="btn-ghost block-btn" hover-class="none" @click="loadProducts">重试</button>
         </view>
 
         <view v-else-if="!products.length" class="card empty-block">
@@ -280,28 +315,18 @@ onReachBottom(() => {
           </view>
         </view>
 
-        <view v-if="productLoaded" class="list-footer">
-          <!-- 加载更多在请求飞行中保持同一节点，只改文案 + 禁用：v-if 换节点会让重复点击打空 -->
-          <button
-            v-if="productHasMore || productLoading"
-            class="btn-ghost load-more"
-            hover-class="none"
-            :disabled="productLoading"
-            @click="loadProducts(false)"
-          >
-            {{
-              productLoading
-                ? '加载中…'
-                : `加载更多（${products.length} / ${productTotal}）`
-            }}
-          </button>
-          <text v-else-if="products.length" class="footer-note">
-            已全部加载，共 {{ productTotal }} 个
-          </text>
-
+        <view v-if="productLoaded && productTotal" class="pager-wrap">
+          <list-pager
+            :page="productPage"
+            :size="PAGE_SIZE"
+            :total="productTotal"
+            :loading="productLoading"
+            unit="个"
+            @change="goProductPage"
+          />
           <view v-if="productError && products.length" class="inline-error">
             <text class="block-text">{{ productError }}</text>
-            <text class="inline-retry" @click="loadProducts(false)">重试</text>
+            <text class="inline-retry" @click="loadProducts">重试</text>
           </view>
         </view>
       </template>
@@ -327,7 +352,7 @@ onReachBottom(() => {
           <text class="summary-text">
             {{ skuKeyword.trim() ? `匹配 ${filteredSkus.length} 条` : `共 ${skuTotal} 个 SKU` }}
           </text>
-          <text class="summary-text">已加载 {{ skus.length }} 个</text>
+          <text class="summary-text">本页 {{ pagedSkus.length }} 个</text>
         </view>
 
         <view v-if="skuLoading && !skuLoaded" class="card loading-block">正在读取 SKU…</view>
@@ -346,7 +371,7 @@ onReachBottom(() => {
         </view>
 
         <view v-else class="list">
-          <view v-for="sku in filteredSkus" :key="sku.id" class="card item-card" @click="openSku(sku)">
+          <view v-for="sku in pagedSkus" :key="sku.id" class="card item-card" @click="openSku(sku)">
             <view class="row-between item-head">
               <text class="item-title">{{ skuTitle(sku) }}</text>
               <text class="price">{{ formatFen(sku.retailPriceAmount) }}</text>
@@ -360,13 +385,27 @@ onReachBottom(() => {
           </view>
         </view>
 
+        <view v-if="skuLoaded && filteredSkus.length" class="pager-wrap">
+          <list-pager
+            :page="skuCurrentPage"
+            :size="PAGE_SIZE"
+            :total="filteredSkus.length"
+            :loading="skuLoading"
+            unit="个"
+            @change="goSkuPage"
+          />
+        </view>
+
         <view v-if="skuLoaded && skuTruncated" class="truncate-note">
-          SKU 共 {{ skuTotal }} 条，当前只加载前 {{ skus.length }} 条；未覆盖的 SKU 请用 Web 端查询。
+          SKU 共 {{ skuTotal }} 条，当前只加载前 {{ skus.length }} 条并在这一批里翻页；
+          未覆盖的 SKU 请用 Web 端查询。
         </view>
       </template>
 
       <text v-if="dictWarning" class="dict-warning">{{ dictWarning }}</text>
     </template>
+
+    <app-tab-bar active="products" />
   </view>
 </template>
 
@@ -412,7 +451,7 @@ onReachBottom(() => {
   background: var(--c-surface);
   color: var(--c-brand-text);
   font-weight: 600;
-  box-shadow: 0 4rpx 14rpx rgba(31, 58, 99, 0.12);
+  box-shadow: 0 4rpx 14rpx var(--c-shadow);
 }
 
 .filter-card {
@@ -529,21 +568,8 @@ onReachBottom(() => {
   color: var(--c-brand-text);
 }
 
-.list-footer {
+.pager-wrap {
   margin-top: 20rpx;
-}
-
-.load-more {
-  width: 100%;
-  height: 80rpx;
-  font-size: 26rpx;
-}
-
-.footer-note {
-  display: block;
-  text-align: center;
-  font-size: 22rpx;
-  color: var(--c-text-4);
 }
 
 .truncate-note {

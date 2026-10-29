@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { onLaunch } from '@dcloudio/uni-app'
 import { installRouteGuard } from '@/utils/routeGuard'
+import { theme } from '@/stores/theme'
 
 onLaunch(() => {
   installRouteGuard()
+  theme.watchSystemTheme()
+  theme.applyChrome()
 })
 </script>
 
@@ -11,75 +14,229 @@ onLaunch(() => {
 /* ══════════════════════════════════════════════════════════════════════════
    主题变量
    --------------------------------------------------------------------------
-   整套移动端只认这一组语义色，页面里不再出现硬编码色值（23 个页面共 737 处已迁完）。
+   整套移动端只认下面这一组语义色，页面里不再出现硬编码色值。
 
-   ★ 为什么用 page 选择器而不是 :root：
-     微信小程序没有 :root，WXSS 的根选择器就是 page；H5 端两者都要兜（弹层挂在 page 之外）。
-   ★ 为什么深色跟随系统而不是应用内开关：
-     移动端没有"钻进设置里找主题"的习惯，跟随系统是最不容易出错的做法 ——
-     系统切深色后用户不用再回应用里点一次。Web 端有开关是因为它要跨平台演示，
-     两端策略不同是有意的。
-   ★ 深色不是把浅色反过来：底用 #0f1116 的冷墨（与移动端原有的冷灰系一致），
-     卡片抬一档到 #1b1e25，文字用 #e9edf4 不用纯白（纯白在深底上会"发光"）。
+   ★ 配色照搬 Web 端：--lt-* / --dk-* 两套原料逐条取自
+     frontend/web/src/styles/theme.css（浅色 :root）与 theme-dark.css（深色 html.dark）
+     —— 暖白底 #f6f2ea、瓷白卡片 #fffdfa、墨黑字 #23201c、黛青主色 #2e5d63。
+     深色不是把浅色反过来，是同一块布料换个光照。两端同一套视觉语言是刻意的。
+
+   ★ 为什么分三层：
+     1) 默认值那一层：H5 挂 :root、小程序挂 page —— **两者不能写成一条 `page,:root`**。
+        WXSS 不认识 :root，而选择器列表里只要有一个无效选择器，整条规则就会被丢弃，
+        结果所有 --c-* 全部无值、小程序整页白屏（2026-10-29 在微信开发者工具实测到）。
+        H5 只需 :root：uni-app 会把 page 编译成 uni-page-body，它是 html 的后代，
+        变量自然继承下来，同时挂在 :root 上还能兜住弹在 page 之外的浮层。
+     2) .t-light / .t-dark 由 stores/theme.ts 解析出的档位挂到每个页的根 view 上，
+        class 特异度高于 page，所以"系统是深色、用户手动选浅色"也压得住；
+     3) @media 那一层只服务 JS 挂上 class 之前的首屏，避免深色系统下先白一下。
+   ★ 原生层（导航栏 / 标签栏 / 页面底色）不吃 CSS 变量，由 theme.applyChrome()
+     运行时调 setNavigationBarColor / setTabBarStyle / setBackgroundColor 同步。
    ══════════════════════════════════════════════════════════════════════════ */
-page,
+/* #ifdef H5 */
 :root {
-  --c-page: #f4f5f7;
-  --c-surface: #ffffff;
-  --c-fill: #f8f9fb;
-  --c-fill-strong: #eef1f6;
-  --c-text: #1c2230;
-  --c-text-2: #6e7585;
-  --c-text-3: #8a90a2;
-  --c-text-4: #a2a8b6;
-  --c-line: #f0f2f6;
-  --c-line-strong: #d7dce6;
-  --c-brand: #1f3a63;
-  --c-brand-text: #1f3a63;
-  --c-brand-wash: #eef4fb;
-  --c-danger: #9c3a26;
-  --c-danger-line: #f3d3ca;
-  --c-danger-wash: #fdf1ee;
-  --c-ok-wash: #e9f5ef;
-  --c-warn-wash: #fbf1e3;
-  --c-info-text: #2c4f8a;
-  --c-info-wash: #e8eefb;
-  --c-purple-text: #5b4a91;
-  --c-purple-wash: #f0ecfb;
-  --c-success: #2f7d5b;
-  --c-warn: #b4702f;
-  --c-shadow: rgba(20, 28, 45, 0.06);
+/* #endif */
+/* #ifndef H5 */
+page {
+/* #endif */
+  /* ── 原料 · 浅色：与 Web 端 --ys-* 同名同值 ───────────────────────────── */
+  --lt-page: #f6f2ea; /* 暖白 · 页面底 */
+  --lt-surface: #fffdfa; /* 瓷白 · 卡片 */
+  --lt-fill: #fbf8f2; /* warm-50 */
+  --lt-fill-strong: #f3ede2; /* warm-100 */
+  --lt-text: #23201c; /* 墨黑 · 主文字 */
+  --lt-text-2: #4a443c;
+  --lt-text-3: #6a6255;
+  --lt-text-4: #857b6b;
+  --lt-line: #e8e0d4;
+  --lt-line-strong: #d8ccb9;
+  --lt-brand: #2e5d63; /* 黛青 · 主色 */
+  --lt-brand-deep: #24494e;
+  --lt-brand-wash: #e8efee;
+  --lt-on-brand: #fdfbf6; /* 压在品牌色底上的字：暖白，不用纯白 */
+  --lt-danger: #a25f6b; /* 胭脂 · 退货 / 异常 / 下架 */
+  --lt-danger-line: #e9d5d9;
+  --lt-danger-wash: #f7edee;
+  --lt-ok-wash: #edf1e9; /* 苔绿 wash */
+  --lt-warn-wash: #f8efe6; /* 陶土 wash */
+  --lt-info-text: #7c93a6; /* 雾蓝 · 辅助 */
+  --lt-info-wash: #edf1f4;
+  --lt-accent-text: #3c7078; /* 黛青 soft：状态位第六色，只做语义 */
+  --lt-accent-wash: #e6eff0;
+  --lt-success: #5c7357; /* 苔绿 · 已完成 / 正常 */
+  --lt-warn: #a96436; /* 陶土 · 库存预警 / 待补货 */
+  --lt-shadow: rgba(58, 44, 28, 0.08);
+
+  /* ── 原料 · 深色：与 Web 端 html.dark 同名同值 ─────────────────────────── */
+  --dk-page: #14120f; /* 暖墨，不用冷灰 #0d1117 */
+  --dk-surface: #1d1a16;
+  --dk-fill: #232019;
+  --dk-fill-strong: #2b2620;
+  --dk-text: #efe8db; /* 暖白，纯白在深底上会"发光" */
+  --dk-text-2: #d5cbba;
+  --dk-text-3: #a99e8c;
+  --dk-text-4: #8a7f6e;
+  --dk-line: #332d26;
+  --dk-line-strong: #4a4238;
+  /* 品牌色分两个：--c-brand 给"底"（白字压在上面），--c-brand-text 给"字"（深底上要亮） */
+  --dk-brand: #24494e; /* 深底上按钮仍要压得住白字，所以取 deep 那一档 */
+  --dk-brand-text: #5aa4ab; /* 黛青提亮：深底上才认得出是青 */
+  --dk-brand-wash: rgba(90, 164, 171, 0.16);
+  --dk-brand-deep: #16302f;
+  --dk-on-brand: #efe8db;
+  --dk-danger: #cf8a94;
+  --dk-danger-line: rgba(207, 138, 148, 0.3);
+  --dk-danger-wash: rgba(207, 138, 148, 0.15);
+  --dk-ok-wash: rgba(138, 171, 128, 0.15);
+  --dk-warn-wash: rgba(201, 147, 100, 0.15);
+  --dk-info-text: #93abc0;
+  --dk-info-wash: rgba(147, 171, 192, 0.13);
+  --dk-accent-text: #7fb8bd;
+  --dk-accent-wash: rgba(127, 184, 189, 0.15);
+  --dk-success: #8aab80;
+  --dk-warn: #c99364;
+  --dk-shadow: rgba(0, 0, 0, 0.45);
+
+  /* ── 语义层：默认走浅色 ───────────────────────────────────────────────── */
+  --c-page: var(--lt-page);
+  --c-surface: var(--lt-surface);
+  --c-fill: var(--lt-fill);
+  --c-fill-strong: var(--lt-fill-strong);
+  --c-text: var(--lt-text);
+  --c-text-2: var(--lt-text-2);
+  --c-text-3: var(--lt-text-3);
+  --c-text-4: var(--lt-text-4);
+  --c-line: var(--lt-line);
+  --c-line-strong: var(--lt-line-strong);
+  --c-brand: var(--lt-brand);
+  --c-brand-text: var(--lt-brand);
+  --c-brand-wash: var(--lt-brand-wash);
+  --c-brand-deep: var(--lt-brand-deep);
+  --c-on-brand: var(--lt-on-brand);
+  --c-danger: var(--lt-danger);
+  --c-danger-line: var(--lt-danger-line);
+  --c-danger-wash: var(--lt-danger-wash);
+  --c-ok-wash: var(--lt-ok-wash);
+  --c-warn-wash: var(--lt-warn-wash);
+  --c-info-text: var(--lt-info-text);
+  --c-info-wash: var(--lt-info-wash);
+  --c-accent-text: var(--lt-accent-text);
+  --c-accent-wash: var(--lt-accent-wash);
+  --c-success: var(--lt-success);
+  --c-warn: var(--lt-warn);
+  --c-shadow: var(--lt-shadow);
+
+  /*
+    品牌色面板（工作台头部、登录页）上的字阶层。
+    这三条故意只定义一份、不进 .t-light / .t-dark：它们是"暖白 + 透明度"，
+    压在浅色的黛青 #2e5d63 还是深色的 #24494e 上都读得清，不需要分档。
+  */
+  --c-on-brand-2: rgba(253, 251, 246, 0.72);
+  --c-on-brand-3: rgba(253, 251, 246, 0.55);
+  --c-on-brand-line: rgba(253, 251, 246, 0.16);
+
+  /* 弹层遮罩：取墨黑的半透明，深色档下页面本来就暗，同一值两边都压得住 */
+  --c-scrim: rgba(20, 18, 15, 0.5);
 }
 
+/* 手动档 / 跟随系统解析出来的档：由 useTheme() 绑在页面根 view 上 */
+.t-light {
+  --c-page: var(--lt-page);
+  --c-surface: var(--lt-surface);
+  --c-fill: var(--lt-fill);
+  --c-fill-strong: var(--lt-fill-strong);
+  --c-text: var(--lt-text);
+  --c-text-2: var(--lt-text-2);
+  --c-text-3: var(--lt-text-3);
+  --c-text-4: var(--lt-text-4);
+  --c-line: var(--lt-line);
+  --c-line-strong: var(--lt-line-strong);
+  --c-brand: var(--lt-brand);
+  --c-brand-text: var(--lt-brand);
+  --c-brand-wash: var(--lt-brand-wash);
+  --c-brand-deep: var(--lt-brand-deep);
+  --c-on-brand: var(--lt-on-brand);
+  --c-danger: var(--lt-danger);
+  --c-danger-line: var(--lt-danger-line);
+  --c-danger-wash: var(--lt-danger-wash);
+  --c-ok-wash: var(--lt-ok-wash);
+  --c-warn-wash: var(--lt-warn-wash);
+  --c-info-text: var(--lt-info-text);
+  --c-info-wash: var(--lt-info-wash);
+  --c-accent-text: var(--lt-accent-text);
+  --c-accent-wash: var(--lt-accent-wash);
+  --c-success: var(--lt-success);
+  --c-warn: var(--lt-warn);
+  --c-shadow: var(--lt-shadow);
+}
+
+.t-dark {
+  --c-page: var(--dk-page);
+  --c-surface: var(--dk-surface);
+  --c-fill: var(--dk-fill);
+  --c-fill-strong: var(--dk-fill-strong);
+  --c-text: var(--dk-text);
+  --c-text-2: var(--dk-text-2);
+  --c-text-3: var(--dk-text-3);
+  --c-text-4: var(--dk-text-4);
+  --c-line: var(--dk-line);
+  --c-line-strong: var(--dk-line-strong);
+  --c-brand: var(--dk-brand);
+  --c-brand-text: var(--dk-brand-text);
+  --c-brand-wash: var(--dk-brand-wash);
+  --c-brand-deep: var(--dk-brand-deep);
+  --c-on-brand: var(--dk-on-brand);
+  --c-danger: var(--dk-danger);
+  --c-danger-line: var(--dk-danger-line);
+  --c-danger-wash: var(--dk-danger-wash);
+  --c-ok-wash: var(--dk-ok-wash);
+  --c-warn-wash: var(--dk-warn-wash);
+  --c-info-text: var(--dk-info-text);
+  --c-info-wash: var(--dk-info-wash);
+  --c-accent-text: var(--dk-accent-text);
+  --c-accent-wash: var(--dk-accent-wash);
+  --c-success: var(--dk-success);
+  --c-warn: var(--dk-warn);
+  --c-shadow: var(--dk-shadow);
+}
+
+/* 首屏兜底：JS 挂 class 之前，跟随系统的用户不该先看到一屏浅色
+   ★ 这里的 :root / page 也必须分开写，原因同文件顶部那条 —— 混在一条选择器列表里，
+     小程序会把整条规则丢掉。 */
 @media (prefers-color-scheme: dark) {
-  page,
+  /* #ifdef H5 */
   :root {
-    --c-page: #0f1116;
-    --c-surface: #1b1e25;
-    --c-fill: #22262e;
-    --c-fill-strong: #2a2f38;
-    --c-text: #e9edf4;
-    --c-text-2: #b3bac7;
-    --c-text-3: #949bab;
-    --c-text-4: #767d8b;
-    --c-line: #2a2f38;
-    --c-line-strong: #3a414d;
-    /* 品牌色分两个：--c-brand 给"底"（白字压在上面），--c-brand-text 给"字"（深底上要亮） */
-    --c-brand: #2f4d78;
-    --c-brand-text: #9ec0ea;
-    --c-brand-wash: #16233a;
-    --c-danger: #e8826a;
-    --c-danger-line: #4a2c25;
-    --c-danger-wash: #2a1c19;
-    --c-ok-wash: #16281f;
-    --c-warn-wash: #2b2114;
-    --c-info-text: #8fb6e8;
-    --c-info-wash: #16233a;
-    --c-purple-text: #b6a4e0;
-    --c-purple-wash: #211d33;
-    --c-success: #5fbf93;
-    --c-warn: #dda45a;
-    --c-shadow: rgba(0, 0, 0, 0.5);
+  /* #endif */
+  /* #ifndef H5 */
+  page {
+  /* #endif */
+    --c-page: var(--dk-page);
+    --c-surface: var(--dk-surface);
+    --c-fill: var(--dk-fill);
+    --c-fill-strong: var(--dk-fill-strong);
+    --c-text: var(--dk-text);
+    --c-text-2: var(--dk-text-2);
+    --c-text-3: var(--dk-text-3);
+    --c-text-4: var(--dk-text-4);
+    --c-line: var(--dk-line);
+    --c-line-strong: var(--dk-line-strong);
+    --c-brand: var(--dk-brand);
+    --c-brand-text: var(--dk-brand-text);
+    --c-brand-wash: var(--dk-brand-wash);
+    --c-brand-deep: var(--dk-brand-deep);
+    --c-on-brand: var(--dk-on-brand);
+    --c-danger: var(--dk-danger);
+    --c-danger-line: var(--dk-danger-line);
+    --c-danger-wash: var(--dk-danger-wash);
+    --c-ok-wash: var(--dk-ok-wash);
+    --c-warn-wash: var(--dk-warn-wash);
+    --c-info-text: var(--dk-info-text);
+    --c-info-wash: var(--dk-info-wash);
+    --c-accent-text: var(--dk-accent-text);
+    --c-accent-wash: var(--dk-accent-wash);
+    --c-success: var(--dk-success);
+    --c-warn: var(--dk-warn);
+    --c-shadow: var(--dk-shadow);
   }
 }
 
@@ -102,6 +259,25 @@ scroll-view {
 
 .page {
   padding: 24rpx 32rpx calc(48rpx + env(safe-area-inset-bottom));
+}
+
+/* 挂了自定义底栏的页面要多让出一截，否则列表最后一张卡片被压在栏下面 */
+.page--tabbar {
+  padding-bottom: calc(148rpx + env(safe-area-inset-bottom));
+}
+
+/*
+  主题根节点自己把页面底画出来。
+  ★ 为什么不能只靠上面那条 page { background: var(--c-page) }：
+    CSS 变量是在"用到它的那个元素"上解析的，class 挂在页面的根 view 上，
+    管不到 page 元素自己 —— 结果是"系统浅色 + 手动深色"时卡片是黑的、
+    卡片下面那截底还是暖白。applyChrome() 里的 setBackgroundColor 只在
+    小程序/App 有效，H5 端就得靠这条。
+*/
+.t-light,
+.t-dark {
+  min-height: 100vh;
+  background: var(--c-page);
 }
 
 .card {
@@ -152,7 +328,7 @@ scroll-view {
   height: 92rpx;
   border-radius: 18rpx;
   background: var(--c-brand);
-  color: #ffffff;
+  color: var(--c-on-brand);
   font-size: 30rpx;
   font-weight: 600;
   border: none;

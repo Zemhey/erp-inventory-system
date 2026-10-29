@@ -182,12 +182,20 @@
         "enablePullDownRefresh": false,
         "backgroundTextStyle": "dark"
       }
+    },
+    {
+      "path": "pages/settings/settings",
+      "style": {
+        "navigationBarTitleText": "设置",
+        "enablePullDownRefresh": false,
+        "backgroundTextStyle": "dark"
+      }
     }
   ],
   "globalStyle": {
-    "navigationBarTextStyle": "white",
+    "navigationBarTextStyle": "@navTxtStyle",
     "navigationBarTitleText": "云裳进销存",
-    "navigationBarBackgroundColor": "#1b2233",
+    "navigationBarBackgroundColor": "@navBg",
     "backgroundColor": "@bgColor",
     "backgroundTextStyle": "@bgTxtStyle"
   },

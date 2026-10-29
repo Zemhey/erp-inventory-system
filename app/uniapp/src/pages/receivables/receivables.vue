@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { onPullDownRefresh, onReachBottom, onShow } from '@dcloudio/uni-app'
+import { onPullDownRefresh, onShow } from '@dcloudio/uni-app'
 import { receivableApi, type Receivable, type ReceivableSummary } from '@/api/client'
 import { useDictionary } from '@/composables/useDictionary'
+import { useTheme } from '@/composables/useTheme'
 import { hasPermission } from '@/stores/session'
 import { errorMessage } from '@/utils/error'
 import { formatDate } from '@/utils/format'
@@ -19,6 +20,8 @@ import { safe } from '@/utils/safe'
  *
  * ★ 列表是领域记录：有 version、**没有** overdue（overdue 只在详情里按当天判定），
  *   所以列表的逾期标记用 dueDate 与今天比，只作提示、不当结论。
+ *
+ * 分页：一页 20 笔、翻页看下一页。
  */
 
 const PAGE_SIZE = 20
@@ -31,6 +34,8 @@ const STATUS_OPTIONS = [
   { value: 'VOIDED', label: '已作废' },
 ]
 
+const { themeClass } = useTheme()
+
 const allowed = computed(() => hasPermission('sal:read'))
 const { loadDictionary, customers, customerText, warning: dictWarning } = useDictionary()
 
@@ -40,7 +45,7 @@ const overdueOnly = ref(false)
 
 const rows = ref<Receivable[]>([])
 const total = ref(0)
-const page = ref(0)
+const page = ref(1)
 const loaded = ref(false)
 const loading = ref(false)
 const error = ref('')
@@ -48,9 +53,9 @@ const error = ref('')
 const summary = ref<ReceivableSummary | null>(null)
 const summaryError = ref('')
 
-const hasMore = computed(() => page.value * PAGE_SIZE < total.value)
-
-let queuedReset = false
+let queued = false
+/** 上一次真正加载成功的页码：请求失败时把翻页条退回到这里，不停在没数据的页上。 */
+let goodPage = 1
 
 const customerOptions = computed(() => [
   { id: '', name: '全部客户' },
@@ -70,7 +75,7 @@ function onCustomerChange(event: unknown): void {
   const index = typeof raw === 'string' ? Number.parseInt(raw, 10) : Number(raw)
   const option = customerOptions.value[Number.isNaN(index) ? 0 : index]
   customerId.value = option ? option.id : ''
-  load(true)
+  reloadRows()
   void loadSummary()
 }
 
@@ -99,69 +104,68 @@ async function loadSummary(): Promise<void> {
   else summaryError.value = errorMessage(result.error)
 }
 
-async function load(reset = true): Promise<void> {
+async function loadRows(): Promise<void> {
   if (!allowed.value) return
   if (loading.value) {
-    if (reset) queuedReset = true
+    // 筛选在请求飞行中被再次修改：记住"还欠一次"，本次结束后补跑，避免界面与筛选不一致
+    queued = true
     return
   }
-  if (!reset && !hasMore.value) return
 
   loading.value = true
-  if (reset) {
-    error.value = ''
-    loaded.value = false
-  }
+  error.value = ''
 
-  const nextPage = reset ? 1 : page.value + 1
   const result = await safe(
     receivableApi.list({
       customerId: customerId.value ? Number(customerId.value) : undefined,
       status: statusFilter.value || undefined,
       overdue: overdueOnly.value ? true : undefined,
-      page: nextPage,
+      page: page.value,
       size: PAGE_SIZE,
     }),
   )
 
   if (result.ok) {
-    rows.value = reset
-      ? result.value.items
-      : [
-          ...rows.value,
-          ...result.value.items.filter(
-            (incoming) => !rows.value.some((existing) => existing.id === incoming.id),
-          ),
-        ]
+    rows.value = result.value.items
     total.value = result.value.total
+    // 以后端回的值为准：筛选条件变了以后，请求的那一页可能已经不存在
     page.value = result.value.page
+    goodPage = result.value.page
   } else {
-    if (reset) {
-      rows.value = []
-      total.value = 0
-      page.value = 0
-    }
+    rows.value = []
+    page.value = goodPage
     error.value = errorMessage(result.error)
   }
 
   loaded.value = true
   loading.value = false
 
-  if (queuedReset) {
-    queuedReset = false
-    void load(true)
+  if (queued) {
+    queued = false
+    void loadRows()
   }
+}
+
+function goRowsPage(next: number): void {
+  page.value = next
+  void loadRows()
+}
+
+/** 换筛选条件一律回到第 1 页：停在第 7 页换客户，多半只会看到空列表。 */
+function reloadRows(): void {
+  page.value = 1
+  void loadRows()
 }
 
 function selectStatus(value: string): void {
   if (statusFilter.value === value) return
   statusFilter.value = value
-  load(true)
+  reloadRows()
 }
 
 function toggleOverdue(): void {
   overdueOnly.value = !overdueOnly.value
-  load(true)
+  reloadRows()
 }
 
 function openDetail(row: Receivable): void {
@@ -174,7 +178,7 @@ function openDetail(row: Receivable): void {
  */
 function pickCustomer(id: number): void {
   customerId.value = String(id)
-  void load(true)
+  reloadRows()
   void loadSummary()
 }
 
@@ -182,26 +186,24 @@ onShow(() => {
   if (!ensureLoggedIn()) return
   if (!allowed.value) return
   loadDictionary()
-  load(true)
+  // 停在原来那一页刷新：从详情页退回来不该被弹回第 1 页
+  void loadRows()
   void loadSummary()
 })
 
 onPullDownRefresh(() => {
   void (async () => {
     await loadDictionary(true)
-    await load(true)
+    // 下拉是"刷新我正在看的这一页"，翻页请走下面的翻页条
+    await loadRows()
     await loadSummary()
     uni.stopPullDownRefresh()
   })()
 })
-
-onReachBottom(() => {
-  if (!loading.value && hasMore.value) load(false)
-})
 </script>
 
 <template>
-  <view class="page receivables">
+  <view class="page receivables" :class="themeClass">
     <view v-if="!allowed" class="card notice">
       <text class="notice-title">当前账号没有应收读权限</text>
       <text class="notice-text">
@@ -277,14 +279,14 @@ onReachBottom(() => {
 
       <view v-if="loaded" class="summary row-between">
         <text class="summary-text">应收 {{ total }} 笔</text>
-        <text class="summary-text">已加载 {{ rows.length }} 笔</text>
+        <text class="summary-text">本页 {{ rows.length }} 笔</text>
       </view>
 
       <view v-if="loading && !loaded" class="card loading-block">正在读取客户应收…</view>
 
       <view v-else-if="error && !rows.length" class="card error-block">
         <text class="block-text">{{ error }}</text>
-        <button class="btn-ghost block-btn" hover-class="none" @click="load(true)">重试</button>
+        <button class="btn-ghost block-btn" hover-class="none" @click="loadRows">重试</button>
       </view>
 
       <view v-else-if="!rows.length" class="card empty-block">
@@ -335,21 +337,18 @@ onReachBottom(() => {
         </view>
       </view>
 
-      <view v-if="loaded" class="list-footer">
-        <button
-          v-if="hasMore || loading"
-          class="btn-ghost load-more"
-          hover-class="none"
-          :disabled="loading"
-          @click="load(false)"
-        >
-          {{ loading ? '加载中…' : `加载更多（${rows.length} / ${total}）` }}
-        </button>
-        <text v-else-if="rows.length" class="footer-note">已全部加载，共 {{ total }} 笔</text>
-
+      <view v-if="loaded && total" class="pager-wrap">
+        <list-pager
+          :page="page"
+          :size="PAGE_SIZE"
+          :total="total"
+          :loading="loading"
+          unit="笔"
+          @change="goRowsPage"
+        />
         <view v-if="error && rows.length" class="inline-error">
           <text class="block-text">{{ error }}</text>
-          <text class="inline-retry" @click="load(false)">重试</text>
+          <text class="inline-retry" @click="loadRows">重试</text>
         </view>
       </view>
 
@@ -506,7 +505,7 @@ onReachBottom(() => {
 
 .chip.active {
   background: var(--c-brand);
-  color: #ffffff;
+  color: var(--c-on-brand);
   font-weight: 600;
 }
 
@@ -598,21 +597,8 @@ onReachBottom(() => {
   font-weight: 600;
 }
 
-.list-footer {
+.pager-wrap {
   margin-top: 20rpx;
-}
-
-.load-more {
-  width: 100%;
-  height: 80rpx;
-  font-size: 26rpx;
-}
-
-.footer-note {
-  display: block;
-  text-align: center;
-  font-size: 22rpx;
-  color: var(--c-text-4);
 }
 
 .block-text {

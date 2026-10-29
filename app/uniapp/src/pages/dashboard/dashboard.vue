@@ -3,12 +3,15 @@ import { computed, ref } from 'vue'
 import { onPullDownRefresh, onShow } from '@dcloudio/uni-app'
 import { invApi, skeletonApi, type DashboardSummary, type LedgerEntry } from '@/api/client'
 import { useDictionary } from '@/composables/useDictionary'
+import { useTheme } from '@/composables/useTheme'
 import { hasPermission, session } from '@/stores/session'
 import { errorMessage } from '@/utils/error'
 import { bizTypeLabel, formatDateTime, signedQty } from '@/utils/format'
-import { openInventory } from '@/utils/navigation'
+import { hideNativeTabBar, openInventory } from '@/utils/navigation'
 import { ensureLoggedIn } from '@/utils/routeGuard'
 import { safe } from '@/utils/safe'
+
+const { themeClass } = useTheme()
 
 const loading = ref(false)
 const loadedOnce = ref(false)
@@ -122,6 +125,8 @@ async function load(fromPull = false): Promise<void> {
 
 onShow(() => {
   if (!ensureLoggedIn()) return
+  // 底栏自己画（原生那条最多 5 项、高度也改不了），每次显示都要重新藏一次
+  hideNativeTabBar()
   load()
 })
 
@@ -140,14 +145,13 @@ function openPage(path: string): void {
 </script>
 
 <template>
-  <view class="page dashboard">
+  <view class="page dashboard page--tabbar" :class="themeClass">
     <view class="hero">
       <view class="row-between hero-top">
         <text class="hero-kicker">云裳 · 移动工作台</text>
         <view class="hero-actions">
           <text class="hero-action" @click="load()">刷新</text>
           <!-- 退出挪到「我的」页：退出是低频破坏性操作，不该摆在每屏都能点到的地方 -->
-          <text class="hero-action" @click="openPage('/pages/me/me')">我的</text>
         </view>
       </view>
 
@@ -356,6 +360,8 @@ function openPage(path: string): void {
 
       <text v-if="dictWarning" class="dict-warning">{{ dictWarning }}</text>
     </template>
+
+    <app-tab-bar active="dashboard" />
   </view>
 </template>
 
@@ -365,11 +371,11 @@ function openPage(path: string): void {
 }
 
 .hero {
-  background: linear-gradient(135deg, var(--c-brand) 0%, var(--c-brand) 100%);
+  background: linear-gradient(135deg, var(--c-brand) 0%, var(--c-brand-deep) 100%);
   border-radius: 30rpx;
   padding: 32rpx;
-  color: #ffffff;
-  box-shadow: 0 18rpx 46rpx rgba(21, 33, 56, 0.28);
+  color: var(--c-on-brand);
+  box-shadow: 0 18rpx 46rpx var(--c-shadow);
 }
 
 .hero-top {
@@ -379,17 +385,21 @@ function openPage(path: string): void {
 .hero-kicker {
   font-size: 22rpx;
   letter-spacing: 2rpx;
-  color: #b9c4d8;
+  color: var(--c-on-brand-2);
 }
 
 .hero-actions {
   display: flex;
-  gap: 26rpx;
+  gap: 20rpx;
 }
 
+/* 原来是金色 #d8b36a：旧配色留在这块面板上的最后一点痕迹，换成描边胶囊 */
 .hero-action {
+  padding: 6rpx 22rpx;
+  border: 1rpx solid var(--c-on-brand-line);
+  border-radius: 999rpx;
   font-size: 24rpx;
-  color: #d8b36a;
+  color: var(--c-on-brand);
 }
 
 .hero-greeting {
@@ -403,19 +413,19 @@ function openPage(path: string): void {
   display: block;
   margin-top: 10rpx;
   font-size: 23rpx;
-  color: #9fabc2;
+  color: var(--c-on-brand-2);
 }
 
 .hero-metric {
   margin-top: 40rpx;
   padding-top: 28rpx;
-  border-top: 1rpx solid rgba(255, 255, 255, 0.14);
+  border-top: 1rpx solid var(--c-on-brand-line);
 }
 
 .hero-metric-label {
   display: block;
   font-size: 23rpx;
-  color: #b9c4d8;
+  color: var(--c-on-brand-2);
   letter-spacing: 2rpx;
 }
 
@@ -429,20 +439,20 @@ function openPage(path: string): void {
   font-size: 76rpx;
   font-weight: 700;
   line-height: 1.1;
-  color: #ffffff;
+  color: var(--c-on-brand);
 }
 
 .hero-metric-unit {
   margin-left: 12rpx;
   font-size: 24rpx;
-  color: #b9c4d8;
+  color: var(--c-on-brand-2);
 }
 
 .hero-metric-hint {
   display: block;
   margin-top: 6rpx;
   font-size: 21rpx;
-  color: #8493ad;
+  color: var(--c-on-brand-3);
 }
 
 .notice {
@@ -471,7 +481,7 @@ function openPage(path: string): void {
   margin-top: 24rpx;
   padding: 20rpx 24rpx;
   background: var(--c-danger-wash);
-  border: 1rpx solid #f3d3ca;
+  border: 1rpx solid var(--c-danger-line);
   border-radius: 16rpx;
 }
 
@@ -706,7 +716,7 @@ function openPage(path: string): void {
   top: 50%;
   transform: translateY(-50%);
   font-size: 44rpx;
-  color: #b6bcc8;
+  color: var(--c-text-4);
 }
 
 .dict-warning {

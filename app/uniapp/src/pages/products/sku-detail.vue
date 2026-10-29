@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { onLoad, onPullDownRefresh, onShow } from '@dcloudio/uni-app'
 import { mdmApi, type Product, type Sku } from '@/api/client'
+import { useTheme } from '@/composables/useTheme'
 import { hasPermission } from '@/stores/session'
 import { errorMessage } from '@/utils/error'
 import { formatFen } from '@/utils/money'
@@ -12,6 +13,8 @@ import { safe } from '@/utils/safe'
  * SKU 详情（只读）：条码、颜色/尺码、零售价与所属商品。
  * 商品名称读不到时退回 productId，不把"字典缺失"伪造成"没有商品"。
  */
+
+const { themeClass } = useTheme()
 
 const allowed = computed(() => hasPermission('mdm:read'))
 
@@ -85,7 +88,7 @@ onPullDownRefresh(() => {
 </script>
 
 <template>
-  <view class="page detail">
+  <view class="page detail" :class="themeClass">
     <view v-if="!allowed" class="card notice">
       <text class="notice-title">当前账号没有主数据读权限</text>
       <text class="notice-text">本页依赖 mdm:read；请联系管理员分配权限。</text>

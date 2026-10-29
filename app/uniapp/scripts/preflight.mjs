@@ -94,7 +94,7 @@ function main () {
   // ───────────── 后端基址：非 H5 端没有代理，构建时必须注入绝对地址 ─────────────
   const envInfo = resolveViteEnv()
   for (const platform of targets) {
-    checkApiBase(platform, envInfo, add)
+    checkApiBase(platform, envInfo, add, allowHttp)
     if (platform === 'mp-weixin') checkMpWeixin(manifest, add)
     if (platform === 'app') checkApp(manifest, add)
     if (platform === 'h5') checkH5(manifest, add)

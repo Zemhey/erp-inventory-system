@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { onPullDownRefresh, onReachBottom, onShow } from '@dcloudio/uni-app'
+import { onPullDownRefresh, onShow } from '@dcloudio/uni-app'
 import { quoteApi, type SalesQuote } from '@/api/client'
 import { useDictionary } from '@/composables/useDictionary'
+import { useTheme } from '@/composables/useTheme'
 import { hasPermission } from '@/stores/session'
 import { DOCUMENT_STATUSES, statusMeta } from '@/utils/documentStatus'
 import { errorMessage } from '@/utils/error'
@@ -16,9 +17,13 @@ import { safe } from '@/utils/safe'
  *
  * 状态筛选取值仍来自单据七态镜像：报价单用的就是 DocumentStatus，
  * 移动端不另发明一套状态词。建单留在 Web —— 多行 + SKU 选择 + 折扣是桌面表单。
+ *
+ * 分页：一页 20 张、翻页看下一页。
  */
 
 const PAGE_SIZE = 20
+
+const { themeClass } = useTheme()
 
 const allowed = computed(() => hasPermission('sal:read'))
 const { loadDictionary, customerText, warning: dictWarning } = useDictionary()
@@ -31,71 +36,70 @@ const statusFilters = [
 
 const quotes = ref<SalesQuote[]>([])
 const total = ref(0)
-const page = ref(0)
+const page = ref(1)
 const loaded = ref(false)
 const loading = ref(false)
 const error = ref('')
 
-const hasMore = computed(() => page.value * PAGE_SIZE < total.value)
+let queued = false
+/** 上一次真正加载成功的页码：请求失败时把翻页条退回到这里，不停在没数据的页上。 */
+let goodPage = 1
 
-let queuedReset = false
-
-async function load(reset = true): Promise<void> {
+async function loadQuotes(): Promise<void> {
   if (!allowed.value) return
   if (loading.value) {
-    if (reset) queuedReset = true
+    // 筛选在请求飞行中被再次修改：记住"还欠一次"，本次结束后补跑，避免界面与筛选不一致
+    queued = true
     return
   }
-  if (!reset && !hasMore.value) return
 
   loading.value = true
-  if (reset) {
-    error.value = ''
-    loaded.value = false
-  }
+  error.value = ''
 
-  const nextPage = reset ? 1 : page.value + 1
   const result = await safe(
     quoteApi.list({
       status: statusFilter.value || undefined,
-      page: nextPage,
+      page: page.value,
       size: PAGE_SIZE,
     }),
   )
 
   if (result.ok) {
-    quotes.value = reset
-      ? result.value.items
-      : [
-          ...quotes.value,
-          ...result.value.items.filter(
-            (incoming) => !quotes.value.some((existing) => existing.id === incoming.id),
-          ),
-        ]
+    quotes.value = result.value.items
     total.value = result.value.total
+    // 以后端回的值为准：筛选条件变了以后，请求的那一页可能已经不存在
     page.value = result.value.page
+    goodPage = result.value.page
   } else {
-    if (reset) {
-      quotes.value = []
-      total.value = 0
-      page.value = 0
-    }
+    quotes.value = []
+    page.value = goodPage
     error.value = errorMessage(result.error)
   }
 
   loaded.value = true
   loading.value = false
 
-  if (queuedReset) {
-    queuedReset = false
-    void load(true)
+  if (queued) {
+    queued = false
+    void loadQuotes()
   }
+}
+
+function goQuotesPage(next: number): void {
+  page.value = next
+  void loadQuotes()
+}
+
+/** 换筛选条件一律回到第 1 页：停在第 7 页换状态，多半只会看到空列表。 */
+function reloadQuotes(): void {
+  page.value = 1
+  void loadQuotes()
 }
 
 function selectStatus(value: string): void {
   if (statusFilter.value === value) return
   statusFilter.value = value
-  load(true)
+  reloadQuotes()
 }
 
 function openDetail(quote: SalesQuote): void {
@@ -122,24 +126,22 @@ onShow(() => {
   if (!ensureLoggedIn()) return
   if (!allowed.value) return
   loadDictionary()
-  load(true)
+  // 停在原来那一页刷新：从详情页退回来不该被弹回第 1 页
+  void loadQuotes()
 })
 
 onPullDownRefresh(() => {
   void (async () => {
     await loadDictionary(true)
-    await load(true)
+    // 下拉是"刷新我正在看的这一页"，翻页请走下面的翻页条
+    await loadQuotes()
     uni.stopPullDownRefresh()
   })()
-})
-
-onReachBottom(() => {
-  if (!loading.value && hasMore.value) load(false)
 })
 </script>
 
 <template>
-  <view class="page quotes">
+  <view class="page quotes" :class="themeClass">
     <view v-if="!allowed" class="card notice">
       <text class="notice-title">当前账号没有报价单读权限</text>
       <text class="notice-text">
@@ -164,14 +166,14 @@ onReachBottom(() => {
         <text class="summary-text">
           {{ statusFilter ? statusMeta(statusFilter).label : '全部' }}报价单 {{ total }} 张
         </text>
-        <text class="summary-text">已加载 {{ quotes.length }} 张</text>
+        <text class="summary-text">本页 {{ quotes.length }} 张</text>
       </view>
 
       <view v-if="loading && !loaded" class="card loading-block">正在读取报价单…</view>
 
       <view v-else-if="error && !quotes.length" class="card error-block">
         <text class="block-text">{{ error }}</text>
-        <button class="btn-ghost block-btn" hover-class="none" @click="load(true)">重试</button>
+        <button class="btn-ghost block-btn" hover-class="none" @click="loadQuotes">重试</button>
       </view>
 
       <view v-else-if="!quotes.length" class="card empty-block">
@@ -216,22 +218,18 @@ onReachBottom(() => {
         </view>
       </view>
 
-      <view v-if="loaded" class="list-footer">
-        <!-- 加载更多在请求飞行中保持同一节点，只改文案 + 禁用：v-if 换节点会让重复点击打空 -->
-        <button
-          v-if="hasMore || loading"
-          class="btn-ghost load-more"
-          hover-class="none"
-          :disabled="loading"
-          @click="load(false)"
-        >
-          {{ loading ? '加载中…' : `加载更多（${quotes.length} / ${total}）` }}
-        </button>
-        <text v-else-if="quotes.length" class="footer-note">已全部加载，共 {{ total }} 张</text>
-
+      <view v-if="loaded && total" class="pager-wrap">
+        <list-pager
+          :page="page"
+          :size="PAGE_SIZE"
+          :total="total"
+          :loading="loading"
+          unit="张"
+          @change="goQuotesPage"
+        />
         <view v-if="error && quotes.length" class="inline-error">
           <text class="block-text">{{ error }}</text>
-          <text class="inline-retry" @click="load(false)">重试</text>
+          <text class="inline-retry" @click="loadQuotes">重试</text>
         </view>
       </view>
 
@@ -277,7 +275,7 @@ onReachBottom(() => {
 
 .chip.active {
   background: var(--c-brand);
-  color: #ffffff;
+  color: var(--c-on-brand);
   font-weight: 600;
 }
 
@@ -384,21 +382,8 @@ onReachBottom(() => {
   color: var(--c-brand-text);
 }
 
-.list-footer {
+.pager-wrap {
   margin-top: 20rpx;
-}
-
-.load-more {
-  width: 100%;
-  height: 80rpx;
-  font-size: 26rpx;
-}
-
-.footer-note {
-  display: block;
-  text-align: center;
-  font-size: 22rpx;
-  color: var(--c-text-4);
 }
 
 .block-text {

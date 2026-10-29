@@ -71,8 +71,8 @@ app/uniapp/                      （原 frontend/miniapp，2026-10-26 迁入）
 │   ├── 01-login … 06-page-states.spec.ts
 │   └── helpers/               # api / db / seed / paths / shot
 └── src/
-    ├── main.ts / App.vue      # createSSRApp；启动时装配路由守卫 + 全局样式
-    ├── pages.json             # 页面注册 + 5 个文字 tabBar + 下拉刷新
+    ├── main.ts / App.vue      # createSSRApp；启动时装配路由守卫 + 主题监听 + 全局语义色
+    ├── pages.json             # 页面注册 + 原生 tabBar 声明（5 项，运行时藏掉，见 §7.2）+ 下拉刷新
     ├── manifest.json          # JSONC：appid / 包名 / 权限 / 版本 —— 出包三道门都在这（带注释说明占位值）
     ├── uni-app-icons/         # 应用图标：source/master.png（主图，待提供）+ 产出的各尺寸
     ├── config.ts              # API base、H5 判断、非 H5 相对地址的就绪校验
@@ -135,7 +135,7 @@ npm run dev:h5
 
 ```powershell
 # 1) 用后端同一个 BCryptPasswordEncoder(10) 生成哈希（脚本只读，不改仓库）
-$hash = & 'D:\MajorCacheFolder\Company system\自选\scripts\bcrypt-hash.ps1' -Password 'Admin@12345'
+$hash = & 'D:\MajorCacheFolder\Company system\erp-inventory-system\scripts\bcrypt-hash.ps1' -Password 'Admin@12345'
 
 # 2) 把 INSERT 语句写到 seed.sql（把 $hash 替换为实际值；display_name 用中文）
 #    INSERT INTO app_users (username,password_hash,display_name,enabled)
@@ -281,7 +281,8 @@ preflight 查不了、只能在**微信平台侧**做的（本地永远查不出
 - 《用户隐私保护指引》里申报扫码相关能力：3 个页面用 `uni.scanCode`（发货拣货 / 扫码收货 / 库存盘点），
   未申报时线上会提示接口未授权；
 - 小程序本身也要备案（2023 起微信平台要求）；
-- tabBar 目前是纯文字（无图标），如需图标补 81×81 PNG 后放 `src/static/` 并改 `pages.json`。
+- 底栏是自绘的（原生 tabBar 上限 5 项、高度字号改不了），见 §7.2；
+  `pages.json` 里那 5 项声明只是 `switchTab` 的前提，运行时被 `hideNativeTabBar()` 藏掉。
 
 ---
 
@@ -342,23 +343,68 @@ npm run build:app
 
 ---
 
-## 7.1 深色主题（跟随系统，2026-10-28）
+## 7.1 主题：三档（跟随系统 / 浅色 / 深色）+ 设置页（2026-10-28 改版）
 
-- **页面色全部走语义变量**：定义在 `src/App.vue` 的 `page, :root` 上（`--c-page / --c-surface /
-  --c-text / --c-line / --c-brand / --c-danger…`）。23 个页面共 **737 处**硬编码色值已迁完，
-  浅色值与迁移前逐字相同 —— 所以浅色外观零变化，深色只是换了一组变量值。
-- **深色不是把浅色反过来**：底用 `#0f1116` 冷墨，卡片抬一档 `#1b1e25`，文字 `#e9edf4`
-  （不用纯白，纯白在深底上会"发光"）。品牌色拆成两个变量：
-  `--c-brand` 给按钮底（上面压白字），`--c-brand-text` 给文字（深底上要够亮）。
-- **触发生效**：`@media (prefers-color-scheme: dark)`。移动端**不做应用内开关** ——
-  跟随系统是最不容易出错的做法（Web 端有开关是因为要跨平台演示，两端策略不同是有意的）。
-- **原生层 CSS 管不到**，分两处补：
-  - 小程序：`src/theme.json` + `manifest.json` 的 `mp-weixin.darkmode / themeLocation`，
-    导航栏、标签栏、下拉回弹背景由微信原生换色；`pages.json` 里用 `@bgColor` 这类变量引用。
-  - H5：标签栏是 uni-app 自己画的 DOM，读不到 theme.json，在 `App.vue` 里用 `uni-tabbar`
-    类名补了一层覆盖（只命中 H5，小程序端没有这些节点）。
-- **验收方式**：Playwright 用 `colorScheme: 'dark' | 'light'` 各跑工作台 / 我的 / 待办中心，
-  浅色与迁移前一致、深色无残留白块；H5 与 mp-weixin 均构建通过。
+- **配色照搬 Web 端，不再自成一套**：`src/App.vue` 里的 `--lt-*` / `--dk-*` 两套原料，
+  逐条取自 `frontend/web/src/styles/theme.css`（浅色 `:root`）与 `theme-dark.css`
+  （深色 `html.dark`）的 `--ys-*` 令牌 —— 暖白底 `#f6f2ea`、瓷白卡片 `#fffdfa`、
+  墨黑字 `#23201c`、黛青主色 `#2e5d63`、胭脂 / 陶土 / 苔绿 / 雾蓝做状态色。
+  深色不是反色，是"同一块布料换个光照"：底 `#14120f` 保留褐调，主色提到 `#5aa4ab`。
+- **页面只认语义变量**：`--c-page / --c-surface / --c-text / --c-line / --c-brand /
+  --c-brand-text / --c-on-brand / --c-danger…`，页面里不出现硬编码色值。
+  品牌色拆三个：`--c-brand` 给按钮底（上面压 `--c-on-brand`），`--c-brand-text` 给文字
+  （深底上要够亮），`--c-brand-deep` 给渐变终点。
+- **三档而不是"只跟随系统"**：原先的判断是"移动端没钻进设置找主题的习惯"，实测站不住 ——
+  演示机是深色系统，评审想看浅色就得退到系统设置里切，故补应用内开关。
+  优先级：**用户显式选过 → 系统偏好 → 浅色**（`src/stores/theme.ts`）。
+- **class 挂在页面根 view 上**，不是 `page` 元素：小程序没有 `:root`，WXSS 里能挂 class 的
+  最近祖先就是页面自己的根 view。所以每页两行：`const { themeClass } = useTheme()` +
+  `:class="themeClass"`（`src/composables/useTheme.ts`）。`@media (prefers-color-scheme)`
+  那一层只留作 JS 挂上 class 之前的首屏兜底。
+- **原生层 CSS 管不到**，三处分别补：
+  - 运行时同步：`theme.applyChrome()` 调 `setNavigationBarColor` / `setTabBarStyle` /
+    `setBackgroundColor`。必须在**每页 onShow** 调 —— 导航栏颜色是页面级状态，切页会被重置。
+  - 静态兜底：`src/theme.json` + `manifest.json` 的 `mp-weixin.darkmode / themeLocation`，
+    `pages.json` 用 `@navBg` / `@bgColor` 这类变量引用（只跟随系统，手动档靠上面那条）。
+  - 原生弹窗与 `<switch>` 吃不了 CSS 变量，颜色常量集中在 `src/utils/dialog.ts`
+    （`BRAND_CONFIRM` / `DANGER_CONFIRM`，值须与 `--c-brand` / `--c-danger` 同步）。
+- **设置入口**：`pages/settings/settings`（三档分段控件 + 当前生效档 + 账号 + 运行环境与接口
+  基址），入口在「我的 → 偏好 → 设置」。
+- **验收方式**：Playwright `colorScheme` 各跑一遍，并实测"系统浅色 + 应用内手动深色"
+  —— 这一档最容易露馅：卡片跟了深色、卡片底下那截页面底还留在暖白
+  （CSS 变量在使用它的元素上解析，class 管不到 `page` 元素自己，故 `.t-light/.t-dark`
+  自带 `min-height:100vh` + `background`）。
+
+---
+
+## 7.2 底部导航栏：自绘，不用原生 tabBar
+
+- 微信原生 tabBar 两条硬限制：**最多 5 项**、**高度与字号改不了**。「把『我的』放进导航栏」
+  和「底栏做大一点」同时提，原生方案就做不到一起。
+- 做法：`pages.json` 的 `tabBar` 声明**保留**（它是 `switchTab` 的前提，决定标签页切回去
+  不重建、列表滚动位置和已加载数据都还在），进页面时 `hideNativeTabBar()` 把原生那条藏掉，
+  显示 `src/components/app-tab-bar/app-tab-bar.vue`（116rpx 高、选中项胶囊底、安全区留白）。
+- 6 项里前 5 项是原生标签页（`switchTab`），**「我的」是普通页**（`navigateTo`）：
+  原生 list 上限就是 5，多出来的那一项只能走普通页导航。
+- `hideNativeTabBar()` 必须在每页 `onShow` 调，不能只在组件 `mounted` 调一次 ——
+  原生标签栏是窗口级组件，`switchTab` 切回来时微信会把它重新显示出来。
+
+---
+
+## 7.3 列表：一页 20 条 + 翻页条，不再无限滚动
+
+- 原来 9 个列表页全是"滚到底接着加载"，移动端单列卡片一屏 4~5 张，滑 200 多条既累又找不到
+  位置；且列表在变（别人审核了新单）时"已加载 N / 共 M"会一直跳。
+- 现在统一走 `src/components/list-pager/list-pager.vue`：`共 N 行 · 第 X / Y 页` +
+  上一页 / 下一页，页码从 1 起算、与后端分页参数同口径。
+- 三条固定写法（样板 `pages/inventory/inventory.vue`）：
+  - 加载函数**整页替换**，不再 append；`onReachBottom` 全部删除。
+  - 换筛选条件、换标签一律回第 1 页；**下拉刷新只刷当前这一页**（从详情页退回来不该被弹回第 1 页）。
+  - 请求失败时页码回退到上一次成功的 `goodPage`，翻页条不停在没数据的页上。
+- 例外：`pages/approvals/approvals.vue` 的「待我审批」是批量拉取后按节点权限**本地筛**、
+  待收货 / 待发货 / 库存预警走 `/todos?type=`（只有 limit、后端不返 total）——
+  这三类没有可翻的页，保持原样，没有为凑翻页去造假分页。
+  `pages/products/products.vue` 的 SKU 一侧是本地过滤，做的是**本地切片翻页**。
 
 ---
 
@@ -378,7 +424,7 @@ npm run build:app
 | 请求头 | 登录 POST 携带 `X-Request-Id`；`/inventory` 携带 `Authorization: Bearer …` |
 | 未登录直达 | `#/pages/inventory/inventory` → 被守卫送回登录页 |
 
-截图与结构化结果：`D:\erp-m4-evidence\`（`01-login.png` … `07-guard-redirect.png`、`evidence.json`），
+截图与结构化结果：`D:\MajorCacheFolder\Company system\ERP\evidence\m4\`（`01-login.png` … `07-guard-redirect.png`、`evidence.json`），
 为**仓库外**的本机证据，不随代码入库。
 
 ### 8.5 M4 第二批实测证据（2026-10-23，泳道 8085 / 3005 / 15441）
@@ -422,7 +468,8 @@ npm run build:app
     `page.getByPlaceholder(...)` 一律找不到 → E2E 用 `.field input` / `.filter-input input` / `.search-input input` 定位。
 11. **「加载更多」按钮不能在用 `v-if` 换掉的节点上**（第二批实测）：请求飞行中把按钮换成
     "加载中…" 会让节点 detach，Playwright 的点击会反复重试并撞在重新挂载的节点上直到超时 →
-    保持同一节点，只切文案 + `:disabled`（`inventory/sales/purchase/products` 四处一致）。
+    保持同一节点，只切文案 + `:disabled`。**第三批已改成翻页条（§7.3），这条对
+    `list-pager` 的禁用态仍然适用**：翻页按钮只切 `is-off`，不用 `v-if` 换节点。
 12. **`uni.showModal` 在 H5 是 DOM 弹层**：不是原生 dialog，`page.on('dialog')` 收不到；
     确认按钮是 `.uni-modal__btn_primary`，可以直接点。
 13. **本包不是 ESM**：`package.json` 没有 `"type": "module"`（uni-app 构建按 CJS 解析），
@@ -435,6 +482,17 @@ npm run build:app
     `remaining` 恒为 `{}`，"前缀残留必须为 0"于是永远不会红 —— 测试全绿但库里一堆垃圾。
     现在既执行再解析，还要求 8 项计数**一项不缺**（缺项报错，而不是当作干净）；
     setup 清上一轮残留后同样校验归零，否则基线一开始就是脏的。
+16. **`uni.*` 是分端实现的，`fail` 回调兜不住"这个端没有这个 API"**（第三批实测）：
+    H5 上 `uni.setBackgroundColor` 压根不是函数，`applyChrome()` 一抛 TypeError，
+    排在它后面的 `setTabBarStyle` 就再也不执行 —— 症状是"导航栏跟主题、底栏不跟"这种
+    半拉子状态，比整块坏掉更难查。原生接口一律先 `typeof === 'function'` 再 try 包住
+    （`stores/theme.ts` 的 `callNative`、`utils/navigation.ts` 的 `hideNativeTabBar`）。
+17. **CSS 变量挂不到 `page` 元素上**（第三批）：class 只能挂在页面根 view 上，而
+    `page { background: var(--c-page) }` 是在 `page` 元素自己解析变量的 ——
+    于是"系统浅色 + 手动深色"时卡片跟了深色、卡片下面那截底还是暖白。
+    `.t-light / .t-dark` 必须自带 `min-height:100vh` + `background`，不能指望 `page`。
+18. **`vue-tsc` 不校验 SFC 模板结构**（第三批）：一个重复的 `</script>` 它照样 0 错误，
+    `vite build` 才报 `Invalid end tag`。所以**改完必须真构建**，类型检查过了不等于能出包。
 
 ---
 

@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 /**
  * 为移动端 E2E 启动后端（8085）。
  * 与 Web E2E 同一纪律：
- * - 构建必须走 ASCII 联接 D:\erp-build-m4b，且联接必须指向**当前 worktree**；
+ * - 若设置了 E2E_JUNCTION 联接，联接必须指向**当前 worktree**；仓库路径已是纯英文，可无联接直接构建；
  * - 用 bootJar + java -jar 而不是 bootRun，停止时能干净回收进程。
  */
 
@@ -41,7 +41,7 @@ if (owner !== null && owner !== mine) {
   process.exit(1)
 }
 if (owner === null) {
-  console.warn(`[e2e] 未发现 ASCII 联接 ${junctionRoot}，直接在仓库内构建（中文路径下 Gradle 可能报误导性错误）`)
+  console.warn(`[e2e] 未发现联接 ${junctionRoot}，直接在仓库内构建`)
 }
 
 const backendDir = owner === null

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { onPullDownRefresh, onReachBottom, onShow } from '@dcloudio/uni-app'
+import { onPullDownRefresh, onShow } from '@dcloudio/uni-app'
 import { approvalApi, iamApi, skeletonApi, type ApprovalInstance, type IamUser, type TodoItem, type TodoType } from '@/api/client'
+import { useTheme } from '@/composables/useTheme'
 import { hasPermission, session } from '@/stores/session'
 import { approvalStatusMeta, isPendingForMe } from '@/utils/approvalStatus'
 import { errorMessage } from '@/utils/error'
@@ -20,6 +21,10 @@ import { safe } from '@/utils/safe'
  *
  * ★ 状态色板用的是 approvalStatus.ts 的审批七态，不是单据七态：
  *   同一个 APPROVED 字符串在这里是「审批通过」，在单据侧是「已审核」，两套语义不能串色。
+ *
+ * ★ 分页：关掉「待我审批」按状态看全量时，一页 20 条翻页；
+ *   开着「待我审批」是一次取一批（MINE_BATCH）再本地筛，没有后端分页，
+ *   所以那一类不挂翻页条，只在超出批量时用文案说清楚。
  */
 
 const BIZ_TYPE_LABELS: Record<string, string> = {
@@ -40,6 +45,8 @@ const STATUS_OPTIONS = [
 const PAGE_SIZE = 20
 /** 「待我审批」是一次取一批再本地筛，超过就明说，不假装是全量 */
 const MINE_BATCH = 50
+
+const { themeClass } = useTheme()
 
 const allowed = computed(() => hasPermission('aps:read'))
 
@@ -76,12 +83,12 @@ async function loadTodos(): Promise<void> {
   todoLoading.value = false
 }
 
-/** 切 tab：待审批回到原逻辑，其余三类拉对应待办。 */
+/** 切 tab：待审批回到原逻辑（回第 1 页），其余三类拉对应待办。 */
 function selectTodoTab(value: TodoType): void {
   if (activeTab.value === value) return
   activeTab.value = value
   if (value === 'approval') {
-    void load(true)
+    reloadApprovalList()
   } else {
     void loadTodos()
   }
@@ -105,7 +112,7 @@ const statusFilter = ref('PENDING')
 
 const instances = ref<ApprovalInstance[]>([])
 const total = ref(0)
-const page = ref(0)
+const page = ref(1)
 const loaded = ref(false)
 const loading = ref(false)
 const error = ref('')
@@ -113,7 +120,10 @@ const capped = ref(false)
 
 const myUserId = ref<number | null>(null)
 
-const hasMore = computed(() => page.value * PAGE_SIZE < total.value)
+let queued = false
+/** 上一次真正加载成功的页码：请求失败时把翻页条退回到这里，不停在没数据的页上。 */
+let goodPage = 1
+
 const listAllowed = computed(() => allowed.value)
 
 function bizTypeLabel(bizType: string): string {
@@ -169,42 +179,27 @@ async function loadMine(): Promise<void> {
   loading.value = false
 }
 
-async function loadPage(reset = true): Promise<void> {
-  if (loading.value && reset) return
-  if (!reset && !hasMore.value) return
-
+async function loadPage(): Promise<void> {
   loading.value = true
-  if (reset) {
-    error.value = ''
-    loaded.value = false
-  }
+  error.value = ''
 
-  const nextPage = reset ? 1 : page.value + 1
   const result = await safe(
     approvalApi.list({
       status: statusFilter.value || undefined,
-      page: nextPage,
+      page: page.value,
       size: PAGE_SIZE,
     }),
   )
 
   if (result.ok) {
-    instances.value = reset
-      ? result.value.items
-      : [
-          ...instances.value,
-          ...result.value.items.filter(
-            (incoming) => !instances.value.some((existing) => existing.id === incoming.id),
-          ),
-        ]
+    instances.value = result.value.items
     total.value = result.value.total
+    // 以后端回的值为准：状态换了以后，请求的那一页可能已经不存在
     page.value = result.value.page
+    goodPage = result.value.page
   } else {
-    if (reset) {
-      instances.value = []
-      total.value = 0
-      page.value = 0
-    }
+    instances.value = []
+    page.value = goodPage
     error.value = errorMessage(result.error)
   }
 
@@ -212,14 +207,39 @@ async function loadPage(reset = true): Promise<void> {
   loading.value = false
 }
 
-async function load(reset = true): Promise<void> {
-  capped.value = false
-  if (mineOnly.value) {
-    if (!reset) return
-    await loadMine()
+/**
+ * 审批 tab 的入口：按当前模式取「我正在看的这一页」。
+ * 「待我审批」那一路是本地筛一批，没有后端分页，翻页条不挂在那一侧。
+ */
+async function loadApprovalList(): Promise<void> {
+  if (loading.value) {
+    // 筛选/开关在请求飞行中被再次修改：记住"还欠一次"，本次结束后补跑
+    queued = true
     return
   }
-  await loadPage(reset)
+
+  capped.value = false
+  if (mineOnly.value) {
+    await loadMine()
+  } else {
+    await loadPage()
+  }
+
+  if (queued) {
+    queued = false
+    void loadApprovalList()
+  }
+}
+
+function goApprovalPage(next: number): void {
+  page.value = next
+  void loadApprovalList()
+}
+
+/** 换筛选条件/换标签一律回到第 1 页：停在第 7 页换状态，多半只会看到空列表。 */
+function reloadApprovalList(): void {
+  page.value = 1
+  void loadApprovalList()
 }
 
 /** 自己的 user id：/auth/me 不返回 id，只能拿 iam:read 反查；查不到就交给后端判撤回。 */
@@ -234,13 +254,13 @@ async function resolveMyUserId(): Promise<void> {
 function selectStatus(value: string): void {
   if (statusFilter.value === value) return
   statusFilter.value = value
-  void load(true)
+  reloadApprovalList()
 }
 
 function toggleMine(): void {
   mineOnly.value = !mineOnly.value
   if (mineOnly.value) statusFilter.value = 'PENDING'
-  void load(true)
+  reloadApprovalList()
 }
 
 function openDetail(instance: ApprovalInstance): void {
@@ -263,8 +283,9 @@ onShow(() => {
   if (!ensureLoggedIn()) return
   if (!listAllowed.value) return
   void resolveMyUserId()
+  // 停在原来那一页刷新：从审批详情页退回来不该被弹回第 1 页
   if (activeTab.value === 'approval') {
-    void load(true)
+    void loadApprovalList()
   } else {
     void loadTodos()
   }
@@ -273,22 +294,18 @@ onShow(() => {
 onPullDownRefresh(() => {
   void (async () => {
     if (activeTab.value === 'approval') {
-      await load(true)
+      // 下拉是"刷新我正在看的这一页"，翻页请走下面的翻页条
+      await loadApprovalList()
     } else {
       await loadTodos()
     }
     uni.stopPullDownRefresh()
   })()
 })
-
-onReachBottom(() => {
-  if (mineOnly.value) return
-  if (!loading.value && hasMore.value) void load(false)
-})
 </script>
 
 <template>
-  <view class="page approvals">
+  <view class="page approvals" :class="themeClass">
     <view v-if="!listAllowed" class="card notice">
       <text class="notice-title">当前账号没有审批读权限</text>
       <text class="notice-text">
@@ -338,7 +355,11 @@ onReachBottom(() => {
 
       <view v-if="loaded" class="summary row-between">
         <text class="summary-text">
-          {{ mineOnly ? `待我处理 ${instances.length} 条` : `${statusFilter ? approvalStatusMeta(statusFilter).label : '全部'}审批 ${total} 条` }}
+          {{
+            mineOnly
+              ? `待我处理 ${instances.length} 条`
+              : `${statusFilter ? approvalStatusMeta(statusFilter).label : '全部'}审批 ${total} 条 · 本页 ${instances.length} 条`
+          }}
         </text>
         <text v-if="myUserId" class="summary-text">我的账号 #{{ myUserId }}</text>
         <text v-else class="summary-text">无 iam:read，撤回资格由后端判</text>
@@ -355,7 +376,7 @@ onReachBottom(() => {
 
       <view v-else-if="error && !instances.length" class="card error-block">
         <text class="block-text">{{ error }}</text>
-        <button class="btn-ghost block-btn" hover-class="none" @click="load(true)">重试</button>
+        <button class="btn-ghost block-btn" hover-class="none" @click="loadApprovalList">重试</button>
       </view>
 
       <view v-else-if="!instances.length" class="card empty-block">
@@ -400,21 +421,18 @@ onReachBottom(() => {
         </view>
       </view>
 
-      <view v-if="loaded && !mineOnly" class="list-footer">
-        <button
-          v-if="hasMore || loading"
-          class="btn-ghost load-more"
-          hover-class="none"
-          :disabled="loading"
-          @click="load(false)"
-        >
-          {{ loading ? '加载中…' : `加载更多（${instances.length} / ${total}）` }}
-        </button>
-        <text v-else-if="instances.length" class="footer-note">已全部加载，共 {{ total }} 条</text>
-
+      <view v-if="loaded && !mineOnly && total" class="pager-wrap">
+        <list-pager
+          :page="page"
+          :size="PAGE_SIZE"
+          :total="total"
+          :loading="loading"
+          unit="条"
+          @change="goApprovalPage"
+        />
         <view v-if="error && instances.length" class="inline-error">
           <text class="block-text">{{ error }}</text>
-          <text class="inline-retry" @click="load(false)">重试</text>
+          <text class="inline-retry" @click="loadApprovalList">重试</text>
         </view>
       </view>
       </template>
@@ -557,7 +575,7 @@ onReachBottom(() => {
 
 .chip.active {
   background: var(--c-brand);
-  color: #ffffff;
+  color: var(--c-on-brand);
   font-weight: 600;
 }
 
@@ -622,8 +640,8 @@ onReachBottom(() => {
 }
 
 .atone-handover {
-  background: var(--c-purple-wash);
-  color: var(--c-purple-text);
+  background: var(--c-accent-wash);
+  color: var(--c-accent-text);
 }
 
 .atone-pass {
@@ -699,7 +717,7 @@ onReachBottom(() => {
 .accept-flag {
   font-size: 22rpx;
   font-weight: 700;
-  color: var(--c-purple-text);
+  color: var(--c-accent-text);
 }
 
 .arrow {
@@ -707,21 +725,8 @@ onReachBottom(() => {
   color: var(--c-brand-text);
 }
 
-.list-footer {
+.pager-wrap {
   margin-top: 20rpx;
-}
-
-.load-more {
-  width: 100%;
-  height: 80rpx;
-  font-size: 26rpx;
-}
-
-.footer-note {
-  display: block;
-  text-align: center;
-  font-size: 22rpx;
-  color: var(--c-text-4);
 }
 
 .block-text {
@@ -773,7 +778,7 @@ onReachBottom(() => {
   background: var(--c-surface);
   color: var(--c-brand-text);
   font-weight: 600;
-  box-shadow: 0 4rpx 14rpx rgba(31, 58, 99, 0.12);
+  box-shadow: 0 4rpx 14rpx var(--c-shadow);
 }
 
 .todo-card {

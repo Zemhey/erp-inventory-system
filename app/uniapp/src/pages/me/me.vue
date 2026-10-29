@@ -2,7 +2,9 @@
 import { computed, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { authApi, type MeResult } from '@/api/client'
+import { useTheme } from '@/composables/useTheme'
 import { logout, session } from '@/stores/session'
+import { DANGER_CONFIRM } from '@/utils/dialog'
 import { errorMessage } from '@/utils/error'
 import { ensureLoggedIn } from '@/utils/routeGuard'
 
@@ -16,6 +18,8 @@ import { ensureLoggedIn } from '@/utils/routeGuard'
  * ★ 改密与退出放在这一页，工作台头部只保留"刷新"：退出是低频破坏性操作，
  *   放在每屏都能点到的地方，迟早会有人误触。
  */
+
+const { themeClass } = useTheme()
 
 const profile = ref<MeResult | null>(null)
 const loading = ref(false)
@@ -105,12 +109,15 @@ async function submitPassword(): Promise<void> {
   }
 }
 
-function confirmLogout(): void {
-  uni.showModal({
+function openSettings(): void {
+  uni.navigateTo({ url: '/pages/settings/settings' })
+}
+
+function confirmLogout(): void {  uni.showModal({
     title: '退出登录',
     content: '退出后需要重新输入账号密码。',
     confirmText: '退出',
-    confirmColor: '#c0392b',
+    confirmColor: DANGER_CONFIRM,
     success: (res) => {
       if (res.confirm) logout()
     },
@@ -124,7 +131,7 @@ onShow(() => {
 </script>
 
 <template>
-  <view class="page me">
+  <view class="page me page--tabbar" :class="themeClass">
     <!-- 身份卡 -->
     <view class="card identity">
       <view class="identity-row">
@@ -161,6 +168,15 @@ onShow(() => {
       <text v-if="employee?.remark" class="remark">{{ employee.remark }}</text>
     </view>
 
+    <!-- 偏好设置：主题这类"设一次不太动"的东西收在设置页，这里只留入口 -->
+    <view class="card section">
+      <text class="section-title">偏好</text>
+      <view class="action-row" @click="openSettings">
+        <text class="action-text">设置</text>
+        <text class="action-caret">主题、运行环境 ›</text>
+      </view>
+    </view>
+
     <!-- 账号与安全 -->
     <view class="card section">
       <text class="section-title">账号与安全</text>
@@ -188,6 +204,8 @@ onShow(() => {
     </view>
 
     <text class="footer">云裳进销存 · 移动端</text>
+
+    <app-tab-bar active="me" />
   </view>
 </template>
 
@@ -219,7 +237,7 @@ onShow(() => {
 .avatar-text {
   font-size: 42rpx;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--c-on-brand);
 }
 
 .identity-main {

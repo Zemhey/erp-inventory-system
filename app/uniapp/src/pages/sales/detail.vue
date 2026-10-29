@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { onLoad, onPullDownRefresh, onShow } from '@dcloudio/uni-app'
 import { salApi, shipmentApi, type SalesOrder } from '@/api/client'
 import { useDictionary } from '@/composables/useDictionary'
+import { useTheme } from '@/composables/useTheme'
 import { hasPermission } from '@/stores/session'
 import {
   ACTION_META,
@@ -23,6 +24,8 @@ import { safe } from '@/utils/safe'
  * 按钮显隐只由「后端状态镜像 + sal:ship 权限」决定，不看数量、余额或日期。
  * 真正能否出货由 POST /sales-orders/{id}/ship 校验，失败消息原样展示。
  */
+
+const { themeClass } = useTheme()
 
 const allowed = computed(() => hasPermission('sal:read'))
 const { loadDictionary, customerText, warehouseText, skuText, warning: dictWarning } =
@@ -197,7 +200,7 @@ onPullDownRefresh(() => {
 </script>
 
 <template>
-  <view class="page detail">
+  <view class="page detail" :class="themeClass">
     <view v-if="!allowed" class="card notice">
       <text class="notice-title">当前账号没有出货单读权限</text>
       <text class="notice-text">本页依赖 sal:read；请联系管理员分配权限。</text>
@@ -524,7 +527,7 @@ onPullDownRefresh(() => {
 .plan-btn {
   background: var(--c-surface);
   color: var(--c-brand-text);
-  border: 1rpx solid #c9d5e8;
+  border: 1rpx solid var(--c-line-strong);
 }
 
 .action-note {

@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { onPullDownRefresh, onReachBottom, onShow } from '@dcloudio/uni-app'
+import { onPullDownRefresh, onShow } from '@dcloudio/uni-app'
 import { shipmentApi, type Shipment } from '@/api/client'
 import { useDictionary } from '@/composables/useDictionary'
+import { useTheme } from '@/composables/useTheme'
 import { hasPermission } from '@/stores/session'
 import { errorMessage } from '@/utils/error'
 import { SHIPMENT_STATUSES, shipmentStatusMeta } from '@/utils/shipmentStatus'
@@ -15,9 +16,13 @@ import { safe } from '@/utils/safe'
  * 发货单是「拣货 + 出库」的作业单，状态是 ShipmentStatus 五态，
  * 与出货单的单据七态是两套（见 utils/shipmentStatus.ts 的对照表）。
  * 计划由出货单详情页生成，一张计划可能按仓拆成多张发货单 —— 这里按状态筛正在做的活。
+ *
+ * 分页：一页 20 张、翻页看下一页。
  */
 
 const PAGE_SIZE = 20
+
+const { themeClass } = useTheme()
 
 const allowed = computed(() => hasPermission('sal:read'))
 const { loadDictionary, warehouseText, warning: dictWarning } = useDictionary()
@@ -30,14 +35,14 @@ const statusFilters = [
 
 const shipments = ref<Shipment[]>([])
 const total = ref(0)
-const page = ref(0)
+const page = ref(1)
 const loaded = ref(false)
 const loading = ref(false)
 const error = ref('')
 
-const hasMore = computed(() => page.value * PAGE_SIZE < total.value)
-
-let queuedReset = false
+let queued = false
+/** 上一次真正加载成功的页码：请求失败时把翻页条退回到这里，不停在没数据的页上。 */
+let goodPage = 1
 
 function pickedQty(shipment: Shipment): number {
   return (shipment.lines ?? []).reduce((sum, line) => sum + line.pickedQty, 0)
@@ -47,62 +52,61 @@ function plannedQty(shipment: Shipment): number {
   return (shipment.lines ?? []).reduce((sum, line) => sum + line.plannedQty, 0)
 }
 
-async function load(reset = true): Promise<void> {
+async function loadShipments(): Promise<void> {
   if (!allowed.value) return
   if (loading.value) {
-    if (reset) queuedReset = true
+    // 筛选在请求飞行中被再次修改：记住"还欠一次"，本次结束后补跑，避免界面与筛选不一致
+    queued = true
     return
   }
-  if (!reset && !hasMore.value) return
 
   loading.value = true
-  if (reset) {
-    error.value = ''
-    loaded.value = false
-  }
+  error.value = ''
 
-  const nextPage = reset ? 1 : page.value + 1
   const result = await safe(
     shipmentApi.list({
       status: statusFilter.value || undefined,
-      page: nextPage,
+      page: page.value,
       size: PAGE_SIZE,
     }),
   )
 
   if (result.ok) {
-    shipments.value = reset
-      ? result.value.items
-      : [
-          ...shipments.value,
-          ...result.value.items.filter(
-            (incoming) => !shipments.value.some((existing) => existing.id === incoming.id),
-          ),
-        ]
+    shipments.value = result.value.items
     total.value = result.value.total
+    // 以后端回的值为准：筛选条件变了以后，请求的那一页可能已经不存在
     page.value = result.value.page
+    goodPage = result.value.page
   } else {
-    if (reset) {
-      shipments.value = []
-      total.value = 0
-      page.value = 0
-    }
+    shipments.value = []
+    page.value = goodPage
     error.value = errorMessage(result.error)
   }
 
   loaded.value = true
   loading.value = false
 
-  if (queuedReset) {
-    queuedReset = false
-    void load(true)
+  if (queued) {
+    queued = false
+    void loadShipments()
   }
+}
+
+function goShipmentsPage(next: number): void {
+  page.value = next
+  void loadShipments()
+}
+
+/** 换筛选条件一律回到第 1 页：停在第 7 页换状态，多半只会看到空列表。 */
+function reloadShipments(): void {
+  page.value = 1
+  void loadShipments()
 }
 
 function selectStatus(value: string): void {
   if (statusFilter.value === value) return
   statusFilter.value = value
-  load(true)
+  reloadShipments()
 }
 
 function openDetail(shipment: Shipment): void {
@@ -117,24 +121,22 @@ onShow(() => {
   if (!ensureLoggedIn()) return
   if (!allowed.value) return
   loadDictionary()
-  load(true)
+  // 停在原来那一页刷新：从扫码页退回来不该被弹回第 1 页
+  void loadShipments()
 })
 
 onPullDownRefresh(() => {
   void (async () => {
     await loadDictionary(true)
-    await load(true)
+    // 下拉是"刷新我正在看的这一页"，翻页请走下面的翻页条
+    await loadShipments()
     uni.stopPullDownRefresh()
   })()
-})
-
-onReachBottom(() => {
-  if (!loading.value && hasMore.value) load(false)
 })
 </script>
 
 <template>
-  <view class="page shipments">
+  <view class="page shipments" :class="themeClass">
     <view v-if="!allowed" class="card notice">
       <text class="notice-title">当前账号没有发货单读权限</text>
       <text class="notice-text">
@@ -159,14 +161,14 @@ onReachBottom(() => {
         <text class="summary-text">
           {{ statusFilter ? shipmentStatusMeta(statusFilter).label : '全部' }}发货单 {{ total }} 张
         </text>
-        <text class="summary-text">已加载 {{ shipments.length }} 张</text>
+        <text class="summary-text">本页 {{ shipments.length }} 张</text>
       </view>
 
       <view v-if="loading && !loaded" class="card loading-block">正在读取发货单…</view>
 
       <view v-else-if="error && !shipments.length" class="card error-block">
         <text class="block-text">{{ error }}</text>
-        <button class="btn-ghost block-btn" hover-class="none" @click="load(true)">重试</button>
+        <button class="btn-ghost block-btn" hover-class="none" @click="loadShipments">重试</button>
       </view>
 
       <view v-else-if="!shipments.length" class="card empty-block">
@@ -219,21 +221,18 @@ onReachBottom(() => {
         </view>
       </view>
 
-      <view v-if="loaded" class="list-footer">
-        <button
-          v-if="hasMore || loading"
-          class="btn-ghost load-more"
-          hover-class="none"
-          :disabled="loading"
-          @click="load(false)"
-        >
-          {{ loading ? '加载中…' : `加载更多（${shipments.length} / ${total}）` }}
-        </button>
-        <text v-else-if="shipments.length" class="footer-note">已全部加载，共 {{ total }} 张</text>
-
+      <view v-if="loaded && total" class="pager-wrap">
+        <list-pager
+          :page="page"
+          :size="PAGE_SIZE"
+          :total="total"
+          :loading="loading"
+          unit="张"
+          @change="goShipmentsPage"
+        />
         <view v-if="error && shipments.length" class="inline-error">
           <text class="block-text">{{ error }}</text>
-          <text class="inline-retry" @click="load(false)">重试</text>
+          <text class="inline-retry" @click="loadShipments">重试</text>
         </view>
       </view>
 
@@ -279,7 +278,7 @@ onReachBottom(() => {
 
 .chip.active {
   background: var(--c-brand);
-  color: #ffffff;
+  color: var(--c-on-brand);
   font-weight: 600;
 }
 
@@ -370,7 +369,7 @@ onReachBottom(() => {
   flex: 1;
   height: 10rpx;
   border-radius: 999rpx;
-  background: #eaedf3;
+  background: var(--c-fill-strong);
   overflow: hidden;
 }
 
@@ -407,21 +406,8 @@ onReachBottom(() => {
   color: var(--c-brand-text);
 }
 
-.list-footer {
+.pager-wrap {
   margin-top: 20rpx;
-}
-
-.load-more {
-  width: 100%;
-  height: 80rpx;
-  font-size: 26rpx;
-}
-
-.footer-note {
-  display: block;
-  text-align: center;
-  font-size: 22rpx;
-  color: var(--c-text-4);
 }
 
 .block-text {

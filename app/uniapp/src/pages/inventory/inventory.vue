@@ -1,17 +1,27 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { onPullDownRefresh, onReachBottom, onShow } from '@dcloudio/uni-app'
+import { onPullDownRefresh, onShow } from '@dcloudio/uni-app'
 import { invApi, type InventoryPageRow, type LedgerEntry } from '@/api/client'
 import { useDictionary } from '@/composables/useDictionary'
+import { useTheme } from '@/composables/useTheme'
 import { hasPermission } from '@/stores/session'
+import { BRAND_CONFIRM } from '@/utils/dialog'
 import { errorMessage } from '@/utils/error'
 import { bizTypeLabel, formatDate, formatDateTime, signedQty } from '@/utils/format'
 import { formatFen } from '@/utils/money'
-import { consumeInventoryBizRefNo, consumeInventoryTab, type InventoryTab } from '@/utils/navigation'
+import {
+  consumeInventoryBizRefNo,
+  consumeInventoryTab,
+  hideNativeTabBar,
+  type InventoryTab,
+} from '@/utils/navigation'
 import { ensureLoggedIn } from '@/utils/routeGuard'
 import { safe } from '@/utils/safe'
 
+/** 一页 20 条，翻页看后面的：移动端一屏也就 4~5 张卡片，无限滚动滑不到头。 */
 const PAGE_SIZE = 20
+
+const { themeClass } = useTheme()
 
 const tab = ref<InventoryTab>('balance')
 const allowed = computed(() => hasPermission('inv:read'))
@@ -51,11 +61,11 @@ function onOnlyAvailableChange(event: unknown): void {
   applyFilters()
 }
 
-// ─────────────────────────── 余额（服务端分页） ───────────────────────────
+// ─────────────────────────── 余额（服务端分页 · 一页 20 行） ───────────────────────────
 
 const pageItems = ref<InventoryPageRow[]>([])
 const balanceTotal = ref(0)
-const balancePage = ref(0)
+const balancePage = ref(1)
 const balanceLoading = ref(false)
 const balanceLoaded = ref(false)
 const balanceError = ref('')
@@ -73,20 +83,16 @@ const balanceFiltered = computed(
     keyword.value.trim() !== '',
 )
 
-/**
- * 是否还有下一页：分页接口给的是总条数，按"已加载数 < 总数"判断，
- * 不依赖 items.length 等于 size —— 末页不满时也别让用户一直"加载更多"。
- */
-const balanceHasMore = computed(() => pageItems.value.length < balanceTotal.value)
-
 let balanceQueued = false
+/** 上一次真正加载成功的页码：请求失败时把翻页条退回到这里，不停在没数据的页上。 */
+let balanceGoodPage = 1
 
-/** 本页可用合计：只看当前已加载这一页，不假装是全局可用（全量求和才准，但那正是要去掉的）。 */
+/** 本页可用合计：只看当前这一页，不假装是全局可用（全量求和才准，但那正是要去掉的）。 */
 const pageAvailable = computed(() =>
   pageItems.value.reduce((sum, row) => sum + row.availableQty, 0),
 )
 
-async function loadBalance(reset = true): Promise<void> {
+async function loadBalance(): Promise<void> {
   if (!allowed.value) return
   if (balanceLoading.value) {
     // 筛选在请求飞行中被再次修改：记住"还欠一次"，本次结束后补跑，避免界面与筛选不一致
@@ -95,32 +101,29 @@ async function loadBalance(reset = true): Promise<void> {
   }
 
   balanceLoading.value = true
-  if (reset) balanceError.value = ''
+  balanceError.value = ''
 
   // 页码交给后端：分页行直接带 skuName/warehouseName，不再依赖本地 200 条字典翻译
-  const nextPage = reset ? 1 : balancePage.value + 1
   const result = await safe(
     invApi.page({
       warehouseId: warehouseId.value,
       batchNo: batchNo.value.trim() || undefined,
       onlyAvailable: onlyAvailable.value,
       keyword: keyword.value.trim() || undefined,
-      page: nextPage,
+      page: balancePage.value,
       size: PAGE_SIZE,
     }),
   )
 
   if (result.ok) {
-    const incoming = result.value.items
-    pageItems.value = reset ? incoming : [...pageItems.value, ...incoming]
+    pageItems.value = result.value.items
     balanceTotal.value = result.value.total
+    // 以后端回的值为准：筛选条件变了以后，请求的那一页可能已经不存在
     balancePage.value = result.value.page
+    balanceGoodPage = result.value.page
   } else {
-    if (reset) {
-      pageItems.value = []
-      balanceTotal.value = 0
-      balancePage.value = 0
-    }
+    pageItems.value = []
+    balancePage.value = balanceGoodPage
     balanceError.value = errorMessage(result.error)
   }
 
@@ -129,66 +132,60 @@ async function loadBalance(reset = true): Promise<void> {
 
   if (balanceQueued) {
     balanceQueued = false
-    void loadBalance(true)
+    void loadBalance()
   }
 }
 
-// ─────────────────────────── 流水（分页） ───────────────────────────
+function goBalancePage(next: number): void {
+  balancePage.value = next
+  void loadBalance()
+}
+
+/** 换筛选条件一律回到第 1 页：停在第 7 页改关键字，多半只会看到空列表。 */
+function reloadBalance(): void {
+  balancePage.value = 1
+  void loadBalance()
+}
+
+// ─────────────────────────── 流水（一页 20 条） ───────────────────────────
 
 const ledgerItems = ref<LedgerEntry[]>([])
 const ledgerTotal = ref(0)
-const ledgerPage = ref(0)
+const ledgerPage = ref(1)
 const ledgerLoaded = ref(false)
 const ledgerLoading = ref(false)
 const ledgerError = ref('')
 
-// 用页码判断而不是 items.length：即使因并发写入触发去重，也不会无限"加载更多"
-const hasMore = computed(() => ledgerPage.value * PAGE_SIZE < ledgerTotal.value)
-
 let ledgerQueuedReset = false
+let ledgerGoodPage = 1
 
-function mergeLedger(incoming: LedgerEntry[], reset: boolean): void {
-  const merged = reset ? incoming : [...ledgerItems.value, ...incoming]
-  // 分页期间若有并发写入，offset 分页可能重复返回同一行；按 id 去重，断言"无重复"才成立
-  const seen = new Set<number>()
-  ledgerItems.value = merged.filter((entry) => {
-    if (seen.has(entry.id)) return false
-    seen.add(entry.id)
-    return true
-  })
-}
-
-async function loadLedger(reset = false): Promise<void> {
+async function loadLedger(): Promise<void> {
   if (!allowed.value) return
   if (ledgerLoading.value) {
-    if (reset) ledgerQueuedReset = true
+    ledgerQueuedReset = true
     return
   }
-  if (!reset && !hasMore.value) return
 
   ledgerLoading.value = true
-  if (reset) ledgerError.value = ''
+  ledgerError.value = ''
 
-  const nextPage = reset ? 1 : ledgerPage.value + 1
   const result = await safe(
     invApi.ledger({
       warehouseId: warehouseId.value,
       bizRefNo: bizRefNo.value.trim() || undefined,
-      page: nextPage,
+      page: ledgerPage.value,
       size: PAGE_SIZE,
     }),
   )
 
   if (result.ok) {
-    mergeLedger(result.value.items, reset)
+    ledgerItems.value = result.value.items
     ledgerTotal.value = result.value.total
     ledgerPage.value = result.value.page
+    ledgerGoodPage = result.value.page
   } else {
-    if (reset) {
-      ledgerItems.value = []
-      ledgerTotal.value = 0
-      ledgerPage.value = 0
-    }
+    ledgerItems.value = []
+    ledgerPage.value = ledgerGoodPage
     ledgerError.value = errorMessage(result.error)
   }
 
@@ -197,8 +194,18 @@ async function loadLedger(reset = false): Promise<void> {
 
   if (ledgerQueuedReset) {
     ledgerQueuedReset = false
-    void loadLedger(true)
+    void loadLedger()
   }
+}
+
+function goLedgerPage(next: number): void {
+  ledgerPage.value = next
+  void loadLedger()
+}
+
+function reloadLedger(): void {
+  ledgerPage.value = 1
+  void loadLedger()
 }
 
 // ─────────────────────────── 交互 ───────────────────────────
@@ -206,18 +213,19 @@ async function loadLedger(reset = false): Promise<void> {
 function selectTab(next: InventoryTab): void {
   if (tab.value === next) return
   tab.value = next
+  // 切标签回到第 1 页：两个标签的总数与页数不同，沿用旧页码多半落在空页上
   if (next === 'ledger') {
-    loadLedger(true)
+    reloadLedger()
   } else {
-    loadBalance(true)
+    reloadBalance()
   }
 }
 
 function applyFilters(): void {
   if (tab.value === 'balance') {
-    loadBalance(true)
+    reloadBalance()
   } else {
-    loadLedger(true)
+    reloadLedger()
   }
 }
 
@@ -231,6 +239,8 @@ function resetFilters(): void {
 
 onShow(() => {
   if (!ensureLoggedIn()) return
+  // 底栏自己画（原生那条最多 5 项、高度也改不了），每次显示都要重新藏一次
+  hideNativeTabBar()
 
   const pending = consumeInventoryTab()
   if (pending) tab.value = pending
@@ -243,10 +253,11 @@ onShow(() => {
 
   loadDictionary()
 
+  // 停在原来那一页刷新：从详情页退回来不该被弹回第 1 页
   if (tab.value === 'ledger') {
-    loadLedger(true)
+    void loadLedger()
   } else {
-    loadBalance(true)
+    void loadBalance()
   }
 })
 
@@ -254,28 +265,20 @@ onPullDownRefresh(() => {
   void (async () => {
     await loadDictionary(true)
     if (allowed.value) {
+      // 下拉是"刷新我正在看的这一页"，翻页请走下面的翻页条
       if (tab.value === 'ledger') {
-        await loadLedger(true)
+        await loadLedger()
       } else {
-        await loadBalance(true)
+        await loadBalance()
       }
     }
     uni.stopPullDownRefresh()
   })()
 })
-
-onReachBottom(() => {
-  // 两个 tab 各自翻页：余额走服务端分页、流水走本地累积，互不干扰
-  if (tab.value === 'ledger' && !ledgerLoading.value && hasMore.value) {
-    loadLedger(false)
-  } else if (tab.value === 'balance' && !balanceLoading.value && balanceHasMore.value) {
-    loadBalance(false)
-  }
-})
 </script>
 
 <template>
-  <view class="page inventory">
+  <view class="page inventory page--tabbar" :class="themeClass">
     <view v-if="!allowed" class="card notice">
       <text class="notice-title">当前账号没有库存读权限</text>
       <text class="notice-text">
@@ -352,7 +355,7 @@ onReachBottom(() => {
           <text class="filter-label">仅看可用</text>
           <switch
             :checked="onlyAvailable"
-            color="#1f3a63"
+            :color="BRAND_CONFIRM"
             style="transform: scale(0.85)"
             @change="onOnlyAvailableChange"
           />
@@ -368,7 +371,8 @@ onReachBottom(() => {
       <template v-if="tab === 'balance'">
         <view v-if="balanceLoaded" class="summary row-between">
           <text class="summary-text">
-            共 {{ balanceTotal }} 行{{ balanceFiltered ? '（已过滤）' : '' }}，已加载 {{ pageItems.length }} 行
+            共 {{ balanceTotal }} 行{{ balanceFiltered ? '（已过滤）' : '' }} · 本页
+            {{ pageItems.length }} 行
           </text>
           <text class="summary-text">
             本页可用
@@ -383,7 +387,7 @@ onReachBottom(() => {
 
         <view v-else-if="balanceError" class="card error-block">
           <text class="block-text">{{ balanceError }}</text>
-          <button class="btn-ghost block-btn" hover-class="none" @click="loadBalance(true)">重试</button>
+          <button class="btn-ghost block-btn" hover-class="none" @click="loadBalance">重试</button>
         </view>
 
         <view v-else-if="!pageItems.length" class="card empty-block">
@@ -428,26 +432,18 @@ onReachBottom(() => {
           </view>
         </view>
 
-        <view v-if="tab === 'balance' && balanceLoaded" class="ledger-footer">
-          <!--
-            ★ 加载更多按钮在请求飞行中不能被 v-if 换掉：换成"加载中…"会让节点 detach，
-              连点会撞在重新挂载的节点上。保持同一节点，只切文案并禁用点击。
-          -->
-          <button
-            v-if="balanceHasMore || balanceLoading"
-            class="btn-ghost load-more"
-            hover-class="none"
-            :disabled="balanceLoading"
-            @click="loadBalance(false)"
-          >
-            {{ balanceLoading ? '加载中…' : `加载更多（${pageItems.length} / ${balanceTotal}）` }}
-          </button>
-          <text v-else-if="pageItems.length" class="footer-note">
-            已全部加载，共 {{ balanceTotal }} 行
-          </text>
-          <view v-if="balanceError && pageItems.length" class="inline-error">
+        <view v-if="tab === 'balance' && balanceLoaded && balanceTotal" class="pager-wrap">
+          <list-pager
+            :page="balancePage"
+            :size="PAGE_SIZE"
+            :total="balanceTotal"
+            :loading="balanceLoading"
+            unit="行"
+            @change="goBalancePage"
+          />
+          <view v-if="balanceError" class="inline-error">
             <text class="block-text">{{ balanceError }}</text>
-            <text class="inline-retry" @click="loadBalance(false)">重试</text>
+            <text class="inline-retry" @click="loadBalance">重试</text>
           </view>
         </view>
       </template>
@@ -456,7 +452,7 @@ onReachBottom(() => {
       <template v-else>
         <view v-if="ledgerLoaded" class="summary row-between">
           <text class="summary-text">共 {{ ledgerTotal }} 条流水</text>
-          <text class="summary-text">已加载 {{ ledgerItems.length }} 条</text>
+          <text class="summary-text">本页 {{ ledgerItems.length }} 条</text>
         </view>
 
         <view v-if="ledgerLoading && !ledgerLoaded" class="card loading-block">
@@ -465,7 +461,7 @@ onReachBottom(() => {
 
         <view v-else-if="ledgerError && !ledgerItems.length" class="card error-block">
           <text class="block-text">{{ ledgerError }}</text>
-          <button class="btn-ghost block-btn" hover-class="none" @click="loadLedger(true)">重试</button>
+          <button class="btn-ghost block-btn" hover-class="none" @click="loadLedger">重试</button>
         </view>
 
         <view v-else-if="!ledgerItems.length" class="card empty-block">
@@ -511,33 +507,26 @@ onReachBottom(() => {
           </view>
         </view>
 
-        <view v-if="ledgerLoaded" class="ledger-footer">
-          <!--
-            ★ 加载更多按钮在请求飞行中**不能被 v-if 换掉**：
-              换成"加载中…"会让节点从 DOM detach，连点/自动化都会撞在重新挂载的节点上。
-              这里保持同一节点，只把文案切成"加载中…"并禁用点击。
-          -->
-          <button
-            v-if="hasMore || ledgerLoading"
-            class="btn-ghost load-more"
-            hover-class="none"
-            :disabled="ledgerLoading"
-            @click="loadLedger(false)"
-          >
-            {{ ledgerLoading ? '加载中…' : `加载更多（${ledgerItems.length} / ${ledgerTotal}）` }}
-          </button>
-          <text v-else-if="ledgerItems.length" class="footer-note">
-            已全部加载，共 {{ ledgerTotal }} 条
-          </text>
+        <view v-if="ledgerLoaded && ledgerTotal" class="pager-wrap">
+          <list-pager
+            :page="ledgerPage"
+            :size="PAGE_SIZE"
+            :total="ledgerTotal"
+            :loading="ledgerLoading"
+            unit="条"
+            @change="goLedgerPage"
+          />
           <view v-if="ledgerError && ledgerItems.length" class="inline-error">
             <text class="block-text">{{ ledgerError }}</text>
-            <text class="inline-retry" @click="loadLedger(false)">重试</text>
+            <text class="inline-retry" @click="loadLedger">重试</text>
           </view>
         </view>
       </template>
 
       <text v-if="dictWarning" class="dict-warning">{{ dictWarning }}</text>
     </template>
+
+    <app-tab-bar active="inventory" />
   </view>
 </template>
 
@@ -587,7 +576,7 @@ onReachBottom(() => {
   background: var(--c-surface);
   color: var(--c-brand-text);
   font-weight: 600;
-  box-shadow: 0 4rpx 14rpx rgba(31, 58, 99, 0.12);
+  box-shadow: 0 4rpx 14rpx var(--c-shadow);
 }
 
 .filter-card {
@@ -801,21 +790,8 @@ onReachBottom(() => {
   margin: 24rpx auto 0;
 }
 
-.ledger-footer {
+.pager-wrap {
   margin-top: 20rpx;
-}
-
-.load-more {
-  width: 100%;
-  height: 80rpx;
-  font-size: 26rpx;
-}
-
-.footer-note {
-  display: block;
-  text-align: center;
-  font-size: 22rpx;
-  color: var(--c-text-4);
 }
 
 .inline-error {

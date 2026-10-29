@@ -2,8 +2,11 @@
 import { ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { getToken } from '@/api/client'
+import { useTheme } from '@/composables/useTheme'
 import { login } from '@/stores/session'
 import { errorMessage } from '@/utils/error'
+
+const { themeClass } = useTheme()
 
 const username = ref('')
 const password = ref('')
@@ -44,7 +47,7 @@ async function handleLogin(): Promise<void> {
 </script>
 
 <template>
-  <view class="login">
+  <view class="login" :class="themeClass">
     <view class="halo halo-one" />
     <view class="halo halo-two" />
 
@@ -109,10 +112,14 @@ async function handleLogin(): Promise<void> {
 </template>
 
 <style scoped>
+/*
+  外壳是品牌色面板，不跟主题变浅：登录页是"品牌时刻"，深色档下卡片会变墨色，
+  但底始终是黛青。面板上的字一律走 --c-on-brand* 那几层，不出现硬编码色值。
+*/
 .login {
   min-height: 100vh;
   padding: calc(var(--status-bar-height) + 96rpx) 48rpx calc(56rpx + env(safe-area-inset-bottom));
-  background: #101725;
+  background: linear-gradient(160deg, var(--c-brand) 0%, var(--c-brand-deep) 100%);
   display: flex;
   flex-direction: column;
   position: relative;
@@ -131,7 +138,7 @@ async function handleLogin(): Promise<void> {
   height: 520rpx;
   top: -180rpx;
   right: -160rpx;
-  background: radial-gradient(circle, rgba(64, 102, 168, 0.75) 0%, rgba(16, 23, 37, 0) 68%);
+  background: radial-gradient(circle, var(--c-on-brand-line) 0%, transparent 68%);
 }
 
 .halo-two {
@@ -139,7 +146,8 @@ async function handleLogin(): Promise<void> {
   height: 420rpx;
   bottom: 120rpx;
   left: -180rpx;
-  background: radial-gradient(circle, rgba(201, 166, 107, 0.25) 0%, rgba(16, 23, 37, 0) 70%);
+  background: radial-gradient(circle, var(--c-on-brand-3) 0%, transparent 70%);
+  opacity: 0.24;
 }
 
 .brand {
@@ -151,8 +159,8 @@ async function handleLogin(): Promise<void> {
   width: 96rpx;
   height: 96rpx;
   border-radius: 28rpx;
-  background: #d8b36a;
-  color: #1b2233;
+  background: var(--c-on-brand);
+  color: var(--c-brand);
   font-size: 48rpx;
   font-weight: 700;
   display: flex;
@@ -163,7 +171,7 @@ async function handleLogin(): Promise<void> {
 
 .brand-name {
   display: block;
-  color: #ffffff;
+  color: var(--c-on-brand);
   font-size: 52rpx;
   font-weight: 700;
   letter-spacing: 4rpx;
@@ -172,7 +180,7 @@ async function handleLogin(): Promise<void> {
 .brand-tagline {
   display: block;
   margin-top: 12rpx;
-  color: #8e98ad;
+  color: var(--c-on-brand-2);
   font-size: 26rpx;
   letter-spacing: 2rpx;
 }
@@ -182,7 +190,7 @@ async function handleLogin(): Promise<void> {
   background: var(--c-surface);
   border-radius: 32rpx;
   padding: 44rpx 36rpx 36rpx;
-  box-shadow: 0 30rpx 80rpx rgba(4, 8, 16, 0.35);
+  box-shadow: 0 30rpx 80rpx var(--c-shadow);
 }
 
 .form-title {
@@ -229,7 +237,7 @@ async function handleLogin(): Promise<void> {
   padding: 20rpx 22rpx;
   margin-bottom: 24rpx;
   background: var(--c-danger-wash);
-  border: 1rpx solid #f3d3ca;
+  border: 1rpx solid var(--c-danger-line);
   border-radius: 14rpx;
 }
 
@@ -240,7 +248,7 @@ async function handleLogin(): Promise<void> {
   margin-right: 14rpx;
   border-radius: 50%;
   background: var(--c-danger);
-  color: #ffffff;
+  color: var(--c-on-brand);
   font-size: 22rpx;
   line-height: 32rpx;
   text-align: center;
@@ -276,7 +284,7 @@ async function handleLogin(): Promise<void> {
 
 .footer-main {
   display: block;
-  color: var(--c-text-2);
+  color: var(--c-on-brand-2);
   font-size: 23rpx;
   letter-spacing: 1rpx;
 }
@@ -284,7 +292,7 @@ async function handleLogin(): Promise<void> {
 .footer-sub {
   display: block;
   margin-top: 8rpx;
-  color: var(--c-text-2);
+  color: var(--c-on-brand-3);
   font-size: 21rpx;
 }
 </style>

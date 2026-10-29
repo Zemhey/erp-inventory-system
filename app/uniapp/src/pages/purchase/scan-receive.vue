@@ -4,7 +4,9 @@ import { onLoad, onPullDownRefresh, onShow } from '@dcloudio/uni-app'
 import { purApi, type OrderLine, type PurchaseOrder, type PurchaseReceipt } from '@/api/client'
 import { IS_H5 } from '@/config'
 import { useDictionary } from '@/composables/useDictionary'
+import { useTheme } from '@/composables/useTheme'
 import { hasPermission } from '@/stores/session'
+import { BRAND_CONFIRM } from '@/utils/dialog'
 import { canExecuteAction, statusMeta } from '@/utils/documentStatus'
 import { errorMessage } from '@/utils/error'
 import { formatDate } from '@/utils/format'
@@ -24,6 +26,8 @@ import { safe } from '@/utils/safe'
  *
  * 摄像头只在小程序 / App 可用；H5 与调起失败一律落入手录，打的是同一个接口。
  */
+
+const { themeClass } = useTheme()
 
 const canReceive = computed(() => hasPermission('pur:receive'))
 const canRead = computed(() => hasPermission('pur:read'))
@@ -227,7 +231,7 @@ function confirmReceive(): void {
   uni.showModal({
     title: '确认入库',
     content: `本次将入库 ${totalScanned.value} 件（${pending.length} 行），写入库存流水，不可撤销。确定入库吗？`,
-    confirmColor: '#1f3a63',
+    confirmColor: BRAND_CONFIRM,
     success: (modal) => {
       if (modal.confirm) void doReceive()
     },
@@ -387,7 +391,7 @@ onPullDownRefresh(() => {
 </script>
 
 <template>
-  <view class="page scan-receive">
+  <view class="page scan-receive" :class="themeClass">
     <view v-if="!canReceive" class="card notice">
       <text class="notice-title">当前账号没有收货权限</text>
       <text class="notice-text">
@@ -830,7 +834,7 @@ onPullDownRefresh(() => {
 
 .manual-note-text {
   font-size: 23rpx;
-  color: #8a5a1b;
+  color: var(--c-warn);
   line-height: 1.5;
 }
 
@@ -898,7 +902,7 @@ onPullDownRefresh(() => {
 .feedback {
   margin-top: 16rpx;
   padding: 16rpx 22rpx;
-  background: #eef5f0;
+  background: var(--c-ok-wash);
   border-radius: 12rpx;
   font-size: 23rpx;
   color: var(--c-success);
@@ -953,7 +957,7 @@ onPullDownRefresh(() => {
 }
 
 .line-focused {
-  border-color: #2c4066;
+  border-color: var(--c-brand);
   background: var(--c-info-wash);
 }
 
