@@ -2,6 +2,9 @@ package com.erp.sys.application;
 
 import com.erp.sys.repository.LoginLogRepository;
 import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Component;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
@@ -20,6 +23,14 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 @Component
 public class LoginLogRecorder {
 
+    private static final Logger log = LoggerFactory.getLogger(LoginLogRecorder.class);
+
+    /** 列宽见 V19 + V30。客户端可控字段一律先截断再写，别让长度约束把登录打成 500。 */
+    private static final int USERNAME_MAX = 64;
+    private static final int IP_MAX = 128;
+    private static final int USER_AGENT_MAX = 512;
+    private static final int FAIL_REASON_MAX = 128;
+
     private final LoginLogRepository repository;
 
     public LoginLogRecorder(LoginLogRepository repository) {
@@ -35,7 +46,26 @@ public class LoginLogRecorder {
             ip = clientIp(req);
             ua = req.getHeader("User-Agent");
         }
-        repository.insert(userId, username, ip, ua, success, failReason);
+        try {
+            repository.insert(
+                    userId,
+                    clip(username, USERNAME_MAX),
+                    clip(ip, IP_MAX),
+                    clip(ua, USER_AGENT_MAX),
+                    success,
+                    clip(failReason, FAIL_REASON_MAX));
+        } catch (DataAccessException e) {
+            // 登录日志是辅助记录：它写失败绝不能反过来让登录失败（V19.1 的同类事故）。
+            // 只告警不上抛，认证结果由调用方决定。
+            log.warn("登录日志写入失败，不影响本次登录：user={} error={}", username, e.getMessage());
+        }
+    }
+
+    private static String clip(String value, int max) {
+        if (value == null || value.length() <= max) {
+            return value;
+        }
+        return value.substring(0, max);
     }
 
     private static String clientIp(HttpServletRequest req) {
