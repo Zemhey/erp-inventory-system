@@ -103,7 +103,7 @@ ERP_TOKEN=eyJhbGciOi...
     "erp-inventory": {
       "type": "stdio",
       "command": "node",
-      "args": ["D:\\MajorCacheFolder\\Company system\\自选\\packages\\mcp-server\\dist\\index.js"],
+      "args": ["D:\\MajorCacheFolder\\Company system\\erp-inventory-system\\packages\\mcp-server\\dist\\index.js"],
       "env": {
         "ERP_BASE_URL": "http://127.0.0.1:8080/api/v1",
         "ERP_USERNAME": "admin",

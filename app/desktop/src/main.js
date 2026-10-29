@@ -30,6 +30,12 @@ if (!app || typeof app.whenReady !== 'function') {
   process.exit(1)
 }
 
+// 打包后没有仓库结构：前端产物由 electron-builder 放进 resources/web-dist，
+// 必须在加载配置前把路径告诉 config.js（它优先读 DESKTOP_WEB_DIST）。
+if (app.isPackaged && !process.env.DESKTOP_WEB_DIST) {
+  process.env.DESKTOP_WEB_DIST = path.join(process.resourcesPath, 'web-dist')
+}
+
 const config = loadChecked()
 const PKG = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'))
 
@@ -41,7 +47,14 @@ const PKG = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'
  * ★ 为什么用开关而不是默认关掉硬件加速：本机演示要的是流畅度，默认保留；
  *   只有在那种环境里才显式 `DESKTOP_DISABLE_GPU=1 npm start`，把渲染退回软件光栅。
  */
-if (process.env.DESKTOP_DISABLE_GPU === '1') app.disableHardwareAcceleration()
+if (process.env.DESKTOP_DISABLE_GPU === '1') {
+  app.disableHardwareAcceleration()
+  // ★ 只调 disableHardwareAcceleration() 还不够：Electron 仍会去 spawn 一个 GPU 子进程，
+  //   在没有 GPU 的会话里它必然起不来，紧接着整进程 FATAL 退出（窗口根本不出现）。
+  //   把 GPU 搬进主进程 + 关掉 GPU 合成，才真正绕开这条路径。
+  app.commandLine.appendSwitch('in-process-gpu')
+  app.commandLine.appendSwitch('disable-gpu')
+}
 
 /** @type {BrowserWindow|null} */
 let win = null

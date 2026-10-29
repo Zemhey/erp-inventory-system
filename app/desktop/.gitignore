@@ -2,6 +2,7 @@
 node_modules/
 dist/
 out/
+release*/
 .tmp/
 
 # 本机配置覆盖：端口/后端地址因人而异，模板是 desktop.config.example.json
@@ -11,3 +12,7 @@ config/desktop.config.json
 *.exe
 *.nsis
 *.portable
+
+# 图标资产（母图同 frontend/web/public/favicon.svg，此处为 electron-builder 需要的 .ico）
+# 不放 build/ 是因为根 .gitignore 的 build/ 规则会把整目录吃掉
+

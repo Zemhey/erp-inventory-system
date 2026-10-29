@@ -1,0 +1,10 @@
+# 2C2G 资源上限：配合 docker-compose.prod.yml 使用，不改变任何端口/网络暴露。
+services:
+  postgres:
+    shm_size: 128mb
+    mem_limit: 320m
+    command: ["postgres", "-c", "shared_buffers=128MB", "-c", "max_connections=30", "-c", "work_mem=4MB"]
+  backend:
+    mem_limit: 900m
+  web:
+    mem_limit: 128m

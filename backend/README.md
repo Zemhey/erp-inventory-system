@@ -31,11 +31,8 @@ Controller **不得**直连 Repository，由 ArchUnit 在 CI 强制。
 ## 常用命令
 
 ```powershell
-# 首次：建 ASCII 构建联接（路径含中文时必需，见 ADR-0010）
-cd ..; .\scripts\build-env.ps1
-
-# 构建 + 全部测试 + 覆盖率门禁
-cd D:\erp-build\backend\server
+# 构建 + 全部测试 + 覆盖率门禁（仓库路径已是纯英文，直接构建）
+cd backend\server
 .\gradlew.bat check
 
 # 只跑某个测试类
@@ -45,9 +42,8 @@ cd D:\erp-build\backend\server
 .\gradlew.bat bootRun
 ```
 
-> **为什么构建要在 `D:\erp-build` 而不是本目录**：
-> Gradle 8.9 在 Windows 上无法从含中文的路径运行测试（所有测试类报 `ClassNotFoundException`，
-> 看似"没编译"，实为 ANSI 编码不一致）。详见 [ADR-0010](../docs/07-决策记录ADR/ADR-0010-Windows中文路径用ASCII联接构建.md)。
+> **关于旧的中文路径问题**：仓库根目录已改为纯英文 `erp-inventory-system`，Gradle 可直接在本目录构建。
+> 旧 `D:\erp-build` ASCII 联接方案仅作历史参考，见 [ADR-0010](../docs/07-决策记录ADR/ADR-0010-Windows中文路径用ASCII联接构建.md)。
 
 ## 测试现状
 

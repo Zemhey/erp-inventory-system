@@ -143,7 +143,7 @@ DESKTOP_CLOSE_TO_TRAY=0 npm start                       # 关掉"关闭即隐藏
 | 深链 `erp-desktop://` | 同上 | ❌ 未验。`setAsDefaultProtocolClient` 需要写 HKCU，协议注册要安装包/管理员；`handleDeepLink` 的路径映射逻辑未跑过 |
 | 最小 preload 面 | `src/preload.js` | ✅ selftest：`window.desktop` 只有 8 个点名方法；`window.require`/`window.process`/`window.ipcRenderer` 全 false；`getStatus()` 走 IPC 往返成功 |
 | 离线可开壳 | 静态托管本身 | ⚠️ 断网时页面能打开（产物在磁盘上，实测过 502 分支即"后端不在仍出页面"）。**完整离线（数据缓存/断网可查）未做**，见下 |
-| 打包成安装包（electron-builder/NSIS） | — | ❌ 未做，配置未加 |
+| 打包成 Windows 便携包（electron-builder） | `scripts/build-installer.cjs` | ✅ 2026-10-28 实测：`npm run dist -- --api <地址>` 产出 `release/YunshangERP-<版本>-portable.exe`（77MB），双击后窗口/8788/接口代理均正常。**未做**：NSIS 安装器、代码签名、图标（当前是 Electron 默认图标） |
 
 ### 占位与未做（不当功能交付）
 
@@ -153,8 +153,29 @@ DESKTOP_CLOSE_TO_TRAY=0 npm start                       # 关掉"关闭即隐藏
 - **电子秤/串口等本地硬件**：**未做**，只留了 `src/main.js` 的 IPC 注册位置。
 - **开机自启**：**未做**。
 - **多窗口**（如单据详情弹独立窗口）：**未做**。
-- **安装包与代码签名**：**未做**，当前只能 `npm start` 形态运行。
+- **安装器与代码签名**：便携包已可出（见 §5.1），**NSIS 安装器、签名、正式图标未做**，
+  所以别的电脑首次运行会出现 SmartScreen/杀软提示。
 - `webContents.print()` 的静默套打（`silent:true` + 指定 `deviceName`）已实现但**无打印机可验**。
+
+### 5.1 出便携包（指向远程后端）
+
+```bash
+cd app/desktop
+npm run build:web                  # 产物要新；赶时间可 npm run build:web -- --fast
+npm run dist -- --api http://<服务器IP>:18080
+# 成品：release/YunshangERP-0.1.0-portable.exe
+```
+
+- `--api` 写进包内 `config/desktop.config.json`，终端用户不需要配任何东西；不传则默认
+  `http://127.0.0.1:8080`（只适合本机自测）。
+- 前端产物由 electron-builder 放进 `resources/web-dist`；主进程在 `app.isPackaged` 时改写
+  `DESKTOP_WEB_DIST`，打包后**不再依赖仓库路径**。
+- `apiTarget` 支持 https（`server.js` 按协议选 `http`/`https`），备案后切域名只改 `--api`。
+- 构建目录放在系统临时目录：工作区内新出现的大文件会被编辑器/索引器锁住，导致 Electron
+  解压时的 rename/unlink 报 `EBUSY/EPERM`。
+- 本机测试打包产物时，若 shell 带 `ELECTRON_RUN_AS_NODE=1`，exe 会退化成 Node 并瞬间退出，
+  先去掉该变量再运行。
+- **未做**：NSIS 安装器、代码签名、正式图标（当前是 Electron 默认图标）。
 
 ### 已验部分的复现命令
 
@@ -195,7 +216,9 @@ app/desktop/
 │   └── dev-launcher.js              开发模式：透传 vite dev server，退回静态，都没有就报错
 ├── scripts/
 │   ├── build-web.js                 调 frontend/web 的 vite build（不复制前端源码）
+│   ├── build-installer.cjs          出 Windows 便携包（--api 注入后端地址）
 │   └── smoke.js                     12 项 HTTP 层自测
+├── release/                         打包产物（gitignore；便携 exe 在这里）
 └── .tmp/                            临时夹具与日志，不入库
 ```
 

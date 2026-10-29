@@ -133,23 +133,16 @@
 | **需求↔测试可追踪** | 每个用例带 `TC-xxx` 编号，[追踪矩阵](docs/00-索引与追踪矩阵.md) 自动汇总，扫空行即得测试待办 |
 | **真实 E2E** | Playwright 驱动真实后端 + 真实 PostgreSQL（不 mock），**36 passed（含登录 setup）**覆盖登录、主数据、进货、出货、退货、结算锁账、报表、审计/字典与 VIEWER/FINANCE 权限；测试数据用唯一前缀、按依赖顺序清理并硬校验基线（`.plan/M2-计划书.md` §5.5） |
 
-## ⚠ Windows 构建路径（本机必读）
+## Windows 构建路径
 
-本项目路径含中文（`自选`），而 **Gradle 8.9 在 Windows 上无法从含中文的路径运行测试**
-（所有测试类报 `ClassNotFoundException`，看似"没编译"，实为 ANSI 编码不一致）。
-详见 [ADR-0010](docs/07-决策记录ADR/ADR-0010-Windows中文路径用ASCII联接构建.md)。
-
-**首次使用先建构建联接，之后所有构建命令都在 ASCII 路径执行：**
+仓库根目录已改为纯英文 `erp-inventory-system`，Gradle 可直接在仓库内构建，
+不再需要旧中文路径时期的 `D:\erp-build` ASCII 联接（历史背景见
+[ADR-0010](docs/07-决策记录ADR/ADR-0010-Windows中文路径用ASCII联接构建.md)）。
 
 ```powershell
-.\scripts\build-env.ps1          # 创建 D:\erp-build 联接（非破坏、可回滚）
-cd D:\erp-build\backend\server
-.\gradlew.bat check              # 运行测试 + 覆盖率门禁（1204 条，全绿）
+cd backend\server
+.\gradlew.bat check              # 运行测试 + 覆盖率门禁
 ```
-
-删除联接：`.\scripts\build-env.ps1 -Remove`
-
-> Linux / macOS / CI 上无需此步骤，直接 `./gradlew test` 即可。
 
 ## 快速开始
 
@@ -166,28 +159,25 @@ cd D:\erp-build\backend\server
 #    注：宿主 PostgreSQL 端口是 15432（本机 5432 落在 Windows 保留段内，见 compose 注释）
 .\scripts\dev-up.ps1
 
-# 2. 建构建联接（仅首次，或路径含中文时）
-.\scripts\build-env.ps1
-
-# 3. 跑测试 + 覆盖率门禁
-cd D:\erp-build\backend\server
+# 2. 跑测试 + 覆盖率门禁（仓库路径已是纯英文，直接构建）
+cd backend\server
 .\gradlew.bat check
 
-# 4. 创建开发用登录账号（V3 迁移刻意不预置账号）
-cd D:\MajorCacheFolder\Company system\自选
+# 3. 创建开发用登录账号（V3 迁移刻意不预置账号）
+cd "D:\MajorCacheFolder\Company system\erp-inventory-system"
 .\scripts\seed-dev-user.ps1       # 默认 admin / Admin@12345
 
-# 5. 启动后端（API 文档 http://127.0.0.1:8080/swagger-ui.html）
-cd D:\erp-build\backend\server
+# 4. 启动后端（API 文档 http://127.0.0.1:8080/swagger-ui.html）
+cd backend\server
 .\gradlew.bat bootRun
 
-# 6. 启动前端（另开一个终端 → http://127.0.0.1:3000）
-cd D:\MajorCacheFolder\Company system\自选\frontend\web
+# 5. 启动前端（另开一个终端 → http://127.0.0.1:3000）
+cd "D:\MajorCacheFolder\Company system\erp-inventory-system\frontend\web"
 npm install
 npm run dev
 
-# 7. 重新生成代码索引
-cd D:\MajorCacheFolder\Company system\自选
+# 6. 重新生成代码索引
+cd "D:\MajorCacheFolder\Company system\erp-inventory-system"
 .\scripts\gen-index.ps1           # Windows；Linux/macOS 用 ./scripts/gen-index.sh
 ```
 

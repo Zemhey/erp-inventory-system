@@ -187,7 +187,7 @@ TAG=standalone ./scripts/build-local-images.sh
 ### 4.1 Windows（PowerShell 5.1）
 
 ```powershell
-cd "D:\MajorCacheFolder\Company system\自选"
+cd "D:\MajorCacheFolder\Company system\erp-inventory-system"
 powershell -NoProfile -ExecutionPolicy Bypass -File .\infra\standalone\start-standalone.ps1
 ```
 
@@ -350,7 +350,7 @@ Docker 重启后容器会自动拉起（`restart: unless-stopped`），但前提
 Windows 任务计划（管理员 PowerShell）：
 
 ```powershell
-$script = 'D:\MajorCacheFolder\Company system\自选\infra\standalone\backup-standalone.ps1'
+$script = 'D:\MajorCacheFolder\Company system\erp-inventory-system\infra\standalone\backup-standalone.ps1'
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$script`""
 $trigger = New-ScheduledTaskTrigger -Daily -At 03:00
 Register-ScheduledTask -TaskName 'ERP Standalone Backup' -Action $action -Trigger $trigger -RunLevel Highest

@@ -32,7 +32,7 @@ const DEFAULTS = {
    *   壳只转发 /api 时，桌面端这块面板会一直显示"后端不可达"，
    *   而后端其实活得好好的。这类"看起来像故障、其实是代理少了一条"的现象最难解释。
    */
-  apiPrefixes: ['/api', '/actuator'],
+  apiPrefixes: ['/api', '/actuator', '/readyz'],
   /** SPA 构建产物目录（静态模式） */
   webDist: path.join(REPO_ROOT, 'frontend', 'web', 'dist'),
   /**

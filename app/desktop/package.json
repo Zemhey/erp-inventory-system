@@ -1,17 +1,48 @@
 {
   "name": "erp-desktop",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "进销存系统 PC 端（Electron 包装 frontend/web 构建产物，只做桌面增量能力）",
+  "author": "Yunshang ERP",
   "main": "src/main.js",
   "scripts": {
     "build:web": "node scripts/build-web.js",
     "dev": "node src/dev-launcher.js",
     "start": "electron .",
     "serve": "node src/server-cli.js",
-    "smoke": "node scripts/smoke.js"
+    "smoke": "node scripts/smoke.js",
+    "dist": "node scripts/build-installer.cjs",
+    "dist:dir": "electron-builder --win --x64 --dir"
   },
   "devDependencies": {
-    "electron": "^33.2.0"
+    "electron": "^33.2.0",
+    "electron-builder": "^26.18.0"
+  },
+  "build": {
+    "appId": "com.yunshang.erp.desktop",
+    "productName": "云裳ERP",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "src/**/*",
+      "package.json",
+      "config/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../../frontend/web/dist",
+        "to": "web-dist"
+      }
+    ],
+    "asar": true,
+    "electronDist": "node_modules/electron/dist",
+    "win": {
+      "target": [
+        "portable"
+      ],
+      "artifactName": "YunshangERP-${version}-portable.exe",
+      "icon": "assets/icon.ico"
+    }
   }
 }

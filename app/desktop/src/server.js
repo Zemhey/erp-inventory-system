@@ -86,7 +86,10 @@ function proxyTo(res, upstreamBase, reqUrl, req, opts = {}) {
   headers.host = target.host
   if (opts.rewriteOrigin) headers.origin = target.origin
 
-  const upstream = http.request(
+  // 后端在公网时是 https（域名 + 证书）；本地开发是 http。只认 http 会在
+  // 换到 https 目标时把 TLS 握手当 HTTP 发出去，表现成"后端不可达"。
+  const transport = isHttps ? require('node:https') : http
+  const upstream = transport.request(
     {
       hostname: target.hostname,
       port,

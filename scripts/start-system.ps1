@@ -307,15 +307,8 @@ if ($backendAlreadyUp) {
         }
     }
 
-    # 项目路径含中文，Gradle 测试有编码问题，构建统一走 ASCII 联接路径
-    $buildRoot = 'D:\erp-build'
-    if (-not (Test-Path (Join-Path $buildRoot 'backend\server\gradlew.bat'))) {
-        Write-Info '创建 ASCII 构建联接 D:\erp-build ...'
-        $code = Invoke-ChildPowerShell (Join-Path $Root 'scripts\build-env.ps1')
-        if ($code -ne 0) { throw 'build-env.ps1 失败，无法创建构建目录。' }
-    }
-
-    $serverDir = Join-Path $buildRoot 'backend\server'
+    # 仓库路径已改为纯英文，无需 ASCII 联接，直接使用仓库根目录
+    $serverDir = Join-Path $Root 'backend\server'
     if (-not (Test-Path (Join-Path $serverDir 'gradlew.bat'))) {
         throw "找不到 $serverDir\gradlew.bat，请先执行 scripts\build-env.ps1。"
     }
