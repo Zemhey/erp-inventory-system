@@ -16,7 +16,7 @@
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import process from 'node:process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -61,12 +61,30 @@ if (jobs.length === 0) {
 }
 
 const { chromium } = require('playwright');
+const svgSource = readFileSync(MASTER_SVG, 'utf8');
 const browser = await chromium.launch();
 for (const job of jobs) {
+  // ★ 两个坑都实测踩过：
+  //   ① 直接 goto 到 SVG 再按目标尺寸截图 —— 母图自带 width=1024，视口比它小时
+  //      截到的是**左上角裁切**，产出的 favicon 是个纯色方块；
+  //   ② 用 <img src="file://..."> 包一层 —— setContent 的页面是 about:blank 源，
+  //      Chromium 不允许它加载 file:// 资源，结果截到的是裂图占位符。
+  //   所以把 SVG 内联进 HTML，并直接改写根元素的 width/height，让它真正重绘。
+  const sized = svgSource
+    .replace(/width="1024"/, `width="${job.size}"`)
+    .replace(/height="1024"/, `height="${job.size}"`);
+  if (!sized.includes(`width="${job.size}"`)) {
+    throw new Error(`母图 SVG 里找不到可改写的 width="1024"，请检查 ${MASTER_SVG}`);
+  }
   const page = await browser.newPage({ viewport: { width: job.size, height: job.size } });
-  await page.goto(`file:///${MASTER_SVG.replace(/\\/g, '/')}`);
-  await page.waitForTimeout(250);
-  await page.screenshot({ path: job.out });
+  await page.setContent(
+    `<!doctype html><meta charset="utf-8">` +
+      `<style>html,body{margin:0;padding:0;overflow:hidden}svg{display:block}</style>` +
+      sized,
+    { waitUntil: 'load' },
+  );
+  await page.waitForTimeout(200);
+  await page.screenshot({ path: job.out, clip: { x: 0, y: 0, width: job.size, height: job.size } });
   await page.close();
   console.log(`  ${job.size}x${job.size} → ${path.relative(process.cwd(), job.out)}`);
 }
