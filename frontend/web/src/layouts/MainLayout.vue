@@ -616,6 +616,12 @@ function goSearchHit(hit: SearchHit, kind: 'products' | 'customers' | 'suppliers
       <el-main class="main">
         <router-view :key="session.tenantId ?? 'no-tenant'" />
       </el-main>
+
+      <el-footer class="beian" height="34px">
+        <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">粤ICP备2026167520号</a>
+        <span class="beian-sep">·</span>
+        <span>个人技术作品演示，数据为虚构种子</span>
+      </el-footer>
     </el-container>
 
     <!-- FR-IAM-06：自助改密；强制态下不给关闭 -->
@@ -1037,6 +1043,32 @@ function goSearchHit(hit: SearchHit, kind: 'products' | 'customers' | 'suppliers
   padding: 0;
   overflow-y: auto;
   background-color: var(--ys-nuanbai);
+}
+
+/* 备案号是备案通过后的展示义务；登录前看不到，所以常驻布局页脚 */
+.beian {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 34px;
+  color: var(--ys-mo-4);
+  border-top: 1px solid var(--ys-line);
+}
+
+.beian a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.beian a:hover {
+  color: var(--ys-daiqing);
+  text-decoration: underline;
+}
+
+.beian-sep {
+  opacity: 0.55;
 }
 
 @media (max-width: 768px) {

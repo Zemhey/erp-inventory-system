@@ -9,8 +9,13 @@ import { getToken } from '@/api/client'
  * 而不是"这个月卖了多少"。KPI 是结论，运行状态是前提。
  *
  * 三个探针各自独立，任何一个失败都不影响其它两个的展示：
- *   1. 后端  GET /actuator/health      —— 顺带读 components.db（需带 token，
- *                                        后端配的是 show-details: when-authorized）
+ *   1. 后端  GET /readyz               —— 容器 nginx 把它反代到
+ *                                        backend 的 /actuator/health/readiness。
+ *                                        ★ 不能探 /actuator/health：生产入口只放行
+ *                                        /api/ 与 /readyz，且宿主 nginx 屏蔽 /actuator，
+ *                                        直连会让面板永远红。
+ *                                        就绪组本身含 db 指示器，故整体 UP 即可判定库可用；
+ *                                        拿不到 components 时按整体状态回退，不谎报"异常"。
  *   2. MCP   GET /mcp-bridge/health    —— 由 Vite 代理到 MCP Server 的 HTTP 端口；
  *                                        没启动就是"未接入"，不是错误
  *   3. 前端  本地环境信息              —— 不联网，永远有值
@@ -80,7 +85,7 @@ async function probeBackend(): Promise<void> {
   backend.value = 'checking'
   const started = performance.now()
   try {
-    const response = await timedFetch('/actuator/health')
+    const response = await timedFetch('/readyz')
     backendLatency.value = Math.round(performance.now() - started)
     if (!response.ok) {
       backend.value = 'down'
@@ -89,10 +94,11 @@ async function probeBackend(): Promise<void> {
     }
     const payload = (await response.json()) as HealthPayload
     backend.value = payload.status === 'UP' ? 'up' : 'down'
-    // 未带 token 或后端没开 details 时 components 为空 —— 那是"未知"，不是"挂了"
+    // show-details=never 时 components 不下发；就绪组本身包含 db 指示器，
+    // 所以整体 UP 就是"库连得上"，按整体状态回退比报"未知"更有用。
     const components = payload.components
     const db = components?.db?.status
-    dbState.value = db ? (db === 'UP' ? 'up' : 'down') : 'idle'
+    dbState.value = db ? (db === 'UP' ? 'up' : 'down') : backend.value
   } catch {
     backendLatency.value = null
     backend.value = 'down'
@@ -160,15 +166,15 @@ const probes = computed<Probe[]>(() => [
     state: backend.value,
     value: backend.value === 'up' ? '运行中' : backend.value === 'checking' ? '检测中' : '不可达',
     hint: `接口延迟 ${latencyText()}`,
-    detail: 'Spring Boot · /actuator/health',
+    detail: 'Spring Boot · /readyz 就绪探针',
   },
   {
     key: 'db',
     label: '数据库',
     state: dbState.value,
     value: dbState.value === 'up' ? '已连接' : dbState.value === 'down' ? '异常' : '未知',
-    hint: dbState.value === 'idle' ? '健康详情需登录后可见' : 'PostgreSQL · 连接池常态',
-    detail: 'PostgreSQL · 由后端健康详情上报',
+    hint: dbState.value === 'idle' ? '尚未探测' : 'PostgreSQL · 连接池常态',
+    detail: 'PostgreSQL · 由 /readyz 就绪组判定',
   },
   {
     key: 'mcp',

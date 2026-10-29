@@ -179,7 +179,13 @@ async function handleSubmit() {
 
         <p class="panel-foot">
           登录即表示同意《数据处理与保密约定》。<br />
-          本系统仅在杭州、上海、广州三地部署，数据不出境。
+          本系统仅在杭州、上海、广州三地部署，数据不出境。<br />
+          <a
+            class="beian-link"
+            href="https://beian.miit.gov.cn/"
+            target="_blank"
+            rel="noopener noreferrer"
+          >粤ICP备2026167520号</a>
         </p>
       </div>
     </section>
@@ -468,6 +474,17 @@ async function handleSubmit() {
   font-size: 11px;
   line-height: 1.7;
   color: var(--ys-mo-5);
+}
+
+/* 备案展示义务要登录前也可见，所以登录页单独挂一份 */
+.beian-link {
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1px dotted currentColor;
+}
+
+.beian-link:hover {
+  color: var(--ys-daiqing);
 }
 
 /* ══ 窄屏 ════════════════════════════════════════════════════════════ */
