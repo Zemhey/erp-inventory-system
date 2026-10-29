@@ -7,7 +7,7 @@
 
 | 文件 | 域名 | 指向 | 说明 |
 |---|---|---|---|
-| `zz-xuliu.conf` | `xuliu.zemworld.cn` | `127.0.0.1:18080`（云裳 web 容器） | 含登录限流、管理面 404、`noindex` |
+| `zz-xuliu.conf` | `xuliu.zemworld.cn` | `127.0.0.1:18080`（云裳 web 容器） | 含登录限流、管理面 404、`noindex`；**另带 `/dl/` 下载区** → `/var/www/downloads/` |
 | `zz-erp-h5.conf` | `m.zemworld.cn` | `/var/www/erp-h5` 静态 + `/api/` 反代 | uni-app H5 产物，任何人浏览器可开 |
 | `lancang-demo.conf` | `lancang.zemworld.cn` | `/var/www/lancang-demo` 纯静态 | 瓶装气 Mock SPA + `/tour/` 兜底 |
 
@@ -47,6 +47,26 @@ nohup /root/.acme.sh/acme.sh --issue -d m.zemworld.cn -w /var/www/letsencrypt > 
 - **`gzip_types` 必须同时写 `text/javascript` 和 `application/javascript`**：
   nginx 自带 `mime.types` 把 `.js` 映射成 `text/javascript`，只写 `application/javascript`
   时入口包（259KB）实测原样下发，手机上首屏白等。
+
+## 下载区 `/dl/`
+
+`https://xuliu.zemworld.cn/dl/` → `/var/www/downloads/`，给作品集页面的「下载」区块用。
+
+| 文件 | 是什么 | 怎么重出 |
+|---|---|---|
+| `yunshang-erp-standalone-v1.zip` | 云裳单机版（源码 + `README-START.md` 入门） | `powershell -File scripts/make-download-bundles.ps1` |
+| `yunshang-erp-server-deploy-v1.zip` | 云裳服务器完整部署包（同一份源码 + 服务器入门） | 同上 |
+| `yunshang-erp-0.3.0.apk` | 安卓包（界面已内置） | 见 `app/android-demo/README.md` |
+| `YunshangERP-0.2.1-portable.exe` | PC 便携包（80 MB） | `app/desktop` 里 `npm run dist -- --api https://xuliu.zemworld.cn` |
+| `bottled-gas-standalone-v1.zip` | 瓶装气单机版（另一个仓库出的包） | 见瓶装气项目 |
+
+规矩：
+
+- 每个文件旁边放一份同名 `.sha256`，收件人可自验；换文件**必须同时换 sha 文件**；
+- 这个目录**公开可读**（`autoindex on`），所以里面只能放成品，
+  不要放 `.env`、备份 dump、含口令的脚本 —— 放进去就等于发给全世界；
+- 2C2G 机器带宽有限，80 MB 的 PC 包拉满要几分钟，属预期；如果下载量上来把它压垮，
+  再把下载区挪到对象存储 + CDN，不要在这台机器上加限流凑合。
 
 ## 公口纪律
 
