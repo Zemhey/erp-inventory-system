@@ -40,13 +40,42 @@ if (withAbsoluteApi.length > 0) {
   process.exit(1);
 }
 
-fs.rmSync(dest, { recursive: true, force: true });
+// 先复制、再清残留：整个目录 rmSync 会被 Windows 上的索引器/杀软句柄顶住（实测 EPERM），
+// 而"删不掉旧文件"比"目录删不掉"危害大得多 —— 残留的旧 hash 文件会让安装包混版。
+fs.mkdirSync(dest, { recursive: true });
 fs.cpSync(src, dest, { recursive: true });
+
+const wanted = new Set();
+walk(src, (rel) => wanted.add(rel.toLowerCase()));
+const removed = prune(dest, wanted);
+console.log(`同步完成：${wanted.size} 个文件进包，清掉 ${removed} 个残留`);
+if (removed < 0) console.warn('⚠️ 有残留文件删不掉（被占用），请关掉占用后重跑，否则 APK 会混版');
 
 const files = collectBundleFiles(dest);
 const bytes = files.reduce((sum, f) => sum + fs.statSync(f).size, 0);
 console.log(`已内置 ${files.length} 个文件，${(bytes / 1024).toFixed(0)} KB → ${path.relative(repoRoot, dest)}`);
 console.log(`入口：${path.relative(dest, path.join(dest, 'index.html'))}（APK 启动即加载，不联网也能打开）`);
+
+/** 删掉 dest 里 src 已经没有的文件；返回删除数，遇到删不掉的返回负数便于上层告警 */
+function prune(root, wantedSet) {
+  let deleted = 0;
+  let failed = 0;
+  const doomed = [];
+  walk(root, (rel, full) => { if (!wantedSet.has(rel.toLowerCase())) doomed.push(full); });
+  for (const f of doomed) {
+    try { fs.chmodSync(f, 0o600); fs.rmSync(f); deleted++; } catch { failed++; }
+  }
+  return failed ? -deleted : deleted;
+}
+
+/** 深度优先遍历，回调收到相对 root 的 posix 风格路径 */
+function walk(root, cb) {
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    const full = path.join(root, entry.name);
+    if (entry.isDirectory()) walk(full, cb);
+    else cb(path.relative(root, full).split(path.sep).join('/'), full);
+  }
+}
 
 function collectBundleFiles(dir) {
   const out = [];

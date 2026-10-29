@@ -1,1 +1,0 @@
-import{o as e,ac as o}from"./index-BSKEmYAH.js";function s(){return e(()=>{o.applyChrome()}),{themeClass:o.themeClass,themeMode:o.mode,resolvedTheme:o.resolved,setThemeMode:o.setMode}}const t=(e,o)=>{const s=e.__vccOpts||e;for(const[t,r]of o)s[t]=r;return s};export{t as _,s as u};

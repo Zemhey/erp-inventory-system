@@ -363,30 +363,17 @@ scroll-view {
   color: var(--c-danger);
 }
 
-/* ── H5 端的标签栏 ────────────────────────────────────────────────────────
-   小程序的原生标签栏由 theme.json 管；H5 没有原生层，uni-app 自己画了一条 DOM，
-   颜色取自 pages.json 的静态值，读不到 theme.json —— 深色系统下会留一条白条。
-   这里只针对 uni-app 的类名覆盖，小程序端不会命中（那边根本没有这些节点）。 */
-@media (prefers-color-scheme: dark) {
-  uni-tabbar .uni-tabbar {
-    background-color: var(--c-surface) !important;
-    border-top: 1rpx solid var(--c-line-strong);
-  }
-
-  uni-tabbar .uni-tabbar__label {
-    color: var(--c-text-3) !important;
-  }
-
-  uni-tabbar .uni-tabbar__label-active {
-    color: var(--c-brand-text) !important;
-  }
-
-  uni-tabbar .uni-tabbar__icon {
-    color: var(--c-text-3) !important;
-  }
-
-  uni-tabbar .uni-tabbar__icon-active {
-    color: var(--c-brand-text) !important;
-  }
+/* ── H5 端的标签栏：把 uni-app 自己画的那条 DOM 收掉 ──────────────────────
+   底栏由 components/app-tab-bar 自绘（原生那条最多 5 项、高度字号改不了，放不下「我的」）。
+   组件里调的 uni.hideTabBar() 只在小程序/App 生效，**H5 端实测不生效**：
+   原生那条 z-index 998、自绘的 900，于是自绘的被整条盖在下面，用户看到的就是
+   "底栏没有我的"（浏览器与安卓 App 都是 H5 渲染，所以两端一起中；小程序里反而是好的）。
+   pages.json 里的 tabBar 声明仍保留：switchTab 保活与 --window-bottom 让位都依赖它，
+   这里只把 DOM 藏起来。小程序端不命中这个选择器（那边根本没有这些节点）。 */
+/* #ifdef H5 */
+uni-tabbar,
+uni-tabbar .uni-tabbar {
+  display: none !important;
 }
+/* #endif */
 </style>
