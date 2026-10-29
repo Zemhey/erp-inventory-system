@@ -21,7 +21,18 @@ New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 # core.quotePath=false is required: without it git escapes every non-ASCII path
 # (启动系统.cmd, docs with Chinese names) into octal quotes, those entries then fail
 # Test-Path and get silently skipped -- the zip would be missing files with no error.
+#
+# Console output encoding must be switched to UTF-8 as well: git emits UTF-8, and
+# Windows PowerShell 5.1 decodes a child process' stdout with the OEM codepage (936/GBK),
+# which turns every Chinese path into mojibake -> Test-Path fails -> 30 files vanished
+# from the package with no error at all. Measured, not theoretical.
+$prevConsole = [Console]::OutputEncoding
+$prevGlobal = $OutputEncoding
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
 $tracked = & git -C $repo -c core.quotePath=false ls-files
+[Console]::OutputEncoding = $prevConsole
+$OutputEncoding = $prevGlobal
 if ($LASTEXITCODE -ne 0) { throw "git ls-files failed ($LASTEXITCODE)" }
 
 $excludePrefix = @('.plan/', 'design/', 'vibe_images/')
@@ -40,14 +51,20 @@ foreach ($pkg in @(
         @{ Name = "yunshang-erp-server-deploy-$Version";  Guide = 'docs/DEPLOY-server.md';     Front = 'README-START.md' }
     )) {
     New-Item -ItemType Directory -Force -Path $stage | Out-Null
+    $missing = @()
     foreach ($rel in $files) {
         $srcRel = $rel -replace '\\', '/'
         $from = Join-Path $repo ($srcRel -replace '/', '\')
-        if (-not (Test-Path -LiteralPath $from)) { continue }
+        if (-not (Test-Path -LiteralPath $from)) { $missing += $srcRel; continue }
         $to = Join-Path $stage ($srcRel -replace '/', '\')
         $dir = Split-Path $to -Parent
         if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
         Copy-Item -LiteralPath $from -Destination $to -Force
+    }
+    # 少一个文件就不出包：静默漏文件比构建失败危险得多（收件人永远不知道少了什么）
+    if ($missing.Count -gt 0) {
+        $preview = ($missing | Select-Object -First 8) -join "`n  "
+        throw ("有 {0} 个跟踪文件在磁盘上找不到，拒绝出包：`n  {1}" -f $missing.Count, $preview)
     }
     # both guides ship in every package; the package's own one becomes the front door
     Copy-Item -LiteralPath (Join-Path $repo 'docs\DEPLOY-standalone.md') -Destination (Join-Path $stage 'README-START-standalone.md') -Force

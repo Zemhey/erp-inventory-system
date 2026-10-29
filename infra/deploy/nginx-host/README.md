@@ -57,8 +57,8 @@ nohup /root/.acme.sh/acme.sh --issue -d m.zemworld.cn -w /var/www/letsencrypt > 
 | `yunshang-erp-standalone-v1.zip` | 云裳单机版（源码 + `README-START.md` 入门） | `powershell -File scripts/make-download-bundles.ps1` |
 | `yunshang-erp-server-deploy-v1.zip` | 云裳服务器完整部署包（同一份源码 + 服务器入门） | 同上 |
 | `yunshang-erp-0.3.0.apk` | 安卓包（界面已内置） | 见 `app/android-demo/README.md` |
-| `YunshangERP-0.2.1-portable.exe` | PC 便携包（80 MB） | `app/desktop` 里 `npm run dist -- --api https://xuliu.zemworld.cn` |
-| `bottled-gas-standalone-v1.zip` | 瓶装气单机版（另一个仓库出的包） | 见瓶装气项目 |
+| `YunshangERP-0.2.2-portable.exe` | PC 便携包（80 MB，未做代码签名） | `app/desktop` 里 `npm run dist -- --api https://xuliu.zemworld.cn` |
+| `bottled-gas-standalone-v1.zip` | 瓶装气单机版（**另一个仓库**出的包） | 见 `瓶装气进销存系统/dl/make-zip.ps1` |
 
 规矩：
 

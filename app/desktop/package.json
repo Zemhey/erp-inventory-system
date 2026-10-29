@@ -1,6 +1,6 @@
 {
   "name": "erp-desktop",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "description": "进销存系统 PC 端（Electron 包装 frontend/web 构建产物，只做桌面增量能力）",
   "author": "Yunshang ERP",
