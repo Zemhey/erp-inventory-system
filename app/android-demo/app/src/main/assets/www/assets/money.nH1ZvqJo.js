@@ -1,0 +1,1 @@
+function n(n){return null==n?"-":(n/100).toFixed(2)}function t(t){return null==t?"-":`¥${n(t)}`}function r(n){const t="string"==typeof n?Number.parseFloat(n):n;return Number.isNaN(t)?0:Math.round(100*t)}export{n as a,t as f,r as y};

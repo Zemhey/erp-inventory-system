@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 深色系统下整套换成 Material 深色主题：弹窗、系统栏都是深底浅字，底部导航条不需要浅色标记 -->
+    <style name="AppTheme" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:colorPrimary">@color/shell_status_bar</item>
+        <item name="android:colorAccent">@color/shell_accent</item>
+        <item name="android:windowBackground">@drawable/splash_background</item>
+        <item name="android:statusBarColor">@color/shell_status_bar</item>
+        <item name="android:navigationBarColor">@color/shell_nav_bar</item>
+    </style>
+</resources>

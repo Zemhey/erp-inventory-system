@@ -1,8 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">云裳进销存</string>
-    <!-- 默认地址：移动端 H5 站点（阶段 A 产出）。DNS 还没解析时会自动回落到兜底地址。 -->
-    <string name="server_url_default">https://m.zemworld.cn/</string>
-    <!-- 兜底地址：已上线的线上网页版，同源带 /api 反代，登录与业务链路可用 -->
-    <string name="server_url_fallback">https://xuliu.zemworld.cn/</string>
+    <!-- 内置界面访问的后端源；默认用移动端站点，改成内网地址即可联调（长按页面进入设置） -->
+    <string name="site_origin_default">https://m.zemworld.cn</string>
 </resources>

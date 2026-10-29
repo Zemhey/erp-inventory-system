@@ -1,13 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 壳层配色：浅色模式取值，夜间模式由 values-night 同名资源覆盖 -->
+<!--
+  壳层配色取自 app/uniapp/src/theme.json，必须与移动端界面自己的顶栏/底栏一致，
+  否则手机系统栏会在应用顶部压出一条不同颜色的横带（0.2.0 版被反馈"上面一块蓝条挡着"就是这个）。
+  夜间取值由 values-night/colors.xml 覆盖。
+-->
 <resources>
-    <!-- 启动/错误页与 WebView 底色，避免白底闪烁 -->
-    <color name="shell_bg">#F5F6F8</color>
-    <!-- 错误页文字色 -->
+    <!-- 页面底色（theme.json light.bgColor） -->
+    <color name="shell_bg">#F6F2EA</color>
+    <!-- 错误兜底页文字色 -->
     <color name="shell_text">#1F2937</color>
-    <!-- 状态栏/导航栏在深浅两套里都取深色，这样始终配浅色图标，无需切换 LIGHT 标记 -->
-    <color name="shell_status_bar">#14283F</color>
-    <color name="shell_nav_bar">#14283F</color>
-    <!-- 窗口底色，给 Activity 启动到 WebView 绘制之间的空隙垫底色 -->
-    <color name="shell_window_bg">#F5F6F8</color>
+    <!-- 状态栏 = H5 导航条底色（light.navBg），登录页顶部是同色系品牌渐变，接得上 -->
+    <color name="shell_status_bar">#2E5D63</color>
+    <!-- 导航栏（手机底部条）= tabBar 底色（light.tabBgColor） -->
+    <color name="shell_nav_bar">#FFFDFA</color>
+    <!-- 冷启动窗口底色：品牌色，避免图标周围先闪一下白 -->
+    <color name="shell_splash_bg">#2E5D63</color>
+    <color name="shell_accent">#D4A64A</color>
 </resources>
