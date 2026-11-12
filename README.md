@@ -11,7 +11,7 @@
 > **多端 B/S 进销存 SaaS 平台 + 配套自动化测试体系**
 > Java 17 · Spring Boot 3 · PostgreSQL 16 · Vue 3 · uni-app
 
-**课程要求**：[任务要求](docs/planning/任务要求.md) ｜ **方向与路线**：[方向建议与落地路线](docs/planning/方向建议与落地路线.md) ｜ **全局交接**：[项目总纲](docs/planning/项目总纲.md) ｜ **★ 下一步做什么**：[V2 商业化扩展蓝图](docs/planning/V2-商业化扩展蓝图.md)
+**全局交接**：[项目总纲](docs/planning/项目总纲.md) ｜ **★ 下一步做什么**：[V2 商业化扩展蓝图](docs/planning/V2-商业化扩展蓝图.md)
 
 > **第一次打开这个仓库？** 先看下面的「30 秒目录导航」；想知道全局（大纲/规划/索引/交接），读 [项目总纲](docs/planning/项目总纲.md)。
 
@@ -81,7 +81,7 @@
 | 06 | [测试策略](docs/06-测试策略.md) | 金字塔、时机、可测试性钩子、DoD（草案） |
 | 07 | [决策记录 ADR](docs/07-决策记录ADR/README.md) | 11 条架构决策及其理由（含 Windows 路径陷阱） |
 | — | [代码索引](index/README.md) | ★ 生成物，由脚本维护，禁止手写 |
-| — | [项目总纲](docs/planning/项目总纲.md) / [任务要求](docs/planning/任务要求.md) / [方向建议](docs/planning/方向建议与落地路线.md) | 全局交接、课程原始要求、早期路线（`docs/planning/`） |
+| — | [项目总纲](docs/planning/项目总纲.md) | 全局交接（`docs/planning/`） |
 
 ## 项目状态
 
@@ -205,7 +205,7 @@ backend/server/  服务端（Java 17 + Spring Boot 3）—— 全部后端代码
 frontend/web/    前端（Vue3 + TypeScript + Element Plus）—— Web 客户端
 frontend/miniapp/ 移动端（uni-app：H5 / 微信小程序 / Android 资源包）
 docs/            设计与过程文档（00~07 + 11 条 ADR）
-  planning/      项目级规划：项目总纲、任务要求、方向建议
+  planning/      项目级规划：项目总纲、商业化扩展蓝图
 index/           代码索引（生成物，由脚本维护，禁止手写）
 packages/        api-contract（OpenAPI 单一事实源）、mcp-server（MCP stdio 适配器）
 scripts/         dev-up / gen-index / build-env / seed-dev-user / bcrypt-hash / 部署与备份

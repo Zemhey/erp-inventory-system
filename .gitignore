@@ -132,3 +132,17 @@ infra/deploy/offline/.context/
 # Python（scripts/*.py 会生成）
 __pycache__/
 *.pyc
+
+# ─────────────────────────── 非项目产物（只在本地保留） ───────────────────────────
+# 下面这些是课程作业与答辩素材，不属于项目本身：讲解视频、答辩 PPT、
+# 界面设计稿、课程讲解站，以及课程方下发的任务要求与选型建议。
+# 仓库只放代码与文档，这些一律不入库。
+Video/
+ppt/
+design/
+Study/
+任务.md
+任务要求.md
+方向建议与落地路线.md
+docs/planning/任务要求.md
+docs/planning/方向建议与落地路线.md

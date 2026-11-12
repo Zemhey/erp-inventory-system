@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>自动化测试实况演示 · E2E-13 库存页三个数字正确</title>
+<style>
+  :root{
+    --bg:#0b0e14; --panel:#12161f; --panel2:#0d1117; --border:#232a36;
+    --text:#e6e9ef; --muted:#8b93a7; --dim:#5b6478;
+    --green:#34d399; --blue:#60a5fa; --amber:#fbbf24; --red:#f87171; --violet:#a78bfa;
+    --code-bg:#0d1117;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:radial-gradient(1200px 600px at 20% -10%, #16203a 0%, var(--bg) 55%) fixed;
+    color:var(--text);
+    font-family:"Segoe UI","Microsoft YaHei",system-ui,-apple-system,Roboto,sans-serif;
+    min-height:100vh; -webkit-font-smoothing:antialiased;
+  }
+  .app{max-width:1320px;margin:0 auto;padding:18px 20px 96px}
+
+  /* ── header ── */
+  header.top{margin-bottom:16px}
+  .brand{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  .logo-badge{
+    width:42px;height:42px;border-radius:12px;
+    background:linear-gradient(135deg,#34d399,#3b82f6);
+    display:grid;place-items:center;font-size:22px;box-shadow:0 6px 20px rgba(52,211,153,.25);
+  }
+  .brand h1{font-size:20px;margin:0;font-weight:700;letter-spacing:.2px}
+  .brand .sub{color:var(--muted);font-size:13px;margin-top:3px}
+  .pill{margin-left:auto;font-size:12px;color:var(--amber);border:1px solid rgba(251,191,36,.35);
+    background:rgba(251,191,36,.08);padding:5px 10px;border-radius:999px;white-space:nowrap}
+  .progress-wrap{display:flex;align-items:center;gap:12px;margin-top:14px}
+  .progress{flex:1;height:8px;background:#1b2230;border-radius:999px;overflow:hidden}
+  .progress > i{display:block;height:100%;width:0;border-radius:999px;
+    background:linear-gradient(90deg,#34d399,#60a5fa);transition:width .35s ease}
+  .progress-txt{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+
+  /* ── layout ── */
+  .main{display:grid;grid-template-columns:minmax(0,1.02fr) minmax(0,1fr);
+    grid-template-rows:auto auto;gap:16px}
+  .code-panel{grid-column:1;grid-row:1;height:558px}
+  .console-panel{grid-column:1;grid-row:2;height:262px}
+  .browser-panel{grid-column:2;grid-row:1;height:398px}
+  .explain-panel{grid-column:2;grid-row:2;height:422px;overflow:auto}
+
+  .panel{background:linear-gradient(180deg,var(--panel),#0f131c);
+    border:1px solid var(--border);border-radius:14px;display:flex;flex-direction:column;
+    overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+  .panel-head{display:flex;align-items:center;gap:8px;padding:10px 14px;
+    border-bottom:1px solid var(--border);font-size:12.5px;color:var(--muted);
+    background:rgba(255,255,255,.015);flex-shrink:0}
+  .panel-head .dot3{display:inline-flex;gap:5px;margin-right:4px}
+  .panel-head .dot3 i{width:9px;height:9px;border-radius:50%;display:block}
+  .panel-head .dot3 i:nth-child(1){background:#ff5f57}
+  .panel-head .dot3 i:nth-child(2){background:#febc2e}
+  .panel-head .dot3 i:nth-child(3){background:#28c840}
+  .panel-head .fname{color:#cfd6e4;font-weight:600;font-family:Consolas,monospace;font-size:12.5px}
+  .panel-head .tag{color:var(--dim);margin-left:2px}
+  .panel-head .right{margin-left:auto;display:flex;gap:6px}
+
+  /* ── code ── */
+  .code{flex:1;overflow:auto;padding:8px 0;font-family:"JetBrains Mono",Consolas,"Courier New",monospace;
+    font-size:12.6px;line-height:1.78;background:var(--code-bg)}
+  .code::-webkit-scrollbar{width:9px}
+  .code::-webkit-scrollbar-thumb{background:#242c3a;border-radius:8px}
+  .code-line{display:flex;padding:0 12px 0 0;white-space:pre;transition:background .2s}
+  .code-line .ln{width:42px;flex-shrink:0;text-align:right;padding-right:14px;color:#3b4456;
+    user-select:none;font-size:11.5px;position:relative}
+  .code-line .code-txt{flex:1;color:#c8d0dd}
+  .code-line.active{background:rgba(96,165,250,.14)}
+  .code-line.active .ln{color:#8fb6ff}
+  .code-line.active .ln::after{content:"";position:absolute;left:0;top:0;bottom:0;
+    width:2px;background:#60a5fa}
+  .code-line.done .code-txt{color:#6b7688}
+  .code-line.done .ln{color:#374052}
+  .tok-com{color:#5f6b7f;font-style:italic}
+  .tok-str{color:#a5e6a0}
+  .tok-kw{color:#c792ea}
+  .tok-num{color:#f6c177}
+
+  /* ── console ── */
+  .console{flex:1;overflow:auto;padding:10px 14px;font-family:"JetBrains Mono",Consolas,monospace;
+    font-size:12.2px;line-height:1.62}
+  .console::-webkit-scrollbar{width:9px}
+  .console::-webkit-scrollbar-thumb{background:#242c3a;border-radius:8px}
+  .log{display:flex;gap:8px;padding:2px 0;animation:fade .3s ease}
+  .log .ic{width:15px;flex-shrink:0;text-align:center}
+  .log.api .ic{color:var(--blue)} .log.api .tx{color:#b9c6db}
+  .log.ok  .ic{color:var(--green)} .log.ok .tx{color:#a7f3d0}
+  .log.assert .ic{color:var(--green)} .log.assert .tx{color:#a7f3d0;font-weight:600}
+  .log.info .ic{color:var(--muted)} .log.info .tx{color:#8b93a7}
+  .log.err .ic{color:var(--red)} .log.err .tx{color:#fca5a5}
+  @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+  /* ── browser ── */
+  .browser{flex:1;display:flex;flex-direction:column;background:#eef1f6;position:relative;overflow:hidden}
+  .browser-bar{display:flex;align-items:center;gap:10px;background:#dde2ea;padding:8px 12px;
+    border-bottom:1px solid #cbd2dd;flex-shrink:0}
+  .browser-bar .lights{display:flex;gap:6px}
+  .browser-bar .lights i{width:10px;height:10px;border-radius:50%;display:block}
+  .browser-bar .lights i:nth-child(1){background:#ff5f57}
+  .browser-bar .lights i:nth-child(2){background:#febc2e}
+  .browser-bar .lights i:nth-child(3){background:#28c840}
+  .browser-url{flex:1;background:#fff;border:1px solid #cbd2dd;border-radius:7px;
+    padding:5px 12px;font-size:12px;color:#4a5568;font-family:Consolas,monospace;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .viewport{flex:1;overflow:auto;position:relative;background:#f8fafc}
+
+  .blank{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    color:#94a3b8;gap:8px;text-align:center;padding:20px}
+  .blank .bicon{font-size:34px;opacity:.5}
+  .blank p{margin:0;font-size:15px;color:#64748b;font-weight:600}
+  .blank span{font-size:12.5px;color:#94a3b8}
+  .blank .note{margin-top:10px;font-size:12px;color:#0369a1;background:#e0f2fe;
+    border:1px solid #bae6fd;border-radius:8px;padding:7px 12px;max-width:340px}
+
+  .erp{padding:0;color:#1e293b;font-family:"Microsoft YaHei",system-ui,sans-serif}
+  .erp-top{display:flex;align-items:center;gap:10px;padding:10px 16px;background:#fff;
+    border-bottom:1px solid #e2e8f0}
+  .erp-top .logo{background:linear-gradient(135deg,#34d399,#3b82f6);color:#fff;font-weight:800;
+    font-size:12px;padding:4px 9px;border-radius:7px}
+  .erp-top .t{font-weight:700;font-size:13.5px;color:#0f172a}
+  .erp-top .sp{flex:1}
+  .erp-top .user{font-size:12px;color:#64748b}
+  .erp-sub{padding:10px 16px 4px;font-size:12px;color:#64748b}
+  table.inv{width:calc(100% - 20px);margin:8px 10px 0;border-collapse:collapse;font-size:11.2px;background:#fff;
+    border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;table-layout:fixed}
+  table.inv th:first-child{width:32%}
+  table.inv th:nth-child(2){width:22%}
+  table.inv th:nth-child(3){width:10%}
+  table.inv th:nth-child(4){width:8%}
+  table.inv th:nth-child(5),table.inv th:nth-child(6),table.inv th:nth-child(7),table.inv th:nth-child(8){width:7%}
+  table.inv th{background:#f1f5f9;color:#475569;font-weight:600;padding:8px 7px;text-align:left;
+    border-bottom:1px solid #e2e8f0;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  table.inv th.num,table.inv td.num{text-align:right}
+  table.inv td{padding:8px 7px;border-bottom:1px solid #f1f5f9;color:#334155;white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis}
+  table.inv td .sku-name{font-weight:600;color:#0f172a}
+  table.inv td .sku-code{font-size:10.5px;color:#94a3b8;margin-top:2px}
+  .tag-no{background:#f1f5f9;color:#94a3b8;border-radius:5px;padding:2px 7px;font-size:10.5px}
+  .link{background:none;border:none;color:#2563eb;font-size:11.5px;cursor:pointer;padding:0}
+  .inv-row{transition:background .25s, box-shadow .25s;position:relative}
+  .inv-row.hl-row{background:#fefce8;box-shadow:inset 0 0 0 2px #fbbf24}
+  .inv-row.hl-visible{background:#ecfdf5;box-shadow:inset 0 0 0 2px #34d399}
+  table.inv td.hl-cell{background:#dcfce7;color:#047857;font-weight:800;box-shadow:inset 0 0 0 2px #34d399}
+  .qty-chips{display:flex;gap:8px;margin:12px;flex-wrap:wrap}
+  .qty-chip{flex:1;min-width:92px;background:#fff;border:1px solid #e2e8f0;border-radius:9px;
+    padding:8px 12px;font-size:11.5px;color:#64748b}
+  .qty-chip b{display:block;font-size:19px;color:#0f172a;margin-top:2px;font-variant-numeric:tabular-nums}
+  .qty-chip.onhand b{color:#0f766e} .qty-chip.reserved b{color:#b45309} .qty-chip.available b{color:#1d4ed8}
+  .pass-banner{position:absolute;left:50%;top:14px;transform:translateX(-50%);z-index:9;
+    background:linear-gradient(135deg,#059669,#10b981);color:#fff;border-radius:11px;
+    padding:10px 18px;font-size:13px;font-weight:700;box-shadow:0 10px 26px rgba(5,150,105,.4);
+    display:flex;align-items:center;gap:10px;animation:pop .45s cubic-bezier(.2,1.3,.5,1)}
+  .pass-banner span{background:rgba(255,255,255,.22);padding:3px 9px;border-radius:7px;font-family:Consolas,monospace}
+  @keyframes pop{from{opacity:0;transform:translate(-50%,-10px) scale(.9)}to{opacity:1;transform:translate(-50%,0) scale(1)}}
+
+  /* ── explain ── */
+  .explain-panel .inner{padding:16px 18px}
+  .step-badge{display:inline-block;font-size:11.5px;color:#8fb6ff;background:rgba(96,165,250,.12);
+    border:1px solid rgba(96,165,250,.3);padding:3px 10px;border-radius:999px;font-variant-numeric:tabular-nums}
+  .explain-panel h2{font-size:17px;margin:9px 0 14px;font-weight:700;line-height:1.35}
+  .block{margin-bottom:12px}
+  .block .bh{font-size:12px;color:var(--muted);font-weight:700;margin-bottom:4px;letter-spacing:.3px}
+  .block p{margin:0;font-size:13.4px;line-height:1.7;color:#cdd5e2}
+  .block.why{border-left:2px solid var(--amber);background:rgba(251,191,36,.05);
+    padding:8px 12px;border-radius:0 8px 8px 0}
+  .names{margin-top:6px;border-top:1px dashed var(--border);padding-top:12px}
+  .chips{display:flex;flex-direction:column;gap:6px;margin-top:6px}
+  .chip{display:flex;gap:10px;align-items:flex-start;font-size:12.8px;line-height:1.55}
+  .chip code{flex-shrink:0;background:#1b2230;color:#7dd3fc;border:1px solid #2a3444;
+    padding:2px 8px;border-radius:6px;font-family:Consolas,monospace;font-size:12px;min-width:96px;
+    display:inline-block}
+  .chip span{color:#aab4c5}
+
+  /* ── nav ── */
+  footer.nav{position:fixed;left:0;right:0;bottom:0;z-index:50;
+    background:rgba(13,17,24,.92);backdrop-filter:blur(10px);border-top:1px solid var(--border);
+    padding:11px 20px;display:flex;align-items:center;gap:14px;justify-content:center}
+  .btn{border:1px solid var(--border);background:#1a2130;color:#dfe5ef;border-radius:10px;
+    padding:10px 20px;font-size:13.5px;font-weight:600;cursor:pointer;transition:.18s;display:flex;
+    align-items:center;gap:7px;font-family:inherit}
+  .btn:hover:not(:disabled){background:#232c3d;transform:translateY(-1px)}
+  .btn:disabled{opacity:.35;cursor:not-allowed}
+  .btn.primary{background:linear-gradient(135deg,#10b981,#3b82f6);border:none;color:#fff;
+    box-shadow:0 6px 18px rgba(59,130,246,.3)}
+  .btn.primary:hover:not(:disabled){filter:brightness(1.08)}
+  .dots{display:flex;gap:6px;margin:0 8px}
+  .dots i{width:8px;height:8px;border-radius:50%;background:#28313f;transition:.2s}
+  .dots i.on{background:linear-gradient(135deg,#34d399,#60a5fa);transform:scale(1.25)}
+  .footer-hint{font-size:11.5px;color:var(--dim);position:absolute;right:20px;bottom:14px}
+  @media (max-width:1000px){
+    .main{grid-template-columns:1fr;grid-template-rows:auto}
+    .code-panel{grid-column:1;grid-row:1;height:460px}
+    .console-panel{grid-column:1;grid-row:2;height:240px}
+    .browser-panel{grid-column:1;grid-row:3;height:400px}
+    .explain-panel{grid-column:1;grid-row:4;height:auto;max-height:none}
+    .footer-hint{display:none}
+    .dots{display:none}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <div class="logo-badge">🧪</div>
+      <div>
+        <h1>自动化测试实况演示 · E2E-13</h1>
+        <div class="sub">库存页三个数字正确（实存 / 预占 / 可用） · 文件 <code style="color:#7dd3fc">frontend/web/e2e/05-inventory.spec.ts</code></div>
+      </div>
+      <div class="pill">模拟演示 · 非真实连库</div>
+    </div>
+    <div class="progress-wrap">
+      <div class="progress"><i id="bar"></i></div>
+      <div class="progress-txt" id="ptxt">0 / 0</div>
+    </div>
+  </header>
+
+  <div class="main">
+    <section class="panel code-panel">
+      <div class="panel-head">
+        <span class="dot3"><i></i><i></i><i></i></span>
+        <span class="fname">05-inventory.spec.ts</span>
+        <span class="tag">TypeScript · Playwright</span>
+        <span class="right"><span class="tag" id="codeState">等待执行</span></span>
+      </div>
+      <div class="code" id="code"></div>
+    </section>
+
+    <section class="panel console-panel">
+      <div class="panel-head">运行日志 · 接口调用与断言</div>
+      <div class="console" id="console"></div>
+    </section>
+
+    <section class="panel browser-panel">
+      <div class="panel-head">被测系统 · 模拟浏览器</div>
+      <div class="browser">
+        <div class="browser-bar">
+          <span class="lights"><i></i><i></i><i></i></span>
+          <div class="browser-url" id="url">about:blank</div>
+        </div>
+        <div class="viewport" id="viewport"></div>
+      </div>
+    </section>
+
+    <section class="panel explain-panel">
+      <div class="inner" id="explain"></div>
+    </section>
+  </div>
+
+  <footer class="nav">
+    <button class="btn" id="prev">← 上一步</button>
+    <div class="dots" id="dots"></div>
+    <button class="btn primary" id="next">下一步 →</button>
+    <button class="btn" id="reset">↻ 重新开始</button>
+    <span class="footer-hint">提示：也可用键盘 ← → 翻页</span>
+  </footer>
+</div>
+
+<script>
+/* ============ 固定数据：让整个演示的 id 前后一致 ============ */
+const RUN_ID = 'E2E-MF3K2P-AB12';
+const TAG = RUN_ID + '-13';
+const PRODUCT = TAG + ' 商品';
+const WAREHOUSE = TAG + ' 仓库';
+const SKU_TEXT = PRODUCT + ' · 白色-L';
+
+/* ============ 被演示的完整测试文件（30 行） ============ */
+const CODE = [
+  "import { expect, test } from './fixtures'",
+  "import { runTag } from './helpers/run'",
+  "import { seedBase } from './helpers/seed'",
+  "",
+  "test('E2E-13 库存页三个数字正确（实存 / 预占 / 可用）', async ({ page, api, run }) => {",
+  "  const tag = runTag(run, '13')",
+  "  const seed = await seedBase(api, tag, { stockQty: 15 })",
+  "",
+  "  // 建一张未出货的出货单，制造 4 件预占：15 / 4 / 11",
+  "  const order = await api.createSalesOrder({",
+  "    customerId: seed.customer.id,",
+  "    warehouseId: seed.warehouse.id,",
+  "    lines: [{ skuId: seed.skus[0].id, qty: 4, unitPriceAmount: 12900, discountRate: 9000 }],",
+  "  })",
+  "  expect(order.status).toBe('DRAFT')",
+  "",
+  "  await page.goto('/inventory')",
+  "",
+  "  const skuText = `${seed.product.name} · 白色-L`",
+  "  const row = page.getByRole('row').filter({ hasText: skuText }).first()",
+  "  await expect(row).toBeVisible()",
+  "",
+  "  const cells = row.getByRole('cell')",
+  "  await expect(cells).toHaveCount(8)",
+  "  await expect(cells.nth(0)).toContainText(skuText)",
+  "  await expect(cells.nth(1)).toContainText(seed.warehouse.name)",
+  "  await expect(cells.nth(4)).toHaveText('15')",
+  "  await expect(cells.nth(5)).toHaveText('4')",
+  "  await expect(cells.nth(6)).toHaveText('11')",
+  "})"
+];
+
+/* ============ 每个「下一步」的讲解数据 ============ */
+const STEPS = [
+  {
+    n: 1, lines: [], sim: 'blank', url: 'about:blank',
+    title: '开始之前：我们要验证什么？',
+    meaning: '这是一条 Playwright 的 E2E 测试。它只回答一个业务问题：库存页上「实存 / 预占 / 可用」三个数字，对不对？',
+    happens: '现在测试还没开始跑。点「下一步」，我们会一行一行执行这条测试。你会同时看到三样东西：左边代码逐行高亮、右上模拟浏览器真的出现页面、右下滚动打印接口调用和断言结果。',
+    why: '读任何一条测试，都先把它拆成「前置准备 → 执行操作 → 断言结果」三段，再看代码。这样不会被细节带偏。这条用例正好就是：造数据（前置）→ 打开库存页（操作）→ 断三个数字（断言）。',
+    names: [
+      { k: 'E2E', v: 'End-to-End，端到端：从用户视角把整条流程真走一遍' },
+      { k: '05-inventory', v: '第 5 个测试文件，主题是「库存」' }
+    ],
+    logs: [{ t: 'info', text: '▶ 准备执行 05-inventory.spec.ts' }]
+  },
+  {
+    n: 2, lines: [1], sim: 'blank', url: 'about:blank',
+    title: '第 1 行 · 从 ./fixtures 引入 test 和 expect',
+    meaning: 'test 用来「声明一条用例」，expect 用来「写断言」。',
+    happens: '加载测试框架。注意它们来自项目自己的 ./fixtures，而不是原生的 @playwright/test。',
+    why: 'fixtures.ts 在 Playwright 原生能力上「加了料」——额外提供 api、run 两个夹具（后面第 5 行会用到）。用自己封装过的版本，才拿得到项目专属能力。',
+    names: [
+      { k: 'test', v: '注册一条测试用例的函数：test(标题, 回调)' },
+      { k: 'expect', v: '断言函数：expect(实际值).toBe(预期值)' },
+      { k: './fixtures', v: '项目自己的夹具封装文件，比原生多提供 api / run' }
+    ],
+    logs: [{ t: 'info', text: '加载测试框架（经 ./fixtures 封装）' }]
+  },
+  {
+    n: 3, lines: [2, 3], sim: 'blank', url: 'about:blank',
+    title: '第 2–3 行 · 引入两个帮手：runTag 和 seedBase',
+    meaning: 'runTag 负责生成「唯一数据前缀」；seedBase 负责「一句话造出一整套主数据」。',
+    happens: '把「造数」「打前缀」这些重复动作从测试里抽出去，测试文件只保留业务逻辑。',
+    why: '如果不抽出来，每条用例都要手写一遍「造商品 / 仓库 / 客户 / 开进货单」，又长又容易撞数据。抽成 helper，测试就变成「读起来像业务说明」。',
+    names: [
+      { k: 'runTag', v: '生成本次运行的唯一前缀，防止和别的测试数据撞车' },
+      { k: 'seedBase', v: '数据工厂：造供应商/仓库/客户/商品/SKU，并可按需备货' }
+    ],
+    logs: [{ t: 'info', text: '加载 helpers：runTag / seedBase' }]
+  },
+  {
+    n: 4, lines: [5], sim: 'blank', url: 'about:blank',
+    title: '第 5 行 · 声明用例，并「注入」三个夹具',
+    meaning: 'test(标题, 回调)。回调参数 { page, api, run } 是「夹具依赖注入」：声明需要什么，框架自动递进来。',
+    happens: 'Playwright 在执行前自动准备好 page（浏览器页面）、api（接口客户端）、run（本次运行上下文），再传进回调。',
+    why: '你只声明「需要什么」，框架负责创建和销毁——这叫依赖注入 / 关注点分离。测试不关心「东西怎么来」，只关心「怎么用」。',
+    names: [
+      { k: 'page', v: '隔离的浏览器页面对象，用来打开页面、定位元素' },
+      { k: 'api', v: 'ApiClient 实例，用来造数据和读取后端事实' },
+      { k: 'run', v: '本次运行上下文：runId、临时账号名等' },
+      { k: 'async', v: '表示函数里有异步操作，内部要用 await 等' }
+    ],
+    logs: [{ t: 'info', text: '用例 E2E-13 开始；注入夹具 page / api / run' }]
+  },
+  {
+    n: 5, lines: [6], sim: 'blank', url: 'about:blank',
+    title: '第 6 行 · tag = runTag(run, \'13\')',
+    meaning: '把本次运行的 runId 和用例号拼成一个唯一前缀 tag。',
+    happens: '假设 runId = ' + RUN_ID + '，那么 tag = ' + TAG + '。这一轮造的所有数据（商品、仓库、单据……）命名都会带上这个前缀。',
+    why: '数据隔离：并行的用例、上次残留的数据都不会互相污染；清理时只按这个前缀删，绝不误伤别人。这是 E2E 不 flaky 的第一道保险。',
+    names: [
+      { k: 'tag', v: '本次用例的数据前缀，例如 ' + TAG },
+      { k: '\'13\'', v: '用例编号，对应标题里的 E2E-13' }
+    ],
+    logs: [
+      { t: 'info', text: 'runId = ' + RUN_ID },
+      { t: 'info', text: 'tag   = ' + TAG }
+    ]
+  },
+  {
+    n: 6, lines: [7], sim: 'blank', url: 'about:blank', blankNote: '数据已通过 API 准备好（页面还没打开）',
+    title: '第 7 行 · 造数据：seedBase(api, tag, { stockQty: 15 })',
+    meaning: '用 API 造出供应商、仓库、客户、商品、SKU，并通过「真实进货流程」把库存做成 15 件。',
+    happens: '依次调用 POST /suppliers、/warehouses、/customers、/products、/skus；再走「建进货单 → 提交 → 审核 → 入库」，让实存 = 15。返回的 seed 里带着这些对象的 id。',
+    why: '① 为什么用 API 而不是 UI 点？造数是「前置」，让 UI 只干真正要验收的动作，又快又稳。② 为什么库存要走真实进货、不直接改库？直接改库会绕过进货逻辑，万一进货本身有 bug 就被掩盖了——造前置可以抄近路，造「业务结果」不行。',
+    names: [
+      { k: 'seed', v: '造出来的数据集合：supplier / customer / warehouse / product / skus / stockOrder' },
+      { k: 'stockQty: 15', v: '要备多少库存，这里是 15 件' },
+      { k: 'seed.skus[0]', v: '第一个 SKU（白色-L）' }
+    ],
+    logs: [
+      { t: 'api', text: 'POST /api/v1/suppliers   → 201  (' + TAG + ' 供应商)' },
+      { t: 'api', text: 'POST /api/v1/warehouses  → 201  (' + TAG + ' 仓库)' },
+      { t: 'api', text: 'POST /api/v1/customers   → 201  (' + TAG + ' 客户)' },
+      { t: 'api', text: 'POST /api/v1/products    → 201  (' + TAG + ' 商品)' },
+      { t: 'api', text: 'POST /api/v1/skus        → 201  (白色-L)' },
+      { t: 'api', text: 'POST /api/v1/purchase-orders        → 201  (进货 15 件)' },
+      { t: 'api', text: 'POST /api/v1/purchase-orders/:id/submit  → 200' },
+      { t: 'api', text: 'POST /api/v1/purchase-orders/:id/approve → 200' },
+      { t: 'api', text: 'POST /api/v1/purchase-orders/:id/receive → 200' },
+      { t: 'ok',  text: 'seed 完成：实存 = 15' }
+    ]
+  },
+  {
+    n: 7, lines: [10, 11, 12, 13, 14], sim: 'blank', url: 'about:blank', blankNote: '已建 1 张出货单，预占 4 件（页面还没打开）',
+    title: '第 10–14 行 · 建一张出货单，占住 4 件',
+    meaning: '通过 API 建出货单：客户、仓库、1 行明细（SKU、数量 4、单价 12900 分、折扣 9000）。',
+    happens: 'POST /sales-orders 返回一张 DRAFT 草稿单。关键业务规则：这个系统「建单即预占」——保存的瞬间，这 4 件就从「可用」被扣走，变成「预占」。于是库存变成 15 实存 / 4 预占 / 11 可用。',
+    why: '用 API 造这张单，是为了把库存精确摆成「15 / 4 / 11」，作为接下来 UI 断言的输入。注意：被验收的动作（看库存页）仍然走浏览器，API 只负责准备。',
+    names: [
+      { k: 'customerId', v: '客户 id' },
+      { k: 'warehouseId', v: '仓库 id' },
+      { k: 'lines', v: '明细行数组（一张单可以有多行）' },
+      { k: 'skuId', v: '卖哪个 SKU' },
+      { k: 'qty: 4', v: '数量 4 件' },
+      { k: 'unitPriceAmount', v: '单价，单位是「分」：12900 分 = 129.00 元' },
+      { k: 'discountRate', v: '折扣万分比：9000 = 9 折' }
+    ],
+    logs: [
+      { t: 'api', text: 'POST /api/v1/sales-orders → 201  (qty=4, 12900 分, 9 折)' },
+      { t: 'ok',  text: '保存即预占：预占 +4 → 实存15 / 预占4 / 可用11' },
+      { t: 'info', text: '返回 order.status = DRAFT' }
+    ]
+  },
+  {
+    n: 8, lines: [15], sim: 'blank', url: 'about:blank', blankNote: '前置断言通过：单据是 DRAFT',
+    title: '第 15 行 · 近前断言：确认单子是草稿',
+    meaning: 'expect(order.status).toBe(\'DRAFT\') —— 断言这张出货单的状态确实是 DRAFT（草稿）。',
+    happens: '断言通过（绿色）。如果这里就失败了，说明「建单」这步没成功，后面的数字断言会莫名其妙对不上。',
+    why: '在前置步骤之后立刻断言它的结果符合预期，能把问题「就近暴露」——这叫 fail fast。排查时一眼看出是前置坏了，还是断言坏了。',
+    names: [
+      { k: 'order.status', v: '单据当前状态' },
+      { k: 'DRAFT', v: '草稿：已预占库存，但还没出货' },
+      { k: 'toBe', v: '断言「完全等于」某个值' }
+    ],
+    logs: [{ t: 'assert', text: '✓ expect(order.status).toBe(\'DRAFT\') 通过' }]
+  },
+  {
+    n: 9, lines: [17], sim: 'inventory', url: '127.0.0.1:3001/inventory',
+    title: '第 17 行 · 打开库存页',
+    meaning: 'page.goto(\'/inventory\') 让浏览器导航到库存余额页面。',
+    happens: '浏览器打开 http://127.0.0.1:3001/inventory（相对路径由配置里的 baseURL 自动补全）。页面加载后请求后端库存列表，渲染出表格——右上模拟浏览器现在真的出现了这一行。',
+    why: '从这里开始才是真正的「操作 UI」。前面全是准备；E2E 的价值就在于「真的把页面打开看一眼」，而不是只调接口。',
+    names: [
+      { k: 'page', v: '浏览器页面对象' },
+      { k: 'goto', v: '导航到某个地址' },
+      { k: '/inventory', v: '库存页，相对 baseURL 的路径' }
+    ],
+    logs: [
+      { t: 'api', text: 'GET /inventory → 200  (加载库存余额列表)' },
+      { t: 'info', text: '页面渲染完成' }
+    ]
+  },
+  {
+    n: 10, lines: [19, 20], sim: 'inventory', url: '127.0.0.1:3001/inventory', rowHi: true,
+    title: '第 19–20 行 · 在表格里精准定位「那一行」',
+    meaning: '先拼出 skuText，再用「角色 row + 文本过滤 + first」定位到目标行。',
+    happens: 'skuText = 「' + SKU_TEXT + '」。getByRole(\'row\') 拿到所有行 → filter({hasText}) 筛出包含这段文字的行 → first() 取第一行。右侧表格里那一行被黄框标了出来。',
+    why: '用动态生成的商品名，保证「找到的一定是我自己造的那行」，不会撞上别人留下的同名数据；用 getByRole 而不是 CSS class，页面换皮、升级组件库都不影响。',
+    names: [
+      { k: 'skuText', v: '页面上 SKU 列显示的文本：商品名 · 白色-L' },
+      { k: 'getByRole(\'row\')', v: '按可访问性角色找表格行（role=row）' },
+      { k: 'filter', v: '按条件筛选定位器' },
+      { k: 'hasText', v: '筛选条件：文本包含某段内容' },
+      { k: 'first()', v: '多个匹配时取第一个，避免「多匹配报错」' }
+    ],
+    logs: [
+      { t: 'info', text: '定位行：hasText "' + SKU_TEXT + '"' },
+      { t: 'info', text: '匹配到 1 行' }
+    ]
+  },
+  {
+    n: 11, lines: [21], sim: 'inventory', url: '127.0.0.1:3001/inventory', rowHi: true, rowVisible: true,
+    title: '第 21 行 · 断言这一行可见',
+    meaning: 'expect(row).toBeVisible() —— 等待并断言这一行出现在页面上。',
+    happens: 'Playwright 自动等待（最多 10 秒）直到该行可见；断言通过。这一步确认「元素找到了」，也为后面读单元格铺路。右侧那一行变成绿框 + ✓。',
+    why: '自动等待代替手写 sleep：等「条件成立」，而不是赌「时间够」。手写固定 sleep 要么写短不稳定、要么写长拖慢全量。',
+    names: [
+      { k: 'toBeVisible()', v: '断言元素在页面上可见' }
+    ],
+    logs: [{ t: 'assert', text: '✓ expect(row).toBeVisible() 通过' }]
+  },
+  {
+    n: 12, lines: [23, 24], sim: 'inventory', url: '127.0.0.1:3001/inventory', cellHi: 'all',
+    title: '第 23–24 行 · 取出单元格，先断言列数是 8',
+    meaning: 'cells = row.getByRole(\'cell\') 取这行所有单元格；断言数量是 8。',
+    happens: '这一行确实有 8 列：SKU | 仓库 | 批次 | 效期 | 实存 | 预占 | 可用 | 操作。断言通过，8 个格子全部描边高亮。',
+    why: '先断列数！万一表结构变了（加列/删列），nth(4) 就会指向别的列，后面的数字断言会「莫名其妙」地对不上。先断结构，错误信息能直接告诉你是「结构变了」，而不是让你对着数字瞎猜。',
+    names: [
+      { k: 'cells', v: '这一行里的所有单元格（td，角色是 cell）' },
+      { k: 'toHaveCount(8)', v: '断言元素个数等于 8' }
+    ],
+    logs: [{ t: 'assert', text: '✓ toHaveCount(8) 通过（8 列）' }]
+  },
+  {
+    n: 13, lines: [25, 26], sim: 'inventory', url: '127.0.0.1:3001/inventory', cellHi: [0, 1],
+    title: '第 25–26 行 · 校验第 0、1 列是 SKU 和仓库',
+    meaning: 'cells.nth(0) 包含 skuText；cells.nth(1) 包含仓库名。',
+    happens: '断言通过。这里用「包含」而不是「完全等于」，因为 SKU 格子里除了名字，还有一行商品编码小字。',
+    why: 'toContainText vs toHaveText 的分界：元素里「除了这个值还有别的」就用「包含」；只有这一个值才用「完全等于」。选错会要么太脆、要么太松。',
+    names: [
+      { k: 'nth(0)', v: '第 0 个单元格（索引从 0 开始）= SKU 列' },
+      { k: 'nth(1)', v: '第 1 个单元格 = 仓库列' },
+      { k: 'toContainText', v: '断言文本包含某段，不要求完全相等' }
+    ],
+    logs: [{ t: 'assert', text: '✓ nth(0) 含 SKU、nth(1) 含仓库' }]
+  },
+  {
+    n: 14, lines: [27], sim: 'inventory', url: '127.0.0.1:3001/inventory', cellHi: [4],
+    title: '第 27 行 · 第一个核心数字：实存 = 15',
+    meaning: 'cells.nth(4).toHaveText(\'15\') —— 第 4 列（实存）必须精确等于 15。',
+    happens: '断言通过。实存 = 仓库里实实在在有多少件（通过前面的备货进了 15 件）。',
+    why: '用 toHaveText 精确断言，防止显示成「1,500」或「15 件」这类模糊值也蒙混通过。',
+    names: [
+      { k: 'nth(4)', v: '第 4 列 = 实存' },
+      { k: '\'15\'', v: '期望值：仓库里实际有 15 件' },
+      { k: 'toHaveText', v: '断言文本完全等于（严格）' }
+    ],
+    logs: [{ t: 'assert', text: '✓ nth(4) 实存 = \'15\'' }]
+  },
+  {
+    n: 15, lines: [28], sim: 'inventory', url: '127.0.0.1:3001/inventory', cellHi: [5],
+    title: '第 28 行 · 第二个核心数字：预占 = 4',
+    meaning: 'cells.nth(5).toHaveText(\'4\') —— 第 5 列（预占）必须等于 4。',
+    happens: '断言通过。预占 = 被那张「还没出货」的出货单占住、暂时不能卖的 4 件。',
+    why: '这一行把「建单即预占」这条业务规则，固化成了可回归的断言。以后谁把预占算错了，这里立刻变红。',
+    names: [
+      { k: 'nth(5)', v: '第 5 列 = 预占' },
+      { k: '\'4\'', v: '期望值：被出货单占住 4 件' }
+    ],
+    logs: [{ t: 'assert', text: '✓ nth(5) 预占 = \'4\'' }]
+  },
+  {
+    n: 16, lines: [29], sim: 'inventory', url: '127.0.0.1:3001/inventory', cellHi: [6],
+    title: '第 29 行 · 第三个核心数字：可用 = 11',
+    meaning: 'cells.nth(6).toHaveText(\'11\') —— 第 6 列（可用）必须等于 11。',
+    happens: '断言通过。可用 = 实存 − 预占 = 15 − 4 = 11，这才是「还能卖、还能下单」的数量。',
+    why: '三个数字一起断，证明系统把「实存 / 预占 / 可用」的账算对了——这正是库存系统最容易搞混、也最容易出 bug 的地方。',
+    names: [
+      { k: 'nth(6)', v: '第 6 列 = 可用' },
+      { k: '\'11\'', v: '期望值：15 − 4 = 11，还能卖的量' }
+    ],
+    logs: [{ t: 'assert', text: '✓ nth(6) 可用 = \'11\'' }]
+  },
+  {
+    n: 17, lines: [30], sim: 'inventory', url: '127.0.0.1:3001/inventory', cellHi: 'all', done: true,
+    title: '第 30 行 · 收尾：测试通过 🎉',
+    meaning: '函数结束，所有断言都通过了。',
+    happens: 'Playwright 报告：1 passed。随后 global-teardown 会按 tag 前缀删掉本轮造的全部数据，并把业务表计数校验回基线。右上会出现绿色的「通过」横幅。',
+    why: '「测试变绿」+「数据库变干净」才算一次真正成功的 E2E。只绿不干净的，都是假的绿。',
+    names: [
+      { k: 'passed', v: '通过' },
+      { k: 'teardown', v: '测试后清理，保证下一轮从干净状态开始' }
+    ],
+    logs: [
+      { t: 'ok', text: '1 passed (E2E-13) 🎉' },
+      { t: 'info', text: 'global-teardown：按 tag 前缀清理，业务表计数回到基线' }
+    ]
+  }
+];
+
+/* ============ 语法高亮（逐行） ============ */
+function esc(s){
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+const KW = /\b(import|from|const|let|var|await|async|function|return|new|if|else|test|expect|true|false)\b/;
+function hlLine(line){
+  let s = esc(line);
+  // 逐 token 替换（注释 → 字符串 → 关键字 → 数字）
+  const re = /(\/\/[^\n]*)|('(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|`(?:\\.|[^`\\])*`)|\b(import|from|const|let|var|await|async|function|return|new|if|else|test|expect|true|false)\b|\b(\d+)\b/g;
+  return s.replace(re, function(m, com, str, kw, num){
+    if (com) return '<span class="tok-com">' + m + '</span>';
+    if (str) return '<span class="tok-str">' + m + '</span>';
+    if (kw)  return '<span class="tok-kw">' + m + '</span>';
+    if (num) return '<span class="tok-num">' + m + '</span>';
+    return m;
+  });
+}
+
+/* ============ 渲染：代码面板 ============ */
+const codeEl = document.getElementById('code');
+function renderCode(step){
+  const active = new Set(step.lines);
+  const maxActive = step.lines.length ? Math.max.apply(null, step.lines) : 0;
+  let html = '';
+  for (let i = 0; i < CODE.length; i++){
+    const ln = i + 1;
+    let cls = 'code-line';
+    if (active.has(ln)) cls += ' active';
+    else if (ln < maxActive) cls += ' done';
+    html += '<div class="' + cls + '" data-ln="' + ln + '">' +
+              '<span class="ln">' + ln + '</span>' +
+              '<span class="code-txt">' + (CODE[i] === '' ? '&nbsp;' : hlLine(CODE[i])) + '</span>' +
+            '</div>';
+  }
+  codeEl.innerHTML = html;
+  const actEl = codeEl.querySelector('.code-line.active');
+  if (actEl){
+    codeEl.scrollTop = Math.max(0, actEl.offsetTop - codeEl.clientHeight / 2 + actEl.clientHeight / 2);
+  }
+}
+
+/* ============ 渲染：控制台 ============ */
+const consoleEl = document.getElementById('console');
+function renderConsole(cur){
+  let html = '';
+  for (let i = 0; i <= cur; i++){
+    const logs = STEPS[i].logs || [];
+    for (const lg of logs){
+      const ic = lg.t === 'api' ? '→' : lg.t === 'ok' ? '✓' : lg.t === 'assert' ? '✓' : lg.t === 'err' ? '✕' : '•';
+      html += '<div class="log ' + lg.t + '"><span class="ic">' + ic + '</span><span class="tx">' + esc(lg.text) + '</span></div>';
+    }
+  }
+  consoleEl.innerHTML = html;
+  consoleEl.scrollTop = consoleEl.scrollHeight;
+}
+
+/* ============ 渲染：模拟浏览器 ============ */
+const viewport = document.getElementById('viewport');
+const urlEl = document.getElementById('url');
+
+function blankHtml(note){
+  let h = '<div class="blank">' +
+          '<div class="bicon">🖥️</div>' +
+          '<p>浏览器页面尚未打开</p>' +
+          '<span>测试还没执行到 page.goto(\'/inventory\')</span>';
+  if (note) h += '<div class="note">✅ ' + esc(note) + '</div>';
+  return h + '</div>';
+}
+
+function inventoryHtml(step){
+  let rowCls = 'inv-row';
+  if (step.rowHi) rowCls += ' hl-row';
+  if (step.rowVisible) rowCls += ' hl-visible';
+  const hi = step.cellHi;
+  function cellCls(idx){
+    if (hi === 'all') return 'num hl-cell';
+    if (Array.isArray(hi) && hi.indexOf(idx) >= 0) return 'num hl-cell';
+    return 'num';
+  }
+  return '' +
+  '<div class="erp">' +
+    '<div class="erp-top"><span class="logo">ERP</span><span class="t">库存管理</span>' +
+      '<span class="sp"></span><span class="user">admin</span></div>' +
+    '<div class="erp-sub">库存余额　·　实存 / 预占 / 可用</div>' +
+    '<table class="inv">' +
+      '<thead><tr>' +
+        '<th>SKU</th><th>仓库</th><th>批次</th><th>效期</th>' +
+        '<th class="num">实存</th><th class="num">预占</th><th class="num">可用</th><th>操作</th>' +
+      '</tr></thead>' +
+      '<tbody>' +
+        '<tr class="' + rowCls + '">' +
+          '<td><div class="sku-name">' + esc(PRODUCT) + '</div><div class="sku-code">' + TAG + '-P</div></td>' +
+          '<td>' + esc(WAREHOUSE) + '</td>' +
+          '<td><span class="tag-no">无批次</span></td>' +
+          '<td>-</td>' +
+          '<td class="' + cellCls(4) + '">15</td>' +
+          '<td class="' + cellCls(5) + '">4</td>' +
+          '<td class="' + cellCls(6) + '">11</td>' +
+          '<td><button class="link">看流水</button></td>' +
+        '</tr>' +
+      '</tbody>' +
+    '</table>' +
+    '<div class="qty-chips">' +
+      '<div class="qty-chip onhand">实存<b>15</b></div>' +
+      '<div class="qty-chip reserved">预占<b>4</b></div>' +
+      '<div class="qty-chip available">可用<b>11</b></div>' +
+    '</div>' +
+  '</div>';
+}
+
+function renderBrowser(step){
+  urlEl.textContent = step.url || 'about:blank';
+  if (step.sim === 'inventory'){
+    viewport.innerHTML = inventoryHtml(step);
+  } else {
+    viewport.innerHTML = blankHtml(step.blankNote);
+  }
+  if (step.done){
+    viewport.insertAdjacentHTML('beforeend',
+      '<div class="pass-banner">✓ E2E-13 通过 · 1 passed <span>15 / 4 / 11</span></div>');
+  }
+}
+
+/* ============ 渲染：讲解面板 ============ */
+const explainEl = document.getElementById('explain');
+function renderExplain(step, total){
+  const namesHtml = step.names.map(function(n){
+    return '<div class="chip"><code>' + esc(n.k) + '</code><span>' + esc(n.v) + '</span></div>';
+  }).join('');
+  explainEl.innerHTML =
+    '<div class="step-badge">第 ' + step.n + ' 步 / 共 ' + total + ' 步</div>' +
+    '<h2>' + esc(step.title) + '</h2>' +
+    '<div class="block"><div class="bh">📝 这段代码在做什么</div><p>' + esc(step.meaning) + '</p></div>' +
+    '<div class="block"><div class="bh">⚙️ 运行到这里发生了什么</div><p>' + esc(step.happens) + '</p></div>' +
+    '<div class="block why"><div class="bh">💡 为什么这么设计</div><p>' + esc(step.why) + '</p></div>' +
+    '<div class="names"><div class="bh">🔖 名称辞典（每个名字代表什么）</div><div class="chips">' + namesHtml + '</div></div>';
+}
+
+/* ============ 总渲染 ============ */
+const TOTAL = STEPS.length;
+let cur = 0;
+const bar = document.getElementById('bar');
+const ptxt = document.getElementById('ptxt');
+const prevBtn = document.getElementById('prev');
+const nextBtn = document.getElementById('next');
+const resetBtn = document.getElementById('reset');
+const dotsEl = document.getElementById('dots');
+const codeState = document.getElementById('codeState');
+
+function buildDots(){
+  let h = '';
+  for (let i = 0; i < TOTAL; i++) h += '<i data-i="' + i + '"></i>';
+  dotsEl.innerHTML = h;
+}
+function render(){
+  const step = STEPS[cur];
+  renderCode(step);
+  renderConsole(cur);
+  renderBrowser(step);
+  renderExplain(step, TOTAL);
+  bar.style.width = ((cur + 1) / TOTAL * 100) + '%';
+  ptxt.textContent = (cur + 1) + ' / ' + TOTAL;
+  prevBtn.disabled = cur === 0;
+  nextBtn.disabled = cur === TOTAL - 1;
+  nextBtn.textContent = cur === TOTAL - 1 ? '已完成 ✓' : '下一步 →';
+  codeState.textContent = step.n === 1 ? '等待执行' : (step.done ? '执行完成 · 通过' : '执行中…');
+  Array.prototype.forEach.call(dotsEl.children, function(d, i){
+    d.className = i === cur ? 'on' : (i < cur ? 'on' : '');
+    d.style.opacity = i < cur ? '.5' : '';
+  });
+}
+
+nextBtn.addEventListener('click', function(){ if (cur < TOTAL - 1){ cur++; render(); } });
+prevBtn.addEventListener('click', function(){ if (cur > 0){ cur--; render(); } });
+resetBtn.addEventListener('click', function(){ cur = 0; render(); });
+document.addEventListener('keydown', function(e){
+  if (e.key === 'ArrowRight'){ if (cur < TOTAL - 1){ cur++; render(); } }
+  else if (e.key === 'ArrowLeft'){ if (cur > 0){ cur--; render(); } }
+});
+
+buildDots();
+render();
+</script>
+</body>
+</html>
