@@ -81,7 +81,7 @@
       （只改 value 那一小段字节，注释与键序逐字节不变；产物 `project.config.json` 已带上新号）
 - [x] **本地 WebView 演示包**：`app/android-demo/`（加载 3008 的 H5 预览；debug 签名，已被下面的正式包取代）
 - [x] **本机 Gradle 出正式签名 APK**：原以为必须 DCloud 云打包，
-      实测本机 `D:\android-sdk` + 工程自带 `gradlew` 就能出 release 包，签名证书用 keytool 自签即可；
+      实测本机 `D:\AndroidSdk` + 工程自带 `gradlew` 就能出 release 包，签名证书用 keytool 自签即可；
       **备案与软著只影响"上架应用商店"，不影响生成与安装 APK**
 - [x] **界面打进安装包（阶段 C，2026-10-29）**：`assets/www` 内置 uni-app 的 H5 产物，
       冷启动不依赖网络与 DNS；HBuilderX 云打包因此不再是必需项

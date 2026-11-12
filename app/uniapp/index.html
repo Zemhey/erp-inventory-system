@@ -16,7 +16,52 @@
     <title>云裳进销存</title>
   </head>
   <body>
-    <div id="app"><!--app-html--></div>
+    <script>
+      // 早于样式与框架：桌面手机框的底色先对上用户选过的主题，避免第一帧闪浅色
+      ;(function () {
+        var mode = 'system'
+        try {
+          mode = localStorage.getItem('erp.theme') || 'system'
+        } catch (e) {}
+        var dark =
+          mode === 'dark' ||
+          (mode === 'system' &&
+            typeof window.matchMedia === 'function' &&
+            window.matchMedia('(prefers-color-scheme: dark)').matches)
+        document.body.classList.add(dark ? 't-dark' : 't-light')
+      })()
+    </script>
+    <!--
+      桌面端的手机外壳：手机上这三层是 display:contents，不参与布局，跟改动前完全一致；
+      宽屏（min-width:768px 且鼠标）下才由 App.vue 里的样式画成手机。
+    -->
+    <div class="phone-stage">
+      <div class="phone-body">
+        <span class="phone-speaker" aria-hidden="true"></span>
+        <div class="phone-screen">
+          <div id="app"><!--app-html--></div>
+        </div>
+        <span class="phone-home" aria-hidden="true"></span>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
+    <script>
+      // 桌面端按可用宽高等比缩放整台手机，窗口矮也不会裁切；手机端这段算出来也用不到
+      ;(function () {
+        function fit() {
+          var scale = Math.min(
+            1.2,
+            (window.innerWidth - 48) / 414,
+            (window.innerHeight - 48) / 868,
+          )
+          document.documentElement.style.setProperty(
+            '--phone-scale',
+            String(Math.max(0.3, scale)),
+          )
+        }
+        fit()
+        window.addEventListener('resize', fit)
+      })()
+    </script>
   </body>
 </html>

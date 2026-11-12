@@ -129,3 +129,147 @@ body {
     max-width: 420px;
   }
 }
+
+/* ══════════════════════════════════════════════════════════════════════
+   移动端（≤768px）全局适配层
+   ----------------------------------------------------------------------
+   为什么放在全局而不是逐页改：
+     本系统有 80+ 个业务页，绝大多数是「筛选 + 表格 + 弹窗表单」的同一形状。
+     把这些共性（表单标签换行、弹窗贴边、表格密度、分页居中）在全局收一次，
+     新加页面自动生效，也不用为了"手机上不塌"去动 80 个文件的模板。
+   ══════════════════════════════════════════════════════════════════════ */
+
+body {
+  /* 触屏：去掉点击时的蓝色高亮块（在暖色主题上尤其突兀） */
+  -webkit-tap-highlight-color: transparent;
+  /* 兜底：任何漏网元素都不该把整页撑出横向滚动条；宽表在自己的容器里横滑 */
+  overflow-x: hidden;
+}
+
+/* 触屏可点元素：消除 300ms 点按延迟，响应更跟手 */
+button,
+a,
+.el-button,
+.el-menu-item,
+.el-sub-menu__title,
+.el-pagination button,
+.el-pager li {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (max-width: 768px) {
+  /*
+   * 1) 表单：标签从"左侧 100px"改为"上置 + 输入占满整行"。
+   *    390px 屏上，100px 左标签 + 内边距只剩 200 多像素给输入框，长编码根本看不全。
+   */
+  .el-form-item {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .el-form-item__label {
+    width: auto !important;
+    height: auto !important;
+    justify-content: flex-start !important;
+    text-align: left !important;
+    padding: 0 0 4px !important;
+    line-height: 1.4;
+  }
+
+  .el-form-item__content {
+    margin-left: 0 !important;
+    width: 100%;
+    /* Element 默认把内容行高设成 32px 去和输入框对齐；窄屏下说明文字换行后
+       会变成"每行隔很远"的大行距，这里恢复正常文本行高 */
+    line-height: 1.5;
+  }
+
+  /*
+   * 2) 弹窗：宽度收到视口内、贴边居中；内容区可滚；底部按钮等宽铺开，拇指更好点。
+   */
+  .el-dialog {
+    width: calc(100vw - 24px) !important;
+    max-width: calc(100vw - 24px) !important;
+    margin: 12px auto !important;
+  }
+
+  .el-dialog__body {
+    max-height: 68vh;
+    overflow-y: auto;
+  }
+
+  .el-dialog__footer {
+    display: flex;
+    gap: 8px;
+  }
+
+  .el-dialog__footer .el-button {
+    flex: 1 1 0;
+    margin-left: 0 !important;
+  }
+
+  .el-drawer {
+    width: 100% !important;
+    max-width: 100vw !important;
+  }
+
+  .el-message-box {
+    width: calc(100vw - 32px) !important;
+    max-width: 420px;
+  }
+
+  /* 3) 表格：更小的字号与单元格内边距，横滑时能看到更多列 */
+  .el-table {
+    font-size: 12px;
+  }
+
+  .el-table th.el-table__cell,
+  .el-table td.el-table__cell {
+    padding: 6px 0;
+  }
+
+  .el-table .cell {
+    padding: 0 8px;
+  }
+
+  /* iOS 上让宽表的横向滑动带惯性，手感接近原生 */
+  .el-table__body-wrapper,
+  .el-scrollbar__wrap {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* 4) 分页：窄屏居中 + 允许换行（PageTable 内部也有一份，这里兜底其它直接使用分页的页面） */
+  .el-pagination {
+    justify-content: center;
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  /* 5) 筛选区里的下拉 / 日期 / 数字输入统一铺满整行，避免半截控件 */
+  .filters .el-select,
+  .filters .el-input,
+  .filters .el-date-editor,
+  .filters .el-input-number {
+    width: 100% !important;
+  }
+
+  /* 明细行底栏（"添加一行 + 合计"）在窄屏换行，别让合计文字压到按钮上 */
+  .lines-foot {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  /* 6) 页面骨架与页头 */
+  .page {
+    padding: 10px 10px calc(16px + env(safe-area-inset-bottom));
+  }
+
+  .page-header {
+    gap: 8px;
+  }
+
+  .page-title {
+    font-size: 18px;
+  }
+}

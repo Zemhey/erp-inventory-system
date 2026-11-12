@@ -1,4 +1,7 @@
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
+// #ifdef H5
+import { setNavigationBarColor } from '@dcloudio/uni-h5'
+// #endif
 
 /**
  * 主题：浅色 / 深色 / 跟随系统。
@@ -79,6 +82,23 @@ const resolved = computed<'light' | 'dark'>(() =>
 /** 绑到页面根 view 上：class="page xxx" :class="themeClass"。 */
 const themeClass = computed(() => (resolved.value === 'dark' ? 't-dark' : 't-light'))
 
+/**
+ * H5 的桌面手机框和全局弹层画在页面根 view 之外（body / #u-a-*），
+ * 拿不到根 view 上的 class；把同一档挂到 body 上，外框才跟着主题换色。
+ */
+// #ifdef H5
+watch(
+  resolved,
+  (value) => {
+    const body = typeof document === 'undefined' ? null : document.body
+    if (!body) return
+    body.classList.toggle('t-dark', value === 'dark')
+    body.classList.toggle('t-light', value === 'light')
+  },
+  { immediate: true },
+)
+// #endif
+
 function setMode(next: ThemeMode): void {
   mode.value = next
   try {
@@ -116,7 +136,14 @@ function callNative(name: 'setNavigationBarColor' | 'setBackgroundColor' | 'setT
 
 function applyChrome(): void {
   const c = CHROME[resolved.value]
+  // #ifdef H5
+  /* 生产包里 uni[name] 是动态取值，会被 tree-shaking 去掉，深色下导航栏停在黛青；
+     静态引入 H5 的 API 才能保证它进包（dev 下反而看不出这个问题）。 */
+  setNavigationBarColor({ frontColor: c.navFg, backgroundColor: c.navBg }).catch(() => undefined)
+  // #endif
+  // #ifndef H5
   callNative('setNavigationBarColor', { frontColor: c.navFg, backgroundColor: c.navBg })
+  // #endif
   callNative('setBackgroundColor', {
     backgroundColor: c.pageBg,
     backgroundColorTop: c.pageBg,

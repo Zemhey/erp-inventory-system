@@ -117,7 +117,8 @@ async function handleLogin(): Promise<void> {
   但底始终是黛青。面板上的字一律走 --c-on-brand* 那几层，不出现硬编码色值。
 */
 .login {
-  min-height: 100vh;
+  /* 桌面手机框里 100vh 是浏览器窗口高度，会比手机屏高出一截 */
+  min-height: var(--phone-screen-h, 100vh);
   padding: calc(var(--status-bar-height) + 96rpx) 48rpx calc(56rpx + env(safe-area-inset-bottom));
   background: linear-gradient(160deg, var(--c-brand) 0%, var(--c-brand-deep) 100%);
   display: flex;

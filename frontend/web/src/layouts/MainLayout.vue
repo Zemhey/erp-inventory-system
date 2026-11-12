@@ -6,12 +6,14 @@ import {
   ArrowDown,
   DArrowLeft,
   DArrowRight,
+  Expand,
   Key,
   Moon,
   OfficeBuilding,
   Search,
   Sunny,
   SwitchButton,
+  User,
 } from '@element-plus/icons-vue'
 import { navGroups } from '@/router/registry'
 import { useSessionStore } from '@/stores/session'
@@ -53,17 +55,30 @@ function toggleTheme() {
 const collapsed = ref(false)
 
 /**
- * 窄屏用图标侧栏。
+ * 窄屏：侧栏改成「抽屉式导航」。
  *
- * 移动端不做抽屉式导航（那是 M4 小程序的活）：把 210px 侧栏固定收成 64px 图标条，
- * 至少保证内容区不被挤成一条缝。桌面端仍可手动折叠/展开。
+ * 旧做法是把 210px 侧栏压成 64px 图标条 —— 看起来"还能用"，实际在手机上
+ * 64px 仍吃掉六分之一屏宽，且子菜单只能靠 hover 浮层展开，触屏上根本点不出来。
+ * 现在窄屏时侧栏脱离文档流（position:fixed）默认藏在左侧屏外，由顶栏的汉堡按钮
+ * 拉出；主内容因此拿到整屏宽度。桌面端行为完全不变（仍可手动折叠）。
  */
 const isMobile = ref(false)
+/** 移动端导航抽屉是否打开 */
+const mobileNavOpen = ref(false)
+/** 移动端搜索框是否展开（桌面端不生效，输入框常驻） */
+const mobileSearchOpen = ref(false)
 let mediaQuery: MediaQueryList | null = null
 
 function syncMobile(event?: MediaQueryListEvent) {
   isMobile.value = event ? event.matches : (mediaQuery?.matches ?? false)
-  if (isMobile.value) collapsed.value = true
+  if (isMobile.value) {
+    // 进入窄屏时收起桌面折叠状态，并确保抽屉/搜索默认关闭
+    collapsed.value = true
+  } else {
+    // 回到桌面：关掉所有移动端临时面板，避免残影
+    mobileNavOpen.value = false
+    mobileSearchOpen.value = false
+  }
 }
 
 onMounted(() => {
@@ -81,8 +96,10 @@ onBeforeUnmount(() => {
   mediaQuery?.removeEventListener('change', syncMobile)
 })
 
-const asideWidth = computed(() => (collapsed.value || isMobile.value ? '64px' : '210px'))
-const menuCollapsed = computed(() => collapsed.value || isMobile.value)
+// 窄屏抽屉宽度交给 CSS 的 min(84vw, 300px) 控制；这里给个初值避免 el-aside 内联宽度过窄
+const asideWidth = computed(() => (isMobile.value ? '280px' : collapsed.value ? '64px' : '210px'))
+// 移动端抽屉里菜单要展开显示文字（不折叠成图标），桌面端仍由 collapsed 控制
+const menuCollapsed = computed(() => !isMobile.value && collapsed.value)
 
 /**
  * 菜单分组：直接取导航模块注册表（src/router/modules/*.ts）。
@@ -183,6 +200,10 @@ const defaultOpeneds = computed(() => {
 watch(
   () => route.path,
   () => {
+    // 移动端：切换页面后自动收起抽屉与搜索面板，避免盖住新页面
+    mobileNavOpen.value = false
+    mobileSearchOpen.value = false
+    searchOpen.value = false
     const group = currentGroup.value
     if (!group || group.flat || menuCollapsed.value) return
     nextTick(() => menuRef.value?.open(group.key))
@@ -267,6 +288,20 @@ async function handleLogout() {
   router.push({ name: 'login' })
 }
 
+/**
+ * 移动端用户菜单：把原来顶栏右侧并排的「修改密码 / 切换租户 / 退出」
+ * 收进一个头像下拉里，否则小屏一排放不下会把顶栏挤到溢屏。
+ */
+function handleUserCommand(command: string) {
+  if (command === 'password') {
+    openPasswordDialog()
+  } else if (command === 'logout') {
+    void handleLogout()
+  } else if (command.startsWith('tenant:')) {
+    void handleSwitchTenant(command.slice('tenant:'.length))
+  }
+}
+
 // ─────────────────── 修改密码（FR-IAM-06） ───────────────────
 
 /**
@@ -337,7 +372,23 @@ const searchOpen = ref(false)
 const searchLoading = ref(false)
 const searchResult = ref<SearchResult | null>(null)
 const searchError = ref('')
+const searchInputRef = ref<{ focus: () => void } | null>(null)
 let searchTimer: ReturnType<typeof setTimeout> | undefined
+
+/** 移动端顶栏搜索入口：点放大镜展开全宽搜索条，再点一次收起。 */
+function toggleMobileSearch() {
+  mobileSearchOpen.value = !mobileSearchOpen.value
+  if (mobileSearchOpen.value) {
+    nextTick(() => searchInputRef.value?.focus())
+  } else {
+    searchOpen.value = false
+  }
+}
+
+function closeSearch() {
+  searchOpen.value = false
+  mobileSearchOpen.value = false
+}
 
 function runSearch() {
   const kw = searchKeyword.value.trim()
@@ -409,6 +460,7 @@ function orderRoute(type: string | undefined): string {
 
 function goSearchHit(hit: SearchHit, kind: 'products' | 'customers' | 'suppliers' | 'orders') {
   searchOpen.value = false
+  mobileSearchOpen.value = false
   const path =
     kind === 'products'
       ? '/products'
@@ -424,8 +476,16 @@ function goSearchHit(hit: SearchHit, kind: 'products' | 'customers' | 'suppliers
 
 <template>
   <el-container class="layout">
-    <!-- 侧边栏 -->
-    <el-aside :width="asideWidth" class="aside">
+    <!-- 移动端：抽屉遮罩，点空白处收起导航 -->
+    <div
+      v-if="isMobile && mobileNavOpen"
+      class="nav-mask"
+      aria-hidden="true"
+      @click="mobileNavOpen = false"
+    />
+
+    <!-- 侧边栏（窄屏时是左侧抽屉，通过 .is-open 滑入） -->
+    <el-aside :width="asideWidth" class="aside" :class="{ 'is-open': mobileNavOpen }">
       <div class="logo">
         <span class="weave" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -481,28 +541,49 @@ function goSearchHit(hit: SearchHit, kind: 'products' | 'customers' | 'suppliers
       <!-- 顶栏 -->
       <el-header class="header">
         <div class="header-left">
-          <el-button v-if="!isMobile" text @click="collapsed = !collapsed">
+          <!-- 窄屏：汉堡按钮打开导航抽屉 -->
+          <button
+            v-if="isMobile"
+            type="button"
+            class="nav-toggle"
+            aria-label="打开导航菜单"
+            @click="mobileNavOpen = true"
+          >
+            <el-icon><Expand /></el-icon>
+          </button>
+          <el-button v-else text @click="collapsed = !collapsed">
             {{ collapsed ? '»' : '«' }}
           </el-button>
           <el-breadcrumb separator="/" class="header-title">
-            <el-breadcrumb-item v-if="currentGroupTitle">{{ currentGroupTitle }}</el-breadcrumb-item>
+            <el-breadcrumb-item v-if="currentGroupTitle && !isMobile">{{ currentGroupTitle }}</el-breadcrumb-item>
             <el-breadcrumb-item>{{ currentTitle || '工作台' }}</el-breadcrumb-item>
           </el-breadcrumb>
         </div>
         <div class="header-right">
           <!-- FR-V3-05：顶栏全局搜索，跨 商品/客户/供应商/单据 模糊查 -->
           <div class="global-search">
-            <el-input
-              v-model="searchKeyword"
-              :prefix-icon="Search"
-              placeholder="搜索 商品 / 客户 / 供应商 / 单号"
-              clearable
-              class="search-input"
-              @input="onSearchInput"
-              @focus="onSearchFocus"
-              @keyup.enter="runSearch"
-            />
-            <div v-if="searchOpen" class="search-overlay" @click="searchOpen = false" />
+            <!-- 窄屏：放大镜触发全宽搜索条；桌面端隐藏此按钮，输入框常驻 -->
+            <button
+              type="button"
+              class="search-trigger"
+              aria-label="搜索"
+              @click="toggleMobileSearch"
+            >
+              <el-icon><Search /></el-icon>
+            </button>
+            <div class="search-field" :class="{ 'is-open': mobileSearchOpen }">
+              <el-input
+                ref="searchInputRef"
+                v-model="searchKeyword"
+                :prefix-icon="Search"
+                placeholder="搜索 商品 / 客户 / 供应商 / 单号"
+                clearable
+                class="search-input"
+                @input="onSearchInput"
+                @focus="onSearchFocus"
+                @keyup.enter="runSearch"
+              />
+              <div v-if="searchOpen" class="search-overlay" @click="closeSearch" />
             <div v-if="searchOpen && searchKeyword.trim()" class="search-panel">
               <div v-if="searchLoading" class="search-loading">搜索中…</div>
               <el-alert
@@ -535,6 +616,7 @@ function goSearchHit(hit: SearchHit, kind: 'products' | 'customers' | 'suppliers
                   </div>
                 </div>
               </template>
+              </div>
             </div>
           </div>
 
@@ -585,11 +667,11 @@ function goSearchHit(hit: SearchHit, kind: 'products' | 'customers' | 'suppliers
             content="当前账号被要求先修改密码"
             placement="bottom"
           >
-            <el-button text type="warning" :icon="Key" @click="openPasswordDialog">
+            <el-button class="btn-pw" text type="warning" :icon="Key" @click="openPasswordDialog">
               改密
             </el-button>
           </el-tooltip>
-          <el-button v-else text :icon="Key" @click="openPasswordDialog">修改密码</el-button>
+          <el-button v-else class="btn-pw" text :icon="Key" @click="openPasswordDialog">修改密码</el-button>
           <!-- 深色 / 浅色切换：右上角，图标按钮 + 悬浮提示 -->
           <el-tooltip
             :content="theme.isDark ? '切换到浅色模式' : '切换到深色模式'"
@@ -608,7 +690,37 @@ function goSearchHit(hit: SearchHit, kind: 'products' | 'customers' | 'suppliers
               </el-icon>
             </button>
           </el-tooltip>
-          <el-button text :icon="SwitchButton" @click="handleLogout">退出</el-button>
+          <el-button class="btn-logout" text :icon="SwitchButton" @click="handleLogout">退出</el-button>
+
+          <!-- 窄屏：把「修改密码 / 切换租户 / 退出」收进头像下拉，避免一排按钮溢出顶栏 -->
+          <el-dropdown
+            class="user-menu"
+            trigger="click"
+            placement="bottom-end"
+            @command="handleUserCommand"
+          >
+            <button type="button" class="user-menu-btn" aria-label="账号菜单">
+              <el-icon><User /></el-icon>
+            </button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item disabled>
+                  {{ session.displayName || session.username }}
+                  <template v-if="session.roles.length">（{{ session.roles.join(' / ') }}）</template>
+                </el-dropdown-item>
+                <el-dropdown-item command="password" divided>修改密码</el-dropdown-item>
+                <el-dropdown-item
+                  v-for="t in session.tenants"
+                  :key="t.id"
+                  :command="`tenant:${t.code}`"
+                  :disabled="!t.enabled || t.id === session.tenantId"
+                >
+                  切换：{{ t.name }}
+                </el-dropdown-item>
+                <el-dropdown-item command="logout" divided>退出登录</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </div>
       </el-header>
 
@@ -631,7 +743,16 @@ function goSearchHit(hit: SearchHit, kind: 'products' | 'customers' | 'suppliers
 
 <style scoped>
 .layout {
+  /* dvh：移动端浏览器地址栏收起/展开时高度会变，100vh 会留一条缝或截断底栏 */
   height: 100vh;
+  height: 100dvh;
+}
+
+/* 窄屏才出现的元素，桌面端默认隐藏 */
+.nav-toggle,
+.search-trigger,
+.user-menu {
+  display: none;
 }
 
 .aside {
@@ -843,6 +964,8 @@ function goSearchHit(hit: SearchHit, kind: 'products' | 'customers' | 'suppliers
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+  flex: 0 1 auto;
 }
 
 .header-title {
@@ -864,6 +987,7 @@ function goSearchHit(hit: SearchHit, kind: 'products' | 'customers' | 'suppliers
   display: flex;
   align-items: center;
   gap: 10px;
+  flex: none;
 }
 
 /* ── 深浅色切换 ──
@@ -957,6 +1081,48 @@ function goSearchHit(hit: SearchHit, kind: 'products' | 'customers' | 'suppliers
   position: relative;
 }
 
+/* 输入框 + 结果面板的包裹层；桌面端它就在顶栏原位 */
+.search-field {
+  position: relative;
+}
+
+/* 窄屏放大镜按钮：与 theme-toggle 同一套"细边小方钮"风格 */
+.search-trigger,
+.nav-toggle,
+.user-menu-btn {
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  flex: none;
+  border: 1px solid var(--ys-line);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ys-mo-2);
+  font-size: 16px;
+  cursor: pointer;
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+
+/* 这三个是窄屏专用入口，桌面端必须隐藏（.user-menu 外层已隐藏，这里兜底其按钮） */
+.search-trigger,
+.nav-toggle {
+  display: none;
+}
+
+.user-menu-btn {
+  display: none;
+}
+
+.search-trigger:hover,
+.nav-toggle:hover,
+.user-menu-btn:hover {
+  background: var(--ys-hover);
+  border-color: var(--ys-line-strong);
+  color: var(--ys-daiqing);
+}
+
 .search-input {
   width: 260px;
 }
@@ -1042,6 +1208,8 @@ function goSearchHit(hit: SearchHit, kind: 'products' | 'customers' | 'suppliers
 .main {
   padding: 0;
   overflow-y: auto;
+  /* 窄屏下宽表内部自己滚，主区不再整体横向溢出把整页撑宽 */
+  overflow-x: hidden;
   background-color: var(--ys-nuanbai);
 }
 
@@ -1071,26 +1239,155 @@ function goSearchHit(hit: SearchHit, kind: 'products' | 'customers' | 'suppliers
   opacity: 0.55;
 }
 
-@media (max-width: 768px) {
-  .header {
-    padding: 0 12px;
-  }
-
-  .header-title {
-    font-size: 13px;
-  }
-
-  /* 窄屏优先保证"退出"可点，用户名/角色让位给内容区 */
+/* 中等宽度（平板横屏 / 小笔记本 769–1100px）：仍是桌面侧栏，但顶栏内容多，
+   先把用户名和搜索框收窄，避免整行溢出把页面撑宽。 */
+@media (min-width: 769px) and (max-width: 1100px) {
   .user-label {
     display: none;
   }
 
   .search-input {
-    width: 150px;
+    width: 170px;
+  }
+}
+
+@media (max-width: 768px) {
+  /* ── 导航：改成左侧抽屉 ───────────────────────────────── */
+  .aside {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    height: 100%;
+    width: min(84vw, 300px) !important;
+    max-width: 300px;
+    z-index: 2100;
+    transform: translateX(-100%);
+    transition: transform 0.26s cubic-bezier(0.22, 0.58, 0.32, 1);
+    box-shadow: 0 24px 64px -24px rgba(40, 30, 18, 0.5);
+    padding-top: env(safe-area-inset-top);
   }
 
-  .tenant-chip {
+  .aside.is-open {
+    transform: translateX(0);
+  }
+
+  .nav-mask {
+    position: fixed;
+    inset: 0;
+    z-index: 2090;
+    background: rgba(20, 16, 12, 0.42);
+    -webkit-backdrop-filter: blur(1px);
+    backdrop-filter: blur(1px);
+    animation: nav-mask-in 0.2s ease;
+  }
+
+  @keyframes nav-mask-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  /* ── 顶栏：紧凑化，防止溢出把整页撑宽 ─────────────────── */
+  .header {
+    padding: 0 max(10px, env(safe-area-inset-right)) 0 max(10px, env(safe-area-inset-left));
+    gap: 8px;
+  }
+
+  .header-left {
+    flex: 1 1 auto;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .header-title {
+    font-size: 13px;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+
+  .header-title :deep(.el-breadcrumb__item) {
+    min-width: 0;
+  }
+
+  .header-title :deep(.el-breadcrumb__item:last-child) {
+    display: inline-block;
+    max-width: 46vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: bottom;
+  }
+
+  .nav-toggle {
+    display: inline-flex;
+  }
+
+  /* 次要动作收进头像下拉，顶栏只留：汉堡 / 标题 / 搜索 / 主题 / 账号 */
+  .user-label,
+  .tenant-chip,
+  .btn-pw,
+  .btn-logout {
     display: none;
+  }
+
+  .user-menu {
+    display: inline-flex;
+  }
+
+  .user-menu-btn {
+    display: inline-flex;
+  }
+
+  /* ── 搜索：点放大镜展开为贴在顶栏下方的全宽搜索条 ────────── */
+  .search-trigger {
+    display: inline-flex;
+  }
+
+  .search-field {
+    display: none;
+  }
+
+  .search-field.is-open {
+    display: block;
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: 56px;
+    z-index: 2050;
+    padding: 10px 12px 12px;
+    background: var(--ys-header-bg);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--ys-line);
+    box-shadow: var(--ys-shadow-card);
+  }
+
+  .search-input {
+    width: 100%;
+  }
+
+  /* 输入框压在遮罩之上，保证可点、可改光标位置 */
+  .search-field.is-open .search-input {
+    position: relative;
+    z-index: 2001;
+  }
+
+  .search-panel {
+    left: 12px;
+    right: 12px;
+    top: calc(100% + 2px);
+    width: auto;
+    max-height: 62vh;
+  }
+
+  .beian {
+    font-size: 10px;
+    gap: 4px;
+    padding-bottom: env(safe-area-inset-bottom);
   }
 }
 </style>

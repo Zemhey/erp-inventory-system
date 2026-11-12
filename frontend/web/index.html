@@ -2,8 +2,12 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit=cover：让页面延伸到 iPhone 刘海/圆角区域，再由 CSS env(safe-area-inset-*) 留出安全边距 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="color-scheme" content="light dark" />
+    <!-- 移动端浏览器地址栏随主题变色（浅色暖白 / 深色暖墨，与 theme.css 的 --ys-nuanbai 一致） -->
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f6f2ea" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#14120f" />
     <!-- 图标与各端统一：母图 design/icon-master.svg，就是工作台侧栏那个织纹方块 -->
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="alternate icon" href="/favicon-32.png" type="image/png" sizes="32x32" />

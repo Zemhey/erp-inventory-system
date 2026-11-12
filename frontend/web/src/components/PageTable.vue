@@ -251,6 +251,15 @@ defineExpose({})
     align-items: stretch;
   }
 
+  /* 收窄卡片内边距，把宽度让给表格；横向滚动交给 el-table 自己 */
+  .table-card :deep(.el-card__body) {
+    padding: 8px;
+  }
+
+  .table-card :deep(.el-card__header) {
+    padding: 12px 12px 10px;
+  }
+
   .pagination {
     justify-content: center;
     overflow-x: auto;

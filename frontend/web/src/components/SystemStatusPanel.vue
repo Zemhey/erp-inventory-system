@@ -645,6 +645,14 @@ const mcpHint = computed(() =>
     grid-template-columns: repeat(2, 1fr);
   }
 
+  /* 窄屏卡片更窄：探针说明允许换行，避免 "PostgreSQL · 连接池常态" 被截成半句 */
+  .probe-hint {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+
   .status-foot {
     display: none;
   }

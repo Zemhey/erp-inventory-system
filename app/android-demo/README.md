@@ -51,7 +51,7 @@ Set-Content -NoNewline -Encoding ascii "../uniapp/.env.production.local" "VITE_A
 
 前置：
 
-- Android SDK：`D:\android-sdk`（platforms;android-34、build-tools;34.0.0、platform-tools）
+- Android SDK：`D:\AndroidSdk`（platforms;android-34、build-tools;34.0.0、platform-tools）
 - JDK 17：`C:\Program Files\Java\jdk-17`；Gradle wrapper 已随本目录提交，不需要全局 Gradle
 - 签名材料：把 `keystore.properties.example` 复制成 `keystore.properties` 并填四项
   （口令取自仓库外私有文件 `C:\Users\Administrator\.qoder-secrets\erp-android-keystore.txt`，永远不要提交）。
@@ -85,8 +85,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .tmp/android-icon/make-mipma
 ## 校验
 
 ```bash
-"D:/android-sdk/build-tools/34.0.0/apksigner.bat" verify --print-certs app/yunshang-erp-0.3.0.apk
-"D:/android-sdk/build-tools/34.0.0/aapt.exe" dump badging app/yunshang-erp-0.3.0.apk
+"D:/AndroidSdk/build-tools/34.0.0/apksigner.bat" verify --print-certs app/yunshang-erp-0.3.0.apk
+"D:/AndroidSdk/build-tools/34.0.0/aapt.exe" dump badging app/yunshang-erp-0.3.0.apk
 unzip -l app/yunshang-erp-0.3.0.apk | grep -c "assets/www/"
 ```
 

@@ -376,4 +376,203 @@ uni-tabbar .uni-tabbar {
   display: none !important;
 }
 /* #endif */
+
+/* ══════════════════════════════════════════════════════════════════════════
+   桌面端手机外框（仅 H5）
+   --------------------------------------------------------------------------
+   宽屏浏览器里不再让移动端页面横着铺满整块屏幕，而是装进一台 390×844 的
+   “手机”里居中展示，周围用主题色兜住。手机 / 平板 / 安卓壳不命中下面的
+   media query，三层外壳都是 display:contents，等于不存在。
+
+   ★ 为什么滚动要从 window 挪到 uni-page-wrapper：
+     实测 H5 的页面内容是在 html/body 上整窗滚动的（原生导航栏和自绘底栏
+     都是 position:fixed）。手机框只有 844px 高，整窗滚动会把内容滚出屏幕。
+     把 wrapper 变成内部滚动容器后，导航栏与底栏仍固定，滚动只发生在屏幕内。
+   ★ 为什么 .phone-screen 要 transform：
+     fixed 元素的包含块是最近的 transform 祖先。没有它，导航栏 / 底栏 / 弹层
+     会继续按浏览器窗口定位，跑到手机框外面。translateZ(0) 让它们以手机屏为准。
+   ★ #u-a-t / #u-a-m 等是 uni-app 挂在 body 上的全局弹层容器（toast / modal / …），
+     不在 #app 里；同样按手机屏的位置缩放，否则提示会弹在浏览器正中。
+   ══════════════════════════════════════════════════════════════════════════ */
+/* #ifdef H5 */
+.phone-stage,
+.phone-body,
+.phone-screen {
+  display: contents;
+}
+
+.phone-speaker,
+.phone-home {
+  display: none;
+}
+
+@media (min-width: 768px) and (hover: hover) and (pointer: fine) {
+  :root {
+    --phone-screen-w: 390px;
+    --phone-screen-h: 844px;
+    --phone-bezel: 12px;
+  }
+
+  html,
+  body {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    background: var(--c-brand-deep);
+  }
+
+  .phone-stage {
+    display: block;
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+    background:
+      radial-gradient(1200px 780px at 50% -6%, var(--c-accent-text) 0%, transparent 58%),
+      radial-gradient(900px 700px at 84% 108%, rgba(0, 0, 0, 0.26) 0%, transparent 62%),
+      var(--c-brand);
+  }
+
+  body.t-dark .phone-stage {
+    background:
+      radial-gradient(1100px 760px at 50% -6%, var(--c-brand-wash) 0%, transparent 58%),
+      radial-gradient(900px 700px at 84% 108%, var(--c-brand-wash) 0%, transparent 62%),
+      var(--c-page);
+  }
+
+  /* 深色底上黑壳容易糊成一片，补一圈外描边把轮廓拉出来 */
+  body.t-dark .phone-body {
+    box-shadow:
+      0 60px 120px rgba(0, 0, 0, 0.65),
+      0 18px 40px rgba(0, 0, 0, 0.45),
+      0 0 0 1px rgba(255, 255, 255, 0.14),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.1),
+      inset 0 1px 1px rgba(255, 255, 255, 0.2);
+  }
+
+  .phone-body {
+    display: block;
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    box-sizing: border-box;
+    width: calc(var(--phone-screen-w) + var(--phone-bezel) * 2);
+    height: calc(var(--phone-screen-h) + var(--phone-bezel) * 2);
+    padding: var(--phone-bezel);
+    border-radius: 56px;
+    background: linear-gradient(155deg, #4a4741 0%, #22201d 28%, #151412 62%, #090909 100%);
+    box-shadow:
+      0 60px 120px rgba(0, 0, 0, 0.5),
+      0 18px 40px rgba(0, 0, 0, 0.35),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.09),
+      inset 0 1px 1px rgba(255, 255, 255, 0.18);
+    transform: translate(-50%, -50%) scale(var(--phone-scale, 1));
+  }
+
+  /* 右侧电源键 */
+  .phone-body::before {
+    content: '';
+    position: absolute;
+    right: -3px;
+    top: 172px;
+    width: 3px;
+    height: 94px;
+    border-radius: 0 3px 3px 0;
+    background: linear-gradient(180deg, #2a2825, #0f0e0d);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  }
+
+  /* 左侧音量键 */
+  .phone-body::after {
+    content: '';
+    position: absolute;
+    left: -3px;
+    top: 138px;
+    width: 3px;
+    height: 140px;
+    border-radius: 3px 0 0 3px;
+    background: linear-gradient(180deg, #2a2825, #0f0e0d);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  }
+
+  .phone-speaker {
+    display: block;
+    position: absolute;
+    top: 4px;
+    left: 50%;
+    width: 52px;
+    height: 4px;
+    border-radius: 999px;
+    background: #060606;
+    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.12);
+    transform: translateX(-50%);
+  }
+
+  .phone-home {
+    display: block;
+    position: absolute;
+    bottom: 4px;
+    left: 50%;
+    width: 108px;
+    height: 4px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.3);
+    transform: translateX(-50%);
+  }
+
+  .phone-screen {
+    display: block;
+    position: relative;
+    width: var(--phone-screen-w);
+    height: var(--phone-screen-h);
+    overflow: hidden;
+    border-radius: 44px;
+    background: var(--c-page);
+    transform: translateZ(0);
+  }
+
+  #app {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  /* 页面滚动改到手机屏内部 */
+  uni-page-wrapper {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: none;
+  }
+
+  uni-page-wrapper::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* 100vh 在这层外面算的是浏览器窗口，会把页面撑出手机屏 */
+  .t-light,
+  .t-dark {
+    min-height: var(--phone-screen-h);
+  }
+
+  /* uni-app 的全局弹层也收进手机屏，并按同一比例缩放 */
+  body > div[id^='u-a-'] {
+    position: fixed;
+    left: calc(50% - var(--phone-screen-w) * var(--phone-scale, 1) / 2);
+    top: calc(50% - var(--phone-screen-h) * var(--phone-scale, 1) / 2);
+    width: var(--phone-screen-w);
+    height: var(--phone-screen-h);
+    overflow: hidden;
+    border-radius: 44px;
+    transform: scale(var(--phone-scale, 1));
+    transform-origin: top left;
+    z-index: 99999;
+    pointer-events: none;
+  }
+
+  body > div[id^='u-a-'] > * {
+    pointer-events: auto;
+  }
+}
+/* #endif */
 </style>
